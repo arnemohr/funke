@@ -1,4 +1,4 @@
-"""API Gateway + Lambda stack for Boat Event Management System.
+"""API Gateway + Lambda stack for Funke Event Management System.
 
 Configures:
 - Lambda function running FastAPI via Mangum

@@ -1,4 +1,4 @@
-"""CDK stacks for Boat Event Management System."""
+"""CDK stacks for Funke Event Management System."""
 
 from .api_stack import ApiStack
 from .database_stack import DatabaseStack

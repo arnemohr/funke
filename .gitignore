@@ -1,0 +1,28 @@
+# Node / frontend
+node_modules/
+dist/
+build/
+coverage/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Environment / secrets
+.env*
+
+# Tooling / IDE
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# CDK / deploy artifacts
+cdk.out/
+
+# Dev process PIDs
+.pids/

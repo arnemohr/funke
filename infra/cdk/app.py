@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AWS CDK application for Boat Event Management System.
+"""AWS CDK application for Funke Event Management System.
 
 Defines separate stacks for:
 - Database (DynamoDB tables)

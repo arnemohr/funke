@@ -1,4 +1,4 @@
-"""DynamoDB tables for Boat Event Management System.
+"""DynamoDB tables for Funke Event Management System.
 
 Tables:
 - events: Event information with TTL

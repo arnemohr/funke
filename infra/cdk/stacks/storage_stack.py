@@ -1,4 +1,4 @@
-"""Storage stack for Boat Event Management System.
+"""Storage stack for Funke Event Management System.
 
 Configures:
 - S3 bucket for frontend static assets

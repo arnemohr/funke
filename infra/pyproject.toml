@@ -1,7 +1,7 @@
 [project]
 name = "funke-infra"
 version = "0.1.0"
-description = "AWS CDK infrastructure for Boat Event Management"
+description = "AWS CDK infrastructure for Funke Event Management"
 requires-python = ">=3.11"
 dependencies = [
     "aws-cdk-lib>=2.232.2",

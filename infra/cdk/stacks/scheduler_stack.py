@@ -1,4 +1,4 @@
-"""Scheduler stack for Boat Event Management System.
+"""Scheduler stack for Funke Event Management System.
 
 Configures:
 - EventBridge rules for scheduled workers

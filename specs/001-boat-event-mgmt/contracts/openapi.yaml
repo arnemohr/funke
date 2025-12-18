@@ -1,0 +1,447 @@
+openapi: 3.1.0
+info:
+  title: Funke Event Management API
+  version: 0.1.0
+  description: API contracts derived from v2.0 feature spec for funke event creation, registration, lottery, confirmation, messaging, and check-in flows.
+servers:
+  - url: https://api.funke.local
+    description: placeholder environment
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+paths:
+  /api/admin/events:
+    post:
+      summary: Create event (DRAFT)
+      security: [ { bearerAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventCreate'
+      responses:
+        '201':
+          description: Event created (DRAFT) with shareable link token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+  /api/admin/events/{eventId}/publish:
+    post:
+      summary: Publish event (DRAFT -> OPEN)
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      responses:
+        '200':
+          description: Event published
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+  /api/admin/events/{eventId}/clone:
+    post:
+      summary: Clone existing event
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                startAt:
+                  type: string
+                  format: date-time
+              required: [startAt]
+      responses:
+        '201':
+          description: New draft event cloned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+  /api/public/events/{linkToken}:
+    get:
+      summary: Get public event info for registration form
+      parameters:
+        - $ref: '#/components/parameters/LinkToken'
+      responses:
+        '200':
+          description: Event info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventPublic'
+        '410':
+          description: Event closed or cancelled
+  /api/public/events/{linkToken}/registrations:
+    post:
+      summary: Submit registration (public)
+      parameters:
+        - $ref: '#/components/parameters/LinkToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegistrationCreate'
+      responses:
+        '201':
+          description: Registration accepted (confirmed or waitlisted)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Registration'
+        '409':
+          description: Duplicate email or capacity closed
+  /api/public/registrations/{registrationId}/cancel:
+    post:
+      summary: Cancel registration via unique token (no auth)
+      parameters:
+        - $ref: '#/components/parameters/RegistrationId'
+        - in: query
+          name: token
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Registration cancelled; waitlist promotion triggered
+  /api/public/registrations/{registrationId}/confirm:
+    post:
+      summary: One-click confirmation response
+      parameters:
+        - $ref: '#/components/parameters/RegistrationId'
+        - in: query
+          name: token
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                response:
+                  type: string
+                  enum: [YES, NO]
+              required: [response]
+      responses:
+        '200':
+          description: Confirmation recorded; may trigger promotion
+  /api/admin/events/{eventId}/lottery/run:
+    post:
+      summary: Run lottery for overbooked event (REGISTRATION_CLOSED -> LOTTERY_PENDING)
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      responses:
+        '200':
+          description: Lottery executed (pending finalization)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LotteryResult'
+        '409':
+          description: Lottery already finalized or insufficient registrations
+  /api/admin/events/{eventId}/lottery:
+    get:
+      summary: Review lottery results before notifications
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      responses:
+        '200':
+          description: Lottery result (winners + waitlist)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LotteryResult'
+  /api/admin/events/{eventId}/lottery/finalize:
+    post:
+      summary: Finalize lottery and send notifications
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      responses:
+        '200':
+          description: Finalization accepted; emails queued
+  /api/admin/events/{eventId}/registrations:
+    get:
+      summary: List registrations for dashboard (sortable/searchable)
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [CONFIRMED, WAITLISTED, CANCELLED, CHECKED_IN]
+        - in: query
+          name: search
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated registration list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Registration'
+                  total:
+                    type: integer
+  /api/admin/events/{eventId}/messages:
+    post:
+      summary: Send custom message to selected registrations
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                registrationIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                subject:
+                  type: string
+                body:
+                  type: string
+              required: [registrationIds, subject, body]
+      responses:
+        '202':
+          description: Messages queued
+  /api/admin/events/{eventId}/export:
+    get:
+      summary: Export registrations CSV
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      responses:
+        '200':
+          description: CSV export
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+  /api/admin/check-ins:
+    post:
+      summary: Sync offline check-ins
+      security: [ { bearerAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/CheckInRecord'
+              required: [items]
+      responses:
+        '200':
+          description: Check-ins applied; waitlist handled if cancellations
+  /api/admin/events/{eventId}/check-in-list:
+    get:
+      summary: Download check-in list for caching offline
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      responses:
+        '200':
+          description: Registration list with tokens for offline validation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  event:
+                    $ref: '#/components/schemas/EventPublic'
+                  registrations:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Registration'
+  /api/admin/invitations:
+    post:
+      summary: Invite admin to organization
+      security: [ { bearerAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                role:
+                  type: string
+                  enum: [Admin, Viewer]
+              required: [email, role]
+      responses:
+        '202':
+          description: Invitation email queued
+  /api/admin/invitations/{invitationId}/accept:
+    post:
+      summary: Accept invitation and set password
+      parameters:
+        - in: path
+          name: invitationId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: token
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+              required: [password]
+      responses:
+        '200':
+          description: Account activated
+components:
+  parameters:
+    EventId:
+      name: eventId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    RegistrationId:
+      name: registrationId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    LinkToken:
+      name: linkToken
+      in: path
+      required: true
+      schema:
+        type: string
+  schemas:
+    EventCreate:
+      type: object
+      properties:
+        name: { type: string }
+        description: { type: string }
+        location: { type: string }
+        startAt: { type: string, format: date-time }
+        capacity: { type: integer, minimum: 1, maximum: 500, default: 100 }
+        registrationDeadline: { type: string, format: date-time }
+        reminderScheduleDays:
+          type: array
+          items: { type: integer }
+        autopromoteWaitlist: { type: boolean, default: true }
+      required: [name, startAt, capacity, registrationDeadline]
+    Event:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        location: { type: string }
+        startAt: { type: string, format: date-time }
+        capacity: { type: integer }
+        registrationDeadline: { type: string, format: date-time }
+        status:
+          type: string
+          enum: [DRAFT, OPEN, REGISTRATION_CLOSED, LOTTERY_PENDING, CONFIRMED, COMPLETED, CANCELLED]
+        reminderScheduleDays:
+          type: array
+          items: { type: integer }
+        autopromoteWaitlist: { type: boolean }
+        registrationLinkToken: { type: string }
+    EventPublic:
+      type: object
+      properties:
+        name: { type: string }
+        description: { type: string }
+        location: { type: string }
+        startAt: { type: string, format: date-time }
+        capacity: { type: integer }
+        status: { type: string }
+        registrationDeadline: { type: string, format: date-time }
+        autopromoteWaitlist: { type: boolean }
+    RegistrationCreate:
+      type: object
+      properties:
+        name: { type: string }
+        email: { type: string, format: email }
+        phone: { type: string }
+        notes: { type: string }
+        groupSize: { type: integer, minimum: 1, maximum: 10 }
+      required: [name, email, groupSize]
+    Registration:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        eventId: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string }
+        groupSize: { type: integer }
+        status:
+          type: string
+          enum: [CONFIRMED, WAITLISTED, CANCELLED, CHECKED_IN]
+        waitlistPosition: { type: integer, nullable: true }
+        registrationToken: { type: string }
+        registeredAt: { type: string, format: date-time }
+        confirmationStatus:
+          type: string
+          enum: [PENDING, YES, NO]
+        confirmationResponseAt: { type: string, format: date-time, nullable: true }
+    LotteryResult:
+      type: object
+      properties:
+        eventId: { type: string, format: uuid }
+        seed: { type: string }
+        winners:
+          type: array
+          items: $ref: '#/components/schemas/Registration'
+        waitlist:
+          type: array
+          items: $ref: '#/components/schemas/Registration'
+    CheckInRecord:
+      type: object
+      properties:
+        registrationId: { type: string, format: uuid }
+        checkedInAt: { type: string, format: date-time }
+        notes: { type: string }
+      required: [registrationId, checkedInAt]
