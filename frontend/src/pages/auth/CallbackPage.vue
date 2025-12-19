@@ -1,7 +1,7 @@
 <template>
   <article>
     <div aria-busy="true">
-      Completing sign in...
+      Anmeldung wird abgeschlossen...
     </div>
   </article>
 </template>

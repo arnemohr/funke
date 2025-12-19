@@ -3,13 +3,13 @@
     <header class="page-header">
       <div>
         <p class="back-link">
-          <a href="#" @click.prevent="goBack">← Back to Events</a>
+          <a href="#" @click.prevent="goBack">← Zurück zu Veranstaltungen</a>
         </p>
-        <h2>Lottery</h2>
-        <p class="muted">Run and finalize lottery for this event</p>
+        <h2>Verlosung</h2>
+        <p class="muted">Verlosung durchführen und abschließen</p>
       </div>
       <div class="status-chip" v-if="event">
-        <span class="label">Event Status</span>
+        <span class="label">Status</span>
         <span :class="['status-badge', `status-${event.status.toLowerCase()}`]">
           {{ event.status }}
         </span>
@@ -17,7 +17,7 @@
     </header>
 
     <div v-if="loading" aria-busy="true">
-      Loading lottery...
+      Verlosung wird geladen...
     </div>
 
     <div v-else-if="error" role="alert" class="error">
@@ -35,15 +35,15 @@
         </div>
         <div class="summary-metrics">
           <div>
-            <p class="label">Capacity</p>
+            <p class="label">Plätze</p>
             <p class="value">{{ event.capacity }}</p>
           </div>
           <div>
-            <p class="label">Confirmed Spots</p>
+            <p class="label">Bestätigt</p>
             <p class="value">{{ event.confirmed_spots }}</p>
           </div>
           <div>
-            <p class="label">Waitlist</p>
+            <p class="label">Warteliste</p>
             <p class="value">{{ event.waitlist_count }}</p>
           </div>
         </div>
@@ -52,9 +52,9 @@
       <section class="panel">
         <header class="panel-header">
           <div>
-            <h4>Lottery Control</h4>
+            <h4>Verlosung steuern</h4>
             <p class="muted">
-              Shuffle registrations, review winners, and finalize notifications.
+              Anmeldungen mischen, Gewinner prüfen und Benachrichtigungen versenden.
             </p>
           </div>
           <div class="actions">
@@ -64,7 +64,7 @@
               :aria-busy="running"
               @click="handleRun"
             >
-              {{ running ? 'Running...' : 'Run Lottery' }}
+              {{ running ? 'Läuft...' : 'Verlosung starten' }}
             </button>
             <button
               v-if="lottery"
@@ -72,13 +72,13 @@
               :aria-busy="finalizing"
               @click="handleFinalize"
             >
-              {{ finalizing ? 'Finalizing...' : lottery.is_finalized ? 'Finalized' : 'Finalize & Notify' }}
+              {{ finalizing ? 'Wird abgeschlossen...' : lottery.is_finalized ? 'Abgeschlossen' : 'Abschließen & Benachrichtigen' }}
             </button>
           </div>
         </header>
 
         <div v-if="!lottery" class="empty">
-          <p>No lottery has been run yet. Close registration and run the lottery to generate winners.</p>
+          <p>Noch keine Verlosung durchgeführt. Schließe die Anmeldung und starte die Verlosung.</p>
         </div>
 
         <div v-else class="lottery-meta">
@@ -87,7 +87,7 @@
             <p class="mono">{{ lottery.seed }}</p>
           </div>
           <div>
-            <p class="label">Executed At</p>
+            <p class="label">Ausgeführt am</p>
             <p>{{ formatDate(lottery.executed_at) }}</p>
           </div>
           <div>
@@ -99,10 +99,10 @@
                   lottery.is_finalized ? 'status-confirmed' : 'status-registration_closed',
                 ]"
               >
-                {{ lottery.is_finalized ? 'FINALIZED' : 'PENDING REVIEW' }}
+                {{ lottery.is_finalized ? 'ABGESCHLOSSEN' : 'PRÜFUNG AUSSTEHEND' }}
               </span>
               <span v-if="lottery.finalized_at" class="muted">
-                (Finalized {{ formatDate(lottery.finalized_at) }})
+                (Abgeschlossen am {{ formatDate(lottery.finalized_at) }})
               </span>
             </p>
           </div>
@@ -111,20 +111,20 @@
 
       <section class="panel">
         <header class="panel-header">
-          <h4>Winners</h4>
-          <p class="muted">Registrations selected within capacity.</p>
+          <h4>Gewinner</h4>
+          <p class="muted">Ausgewählte Anmeldungen innerhalb der Kapazität.</p>
         </header>
 
         <p v-if="!lottery || lottery.winners.length === 0" class="empty">
-          No winners yet. Run the lottery to generate winners.
+          Noch keine Gewinner. Starte die Verlosung.
         </p>
 
         <table v-else>
           <thead>
             <tr>
               <th>Name</th>
-              <th>Email</th>
-              <th>Group Size</th>
+              <th>E-Mail</th>
+              <th>Personen</th>
               <th>Status</th>
             </tr>
           </thead>
@@ -134,7 +134,7 @@
               <td class="mono">{{ winner.email }}</td>
               <td>{{ winner.group_size }}</td>
               <td>
-                <span class="status-badge status-confirmed">CONFIRMED</span>
+                <span class="status-badge status-confirmed">BESTÄTIGT</span>
               </td>
             </tr>
           </tbody>
@@ -143,12 +143,12 @@
 
       <section class="panel">
         <header class="panel-header">
-          <h4>Waitlist</h4>
-          <p class="muted">Ordered by lottery draw.</p>
+          <h4>Warteliste</h4>
+          <p class="muted">Sortiert nach Verlosungsreihenfolge.</p>
         </header>
 
         <p v-if="!lottery || lottery.waitlist.length === 0" class="empty">
-          No waitlisted registrations.
+          Keine Wartelistenanmeldungen.
         </p>
 
         <table v-else>
@@ -156,8 +156,8 @@
             <tr>
               <th>Position</th>
               <th>Name</th>
-              <th>Email</th>
-              <th>Group Size</th>
+              <th>E-Mail</th>
+              <th>Personen</th>
             </tr>
           </thead>
           <tbody>
@@ -215,11 +215,11 @@ async function loadData() {
     try {
       lottery.value = await adminApi.getLottery(eventId)
     } catch (err) {
-      // No lottery yet
+      // Noch keine Verlosung
       lottery.value = null
     }
   } catch (err) {
-    error.value = err.message || 'Failed to load lottery data'
+    error.value = err.message || 'Verlosungsdaten konnten nicht geladen werden'
   } finally {
     loading.value = false
   }
@@ -230,10 +230,10 @@ async function handleRun() {
   error.value = null
   try {
     lottery.value = await adminApi.runLottery(eventId)
-    // Refresh event to reflect status change
+    // Aktualisiere Event um Statusänderung anzuzeigen
     event.value = await adminApi.getEvent(eventId)
   } catch (err) {
-    error.value = err.message || 'Failed to run lottery'
+    error.value = err.message || 'Verlosung konnte nicht gestartet werden'
   } finally {
     running.value = false
   }
@@ -248,7 +248,7 @@ async function handleFinalize() {
     lottery.value = await adminApi.finalizeLottery(eventId)
     event.value = await adminApi.getEvent(eventId)
   } catch (err) {
-    error.value = err.message || 'Failed to finalize lottery'
+    error.value = err.message || 'Verlosung konnte nicht abgeschlossen werden'
   } finally {
     finalizing.value = false
   }

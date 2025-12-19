@@ -78,9 +78,9 @@ async def confirm_attendance(
 
     # Determine response message
     if participating:
-        message = "Thank you for confirming your attendance! We look forward to seeing you."
+        message = "Danke für deine Bestätigung! Wir freuen uns auf dich."
     else:
-        message = "Your registration has been cancelled. Thank you for letting us know."
+        message = "Deine Absage wurde registriert. Dein Platz wird an jemanden auf der Warteliste vergeben."
 
     logger.info(
         "Attendance response received via public API",
@@ -132,13 +132,13 @@ async def get_attendance_status(
 
     # Build message based on status
     if registration.status == RegistrationStatus.CONFIRMED:
-        message = "Please confirm your attendance."
+        message = "Bitte bestätige deine Teilnahme."
     elif registration.status == RegistrationStatus.PARTICIPATING:
-        message = "You have confirmed your attendance."
+        message = "Du hast deine Teilnahme bereits bestätigt."
     elif registration.status == RegistrationStatus.CANCELLED:
-        message = "You have declined attendance."
+        message = "Du hast bereits abgesagt."
     else:
-        message = f"Your registration status is: {registration.status.value}"
+        message = f"Dein Anmeldestatus ist: {registration.status.value}"
 
     return AttendanceResponse(
         registration=RegistrationResponse(

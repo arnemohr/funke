@@ -59,8 +59,11 @@ class EventResponse(BaseModel):
     created_at: datetime
     published_at: datetime | None
     cancelled_at: datetime | None
+    registration_count: int = 0
+    registration_spots: int = 0
     confirmed_spots: int = 0
     waitlist_count: int = 0
+    waitlist_spots: int = 0
 
 
 class EventListResponse(BaseModel):
@@ -106,8 +109,11 @@ async def _event_to_response(event: Event) -> EventResponse:
         created_at=event.created_at,
         published_at=event.published_at,
         cancelled_at=event.cancelled_at,
+        registration_count=stats.get("total_registrations", 0),
+        registration_spots=stats.get("total_registration_spots", 0),
         confirmed_spots=stats.get("confirmed_spots", 0),
         waitlist_count=stats.get("waitlist_registrations", 0),
+        waitlist_spots=stats.get("waitlist_spots", 0),
     )
 
 
@@ -402,6 +408,16 @@ async def cancel_event(
             "event_id": str(event_id),
             "notified_count": notified_count,
             "failed_count": failed_count,
+        },
+    )
+
+    # Cancel all registrations for this event
+    cancelled_registrations = await registration_service.cancel_all_registrations_for_event(event_id)
+    logger.info(
+        "All registrations cancelled for event",
+        extra={
+            "event_id": str(event_id),
+            "cancelled_registrations": cancelled_registrations,
         },
     )
 

@@ -49,9 +49,11 @@
     "@aws-cdk/aws-efs:denyAnonymousAccess": true,
     "@aws-cdk/aws-efs:mountTargetOrderInsensitiveLogicalId": true,
     "@aws-cdk/aws-lambda:recognizeVersionProps": true,
-    "@aws-cdk/aws-cloudfront:defaultSecurityPolicyTLSv1.2_2021": true
+    "@aws-cdk/aws-cloudfront:defaultSecurityPolicyTLSv1.2_2021": true,
+    "@aws-cdk/core:crossRegionReferences": true
   }
 }
+
 
 
 

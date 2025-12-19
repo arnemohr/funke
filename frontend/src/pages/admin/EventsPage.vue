@@ -2,23 +2,23 @@
   <article>
     <header>
       <hgroup>
-        <h2>Events</h2>
-        <p>Manage your funke events</p>
+        <h2>Veranstaltungen</h2>
+        <p>Verwalte deine Veranstaltungen</p>
       </hgroup>
-      <button v-if="!accessDenied" @click="showCreateModal = true">Create Event</button>
+      <button v-if="!accessDenied" @click="showCreateModal = true">Neue Veranstaltung</button>
     </header>
 
     <!-- Loading state -->
     <div v-if="loading" aria-busy="true">
-      Loading events...
+      Veranstaltungen werden geladen...
     </div>
 
     <!-- Access Denied state -->
     <div v-else-if="accessDenied" class="access-denied">
-      <h3>Access Denied</h3>
+      <h3>Zugriff verweigert</h3>
       <p>{{ error }}</p>
-      <p>If you believe this is an error, please contact your administrator.</p>
-      <button @click="logout" class="secondary">Sign Out</button>
+      <p>Falls du denkst, dass das ein Fehler ist, melde dich bei uns.</p>
+      <button @click="logout" class="secondary">Abmelden</button>
     </div>
 
     <!-- Error state -->
@@ -36,45 +36,45 @@
               href="#"
               :class="{ active: statusFilter === null }"
               @click.prevent="statusFilter = null"
-            >All</a>
+            >Alle</a>
           </li>
           <li>
             <a
               href="#"
               :class="{ active: statusFilter === 'DRAFT' }"
               @click.prevent="statusFilter = 'DRAFT'"
-            >Draft</a>
+            >Entwurf</a>
           </li>
           <li>
             <a
               href="#"
               :class="{ active: statusFilter === 'OPEN' }"
               @click.prevent="statusFilter = 'OPEN'"
-            >Open</a>
+            >Offen</a>
           </li>
           <li>
             <a
               href="#"
               :class="{ active: statusFilter === 'COMPLETED' }"
               @click.prevent="statusFilter = 'COMPLETED'"
-            >Completed</a>
+            >Abgeschlossen</a>
           </li>
         </ul>
       </nav>
 
       <!-- Empty state -->
       <p v-if="filteredEvents.length === 0">
-        No events found. Create your first event to get started.
+        Noch keine Veranstaltungen. Leg los und erstelle deine erste!
       </p>
 
       <!-- Events table -->
       <table v-else>
         <thead>
           <tr>
-            <th>Event</th>
-            <th>Date</th>
+            <th>Veranstaltung</th>
+            <th>Datum</th>
             <th>Status</th>
-            <th>Registrations</th>
+            <th>Anmeldungen</th>
           </tr>
         </thead>
         <tbody>
@@ -84,7 +84,7 @@
                 <strong>{{ event.name }}</strong>
               </a>
               <br />
-              <small>{{ event.location || 'No location' }}</small>
+              <small>{{ event.location || 'Kein Ort angegeben' }}</small>
             </td>
             <td>{{ formatDate(event.start_at) }}</td>
             <td>
@@ -93,8 +93,8 @@
               </span>
             </td>
             <td>
-              {{ event.confirmed_spots }} / {{ event.capacity }}
-              <span v-if="event.waitlist_count"> (+{{ event.waitlist_count }} waitlist)</span>
+              {{ event.registration_spots }} Pers. ({{ event.registration_count }}) · {{ event.confirmed_spots }} Best. / {{ event.capacity }}
+              <span v-if="event.waitlist_count"> (+{{ event.waitlist_spots }} WL)</span>
             </td>
           </tr>
         </tbody>
@@ -107,52 +107,52 @@
         <header>
           <a
             href="#"
-            aria-label="Close"
+            aria-label="Schließen"
             class="close"
             @click.prevent="showCreateModal = false"
           />
-          <h3>Create Event</h3>
+          <h3>Neue Veranstaltung</h3>
         </header>
 
         <form @submit.prevent="handleCreate" class="compact-form">
           <div class="form-row">
             <label for="name">
-              Event Name *
+              Name *
               <input
                 id="name"
                 v-model="createForm.name"
                 type="text"
                 required
-                placeholder="Summer Funke Tour"
+                placeholder="Schaluppen Tour"
                 :disabled="creating"
               />
             </label>
             <label for="location">
-              Location
+              Ort
               <input
                 id="location"
                 v-model="createForm.location"
                 type="text"
-                placeholder="Harbor Marina"
+                placeholder="Hamburger Hafen"
                 :disabled="creating"
               />
             </label>
           </div>
 
           <label for="description">
-            Description
+            Beschreibung
             <textarea
               id="description"
               v-model="createForm.description"
               rows="2"
-              placeholder="Join us for a relaxing funke tour..."
+              placeholder="dies das ... "
               :disabled="creating"
             />
           </label>
 
           <div class="form-row">
             <label for="startAt">
-              Event Date & Time *
+              Datum & Uhrzeit *
               <input
                 id="startAt"
                 v-model="createForm.startAt"
@@ -162,7 +162,7 @@
               />
             </label>
             <label for="capacity">
-              Capacity *
+              Plätze *
               <input
                 id="capacity"
                 v-model.number="createForm.capacity"
@@ -177,7 +177,7 @@
 
           <div class="form-row">
             <label for="registrationDeadline">
-              Registration Deadline *
+              Anmeldeschluss *
               <input
                 id="registrationDeadline"
                 v-model="createForm.registrationDeadline"
@@ -187,7 +187,7 @@
               />
             </label>
             <label for="reminderSchedule">
-              Reminder Schedule
+              Erinnerungen (Tage vorher)
               <input
                 id="reminderSchedule"
                 v-model="createForm.reminderSchedule"
@@ -204,7 +204,7 @@
               type="checkbox"
               :disabled="creating"
             />
-            Automatically promote from waitlist when spots open
+            Automatisch von der Warteliste nachrücken lassen
           </label>
 
           <div v-if="createError" role="alert" class="error">
@@ -218,10 +218,10 @@
               @click="showCreateModal = false"
               :disabled="creating"
             >
-              Cancel
+              Abbrechen
             </button>
             <button type="submit" :disabled="creating" :aria-busy="creating">
-              {{ creating ? 'Creating...' : 'Create Event' }}
+              {{ creating ? 'Wird erstellt...' : 'Erstellen' }}
             </button>
           </footer>
         </form>
@@ -234,18 +234,18 @@
         <header>
           <a
             href="#"
-            aria-label="Close"
+            aria-label="Schließen"
             class="close"
             @click.prevent="cloneEvent = null"
           />
-          <h3>Clone Event</h3>
+          <h3>Veranstaltung duplizieren</h3>
         </header>
 
-        <p>Create a copy of "{{ cloneEvent?.name }}" with a new date.</p>
+        <p>Erstelle eine Kopie von "{{ cloneEvent?.name }}" mit neuem Datum.</p>
 
         <form @submit.prevent="handleClone">
           <label for="cloneStartAt">
-            New Event Date & Time *
+            Neues Datum & Uhrzeit *
             <input
               id="cloneStartAt"
               v-model="cloneStartAt"
@@ -266,10 +266,10 @@
               @click="cloneEvent = null"
               :disabled="cloning"
             >
-              Cancel
+              Abbrechen
             </button>
             <button type="submit" :disabled="cloning" :aria-busy="cloning">
-              {{ cloning ? 'Cloning...' : 'Clone Event' }}
+              {{ cloning ? 'Wird dupliziert...' : 'Duplizieren' }}
             </button>
           </footer>
         </form>
@@ -282,31 +282,39 @@
         <header>
           <a
             href="#"
-            aria-label="Close"
+            aria-label="Schließen"
             class="close"
             @click.prevent="selectedEvent = null"
           />
-          <h3>Registrations: {{ selectedEvent?.name }}</h3>
+          <h3>Anmeldungen: {{ selectedEvent?.name }}</h3>
         </header>
 
         <!-- Event Info Summary -->
         <div class="event-info-summary" v-if="selectedEvent">
           <div class="event-info-row">
-            <span class="event-info-label">Date:</span>
+            <span class="event-info-label">Datum:</span>
             <span>{{ formatDate(selectedEvent.start_at) }}</span>
           </div>
           <div class="event-info-row">
-            <span class="event-info-label">Capacity:</span>
-            <span>{{ selectedEvent.confirmed_spots }} / {{ selectedEvent.capacity }}</span>
+            <span class="event-info-label">Anmeldungen:</span>
+            <span>{{ selectedEvent.registration_spots }} Personen ({{ selectedEvent.registration_count }} Buchungen)</span>
           </div>
           <div class="event-info-row">
-            <span class="event-info-label">Reminder Schedule:</span>
-            <span>{{ formatReminderSchedule(selectedEvent.reminder_schedule_days) }} days before event</span>
+            <span class="event-info-label">Bestätigt:</span>
+            <span>{{ selectedEvent.confirmed_spots }} / {{ selectedEvent.capacity }} Plätze</span>
+          </div>
+          <div class="event-info-row" v-if="selectedEvent.waitlist_count > 0">
+            <span class="event-info-label">Warteliste:</span>
+            <span>{{ selectedEvent.waitlist_spots }} Personen ({{ selectedEvent.waitlist_count }} Buchungen)</span>
+          </div>
+          <div class="event-info-row">
+            <span class="event-info-label">Erinnerungen:</span>
+            <span>{{ formatReminderSchedule(selectedEvent.reminder_schedule_days) }} Tage vorher</span>
           </div>
         </div>
 
         <div v-if="loadingRegistrations" aria-busy="true">
-          Loading registrations...
+          Anmeldungen werden geladen...
         </div>
 
         <div v-else-if="registrationsError" role="alert" class="error">
@@ -315,23 +323,23 @@
 
         <template v-else>
           <p v-if="registrations.length === 0">
-            No registrations yet for this event.
+            Noch keine Anmeldungen für diese Veranstaltung.
           </p>
 
           <table v-else>
             <thead>
               <tr>
                 <th>Name</th>
-                <th>Email</th>
-                <th>Group Size</th>
+                <th>E-Mail</th>
+                <th>Personen</th>
                 <th>Status</th>
-                <th>Registered</th>
+                <th>Angemeldet am</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="reg in registrations" :key="reg.id">
                 <td>{{ reg.name }}</td>
-                <td>{{ reg.email }}</td>
+                <td><a :href="`mailto:${reg.email}`">{{ reg.email }}</a></td>
                 <td>{{ reg.group_size }}</td>
                 <td>
                   <span :class="['status-badge', `status-${reg.status.toLowerCase()}`]">
@@ -347,21 +355,21 @@
           </table>
 
           <p class="total-info">
-            Total: {{ registrations.length }} registration(s),
-            {{ registrations.reduce((sum, r) => sum + r.group_size, 0) }} spot(s)
+            Gesamt: {{ registrations.length }} Anmeldung(en),
+            {{ registrations.reduce((sum, r) => sum + r.group_size, 0) }} Platz/Plätze
           </p>
 
           <!-- Attendance summary for CONFIRMED events -->
           <div v-if="selectedEvent?.status === 'CONFIRMED'" class="confirmation-summary">
-            <strong>Attendance Status:</strong>
+            <strong>Teilnahmestatus:</strong>
             <span class="confirmation-stat yes">
-              {{ registrations.filter(r => r.status === 'PARTICIPATING').length }} confirmed
+              {{ registrations.filter(r => r.status === 'PARTICIPATING').length }} bestätigt
             </span>
             <span class="confirmation-stat no">
-              {{ registrations.filter(r => r.status === 'CANCELLED').length }} declined
+              {{ registrations.filter(r => r.status === 'CANCELLED').length }} abgesagt
             </span>
             <span class="confirmation-stat pending">
-              {{ registrations.filter(r => r.status === 'CONFIRMED').length }} awaiting
+              {{ registrations.filter(r => r.status === 'CONFIRMED').length }} ausstehend
             </span>
           </div>
         </template>
@@ -373,7 +381,7 @@
               @click="showEditModal(selectedEvent)"
               class="outline"
             >
-              Edit
+              Bearbeiten
             </button>
             <button
               v-if="selectedEvent?.status === 'DRAFT'"
@@ -381,14 +389,14 @@
               class="secondary"
               :disabled="publishing === selectedEvent?.id"
             >
-              {{ publishing === selectedEvent?.id ? 'Publishing...' : 'Publish' }}
+              {{ publishing === selectedEvent?.id ? 'Wird veröffentlicht...' : 'Veröffentlichen' }}
             </button>
             <button
               v-if="selectedEvent?.status === 'OPEN'"
               @click="copyRegistrationLink(selectedEvent)"
               class="outline"
             >
-              Copy Link
+              Link kopieren
             </button>
             <button
               v-if="selectedEvent?.status === 'OPEN'"
@@ -396,37 +404,37 @@
               class="secondary"
               :disabled="closing === selectedEvent?.id"
             >
-              {{ closing === selectedEvent?.id ? 'Closing...' : 'Close Reg' }}
+              {{ closing === selectedEvent?.id ? 'Wird geschlossen...' : 'Anmeldung schließen' }}
             </button>
             <button
               @click="showCloneModal(selectedEvent)"
               class="outline secondary"
             >
-              Clone
+              Duplizieren
             </button>
             <button
               v-if="['REGISTRATION_CLOSED', 'LOTTERY_PENDING', 'CONFIRMED'].includes(selectedEvent?.status)"
               @click="goToLottery(selectedEvent)"
               class="outline"
             >
-              Lottery
+              Verlosung
             </button>
             <button
               v-if="!['COMPLETED', 'CANCELLED'].includes(selectedEvent?.status)"
               @click="showCancelEventModal(selectedEvent)"
               class="outline cancel-btn"
             >
-              Cancel Event
+              Absagen
             </button>
             <button
               v-if="selectedEvent?.status === 'CANCELLED'"
               @click="showDeleteModal(selectedEvent)"
               class="outline delete-btn"
             >
-              Delete Event
+              Löschen
             </button>
           </div>
-          <button @click="selectedEvent = null">Close</button>
+          <button @click="selectedEvent = null">Schließen</button>
         </footer>
       </article>
     </dialog>
@@ -437,31 +445,31 @@
         <header>
           <a
             href="#"
-            aria-label="Close"
+            aria-label="Schließen"
             class="close"
             @click.prevent="cancelEventData = null"
           />
-          <h3>Cancel Event</h3>
+          <h3>Veranstaltung absagen</h3>
         </header>
 
         <div class="cancel-warning">
-          <p><strong>Warning:</strong> This action cannot be undone.</p>
-          <p>Cancelling "{{ cancelEventData?.name }}" will:</p>
+          <p><strong>Achtung:</strong> Diese Aktion kann nicht rückgängig gemacht werden.</p>
+          <p>Wenn du "{{ cancelEventData?.name }}" absagst:</p>
           <ul>
-            <li>Set the event status to CANCELLED</li>
-            <li>Send cancellation notifications to all registrants</li>
-            <li>Prevent any further registrations</li>
+            <li>Wird der Status auf ABGESAGT gesetzt</li>
+            <li>Werden alle Angemeldeten benachrichtigt</li>
+            <li>Sind keine weiteren Anmeldungen möglich</li>
           </ul>
         </div>
 
         <form @submit.prevent="handleCancelEvent">
           <label for="cancelConfirmation">
-            Type <strong>cancel</strong> to confirm:
+            Tippe <strong>absagen</strong> zur Bestätigung:
             <input
               id="cancelConfirmation"
               v-model="cancelConfirmation"
               type="text"
-              placeholder="cancel"
+              placeholder="absagen"
               autocomplete="off"
               :disabled="cancelling"
             />
@@ -478,15 +486,15 @@
               @click="cancelEventData = null"
               :disabled="cancelling"
             >
-              Go Back
+              Zurück
             </button>
             <button
               type="submit"
               class="cancel-confirm-btn"
-              :disabled="cancelConfirmation !== 'cancel' || cancelling"
+              :disabled="cancelConfirmation !== 'absagen' || cancelling"
               :aria-busy="cancelling"
             >
-              {{ cancelling ? 'Cancelling...' : 'Confirm Cancellation' }}
+              {{ cancelling ? 'Wird abgesagt...' : 'Absage bestätigen' }}
             </button>
           </footer>
         </form>
@@ -499,52 +507,52 @@
         <header>
           <a
             href="#"
-            aria-label="Close"
+            aria-label="Schließen"
             class="close"
             @click.prevent="editEventData = null"
           />
-          <h3>Edit Event</h3>
+          <h3>Veranstaltung bearbeiten</h3>
         </header>
 
         <form @submit.prevent="handleEdit" class="compact-form">
           <div class="form-row">
             <label for="editName">
-              Event Name *
+              Name *
               <input
                 id="editName"
                 v-model="editForm.name"
                 type="text"
                 required
-                placeholder="Summer Funke Tour"
+                placeholder="Schaluppen Tour"
                 :disabled="editing"
               />
             </label>
             <label for="editLocation">
-              Location
+              Ort
               <input
                 id="editLocation"
                 v-model="editForm.location"
                 type="text"
-                placeholder="Harbor Marina"
+                placeholder="Hamburger Hafen"
                 :disabled="editing"
               />
             </label>
           </div>
 
           <label for="editDescription">
-            Description
+            Beschreibung
             <textarea
               id="editDescription"
               v-model="editForm.description"
               rows="2"
-              placeholder="Join us for a relaxing funke tour..."
+              placeholder="dies das ..."
               :disabled="editing"
             />
           </label>
 
           <div class="form-row">
             <label for="editStartAt">
-              Event Date & Time *
+              Datum & Uhrzeit *
               <input
                 id="editStartAt"
                 v-model="editForm.startAt"
@@ -554,7 +562,7 @@
               />
             </label>
             <label for="editCapacity">
-              Capacity *
+              Plätze *
               <input
                 id="editCapacity"
                 v-model.number="editForm.capacity"
@@ -569,7 +577,7 @@
 
           <div class="form-row">
             <label for="editRegistrationDeadline">
-              Registration Deadline *
+              Anmeldeschluss *
               <input
                 id="editRegistrationDeadline"
                 v-model="editForm.registrationDeadline"
@@ -579,7 +587,7 @@
               />
             </label>
             <label for="editReminderSchedule">
-              Reminder Schedule
+              Erinnerungen (Tage vorher)
               <input
                 id="editReminderSchedule"
                 v-model="editForm.reminderSchedule"
@@ -596,7 +604,7 @@
               type="checkbox"
               :disabled="editing"
             />
-            Automatically promote from waitlist when spots open
+            Automatisch von der Warteliste nachrücken lassen
           </label>
 
           <div v-if="editError" role="alert" class="error">
@@ -610,10 +618,10 @@
               @click="editEventData = null"
               :disabled="editing"
             >
-              Cancel
+              Abbrechen
             </button>
             <button type="submit" :disabled="editing" :aria-busy="editing">
-              {{ editing ? 'Saving...' : 'Save Changes' }}
+              {{ editing ? 'Wird gespeichert...' : 'Speichern' }}
             </button>
           </footer>
         </form>
@@ -626,15 +634,15 @@
         <header>
           <a
             href="#"
-            aria-label="Close"
+            aria-label="Schließen"
             class="close"
             @click.prevent="deleteEventData = null"
           />
-          <h3>Delete Event</h3>
+          <h3>Veranstaltung löschen</h3>
         </header>
 
-        <p>Are you sure you want to permanently delete "{{ deleteEventData?.name }}"?</p>
-        <p><small>This action cannot be undone.</small></p>
+        <p>Möchtest du "{{ deleteEventData?.name }}" wirklich endgültig löschen?</p>
+        <p><small>Diese Aktion kann nicht rückgängig gemacht werden.</small></p>
 
         <div v-if="deleteError" role="alert" class="error">
           {{ deleteError }}
@@ -647,7 +655,7 @@
             @click="deleteEventData = null"
             :disabled="deleting"
           >
-            Cancel
+            Abbrechen
           </button>
           <button
             @click="handleDelete"
@@ -655,7 +663,7 @@
             :disabled="deleting"
             :aria-busy="deleting"
           >
-            {{ deleting ? 'Deleting...' : 'Delete Event' }}
+            {{ deleting ? 'Wird gelöscht...' : 'Löschen' }}
           </button>
         </footer>
       </article>
@@ -742,7 +750,7 @@ const filteredEvents = computed(() => {
 
 // Format date for display
 function formatDate(dateStr) {
-  if (!dateStr) return 'TBD'
+  if (!dateStr) return 'Noch offen'
   const date = new Date(dateStr)
   return date.toLocaleDateString('de-DE', {
     year: 'numeric',
@@ -776,12 +784,12 @@ function formatReminderSchedule(days) {
 // Format registration status for display
 function formatStatus(status) {
   const statusLabels = {
-    'REGISTERED': 'Registered',
-    'CONFIRMED': 'Awaiting Response',
-    'PARTICIPATING': 'Confirmed',
-    'WAITLISTED': 'Waitlisted',
-    'CANCELLED': 'Cancelled',
-    'CHECKED_IN': 'Checked In',
+    'REGISTERED': 'Angemeldet',
+    'CONFIRMED': 'Wartet auf Bestätigung',
+    'PARTICIPATING': 'Nimmt teil',
+    'WAITLISTED': 'Warteliste',
+    'CANCELLED': 'Abgesagt',
+    'CHECKED_IN': 'Eingecheckt',
   }
   return statusLabels[status] || status
 }
@@ -801,7 +809,7 @@ async function loadEvents() {
     const result = await adminApi.listEvents()
     events.value = result.items
   } catch (err) {
-    const message = err.message || 'Failed to load events'
+    const message = err.message || 'Veranstaltungen konnten nicht geladen werden'
     error.value = message
     // Detect access denied (403) errors
     if (message.includes('Access denied') || message.includes('403')) {
@@ -861,8 +869,12 @@ async function publishEvent(event) {
     if (index !== -1) {
       events.value[index] = updated
     }
+    // Update selectedEvent if it's the same event (so modal reflects new state)
+    if (selectedEvent.value?.id === event.id) {
+      selectedEvent.value = updated
+    }
   } catch (err) {
-    alert(err.message || 'Failed to publish event')
+    alert(err.message || 'Veröffentlichung fehlgeschlagen')
   } finally {
     publishing.value = null
   }
@@ -878,8 +890,12 @@ async function closeRegistration(event) {
     if (index !== -1) {
       events.value[index] = updated
     }
+    // Update selectedEvent if it's the same event (so modal reflects new state)
+    if (selectedEvent.value?.id === event.id) {
+      selectedEvent.value = updated
+    }
   } catch (err) {
-    alert(err.message || 'Failed to close registration')
+    alert(err.message || 'Anmeldung konnte nicht geschlossen werden')
   } finally {
     closing.value = null
   }
@@ -906,7 +922,7 @@ async function handleClone() {
     events.value.unshift(newEvent)
     cloneEvent.value = null
   } catch (err) {
-    cloneError.value = err.message || 'Failed to clone event'
+    cloneError.value = err.message || 'Duplizieren fehlgeschlagen'
   } finally {
     cloning.value = false
   }
@@ -918,9 +934,9 @@ function copyRegistrationLink(event) {
   const link = `${baseUrl}/register/${event.registration_link_token}`
 
   navigator.clipboard.writeText(link).then(() => {
-    alert('Registration link copied to clipboard!')
+    alert('Anmeldelink wurde kopiert!')
   }).catch(() => {
-    prompt('Copy this link:', link)
+    prompt('Kopiere diesen Link:', link)
   })
 }
 
@@ -939,7 +955,7 @@ async function viewRegistrations(event) {
     const result = await adminApi.listRegistrations(event.id)
     registrations.value = result.items
   } catch (err) {
-    registrationsError.value = err.message || 'Failed to load registrations'
+    registrationsError.value = err.message || 'Anmeldungen konnten nicht geladen werden'
   } finally {
     loadingRegistrations.value = false
   }
@@ -954,7 +970,7 @@ function showCancelEventModal(event) {
 
 // Handle event cancellation
 async function handleCancelEvent() {
-  if (cancelConfirmation.value !== 'cancel') return
+  if (cancelConfirmation.value !== 'absagen') return
 
   cancelling.value = true
   cancelError.value = null
@@ -972,7 +988,7 @@ async function handleCancelEvent() {
     cancelEventData.value = null
     selectedEvent.value = null
   } catch (err) {
-    cancelError.value = err.message || 'Failed to cancel event'
+    cancelError.value = err.message || 'Absage fehlgeschlagen'
   } finally {
     cancelling.value = false
   }
@@ -1033,7 +1049,7 @@ async function handleEdit() {
     // Close edit modal
     editEventData.value = null
   } catch (err) {
-    editError.value = err.message || 'Failed to update event'
+    editError.value = err.message || 'Änderungen konnten nicht gespeichert werden'
   } finally {
     editing.value = false
   }
@@ -1060,7 +1076,7 @@ async function handleDelete() {
     deleteEventData.value = null
     selectedEvent.value = null
   } catch (err) {
-    deleteError.value = err.message || 'Failed to delete event'
+    deleteError.value = err.message || 'Veranstaltung konnte nicht gelöscht werden'
   } finally {
     deleting.value = false
   }
@@ -1187,7 +1203,9 @@ dialog article.modal-wide {
 
 .checkbox-label input[type="checkbox"] {
   margin: 0;
-  width: auto;
+  width: 1.25rem;
+  height: 1.25rem;
+  cursor: pointer;
 }
 
 dialog footer {

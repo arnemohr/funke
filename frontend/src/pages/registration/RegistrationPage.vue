@@ -2,14 +2,14 @@
   <article>
     <!-- Loading state -->
     <div v-if="loading" aria-busy="true">
-      Loading event information...
+      Veranstaltung wird geladen...
     </div>
 
     <!-- Error state -->
     <div v-else-if="error" role="alert">
-      <h2>Unable to Load Event</h2>
+      <h2>Veranstaltung nicht verfügbar</h2>
       <p>{{ error }}</p>
-      <p v-if="eventClosed">This event is no longer accepting registrations.</p>
+      <p v-if="eventClosed">Diese Veranstaltung nimmt keine Anmeldungen mehr an.</p>
     </div>
 
     <!-- Event info and registration form -->
@@ -20,22 +20,22 @@
       </header>
 
       <section>
-        <h3>Event Details</h3>
+        <h3>Details</h3>
         <dl>
-          <dt>Date</dt>
+          <dt>Datum</dt>
           <dd>{{ formatDate(event.start_at) }}</dd>
-          <dt>Location</dt>
-          <dd>{{ event.location || 'TBD' }}</dd>
-          <dt>Capacity</dt>
-          <dd>{{ event.capacity }} spots</dd>
-          <dt>Registration Deadline</dt>
+          <dt>Ort</dt>
+          <dd>{{ event.location || 'Wird noch bekannt gegeben' }}</dd>
+          <dt>Plätze</dt>
+          <dd>{{ event.capacity }}</dd>
+          <dt>Anmeldeschluss</dt>
           <dd>{{ formatDate(event.registration_deadline) }}</dd>
         </dl>
       </section>
 
       <!-- Registration form -->
       <section v-if="!submitted">
-        <h3>Register for this Event</h3>
+        <h3>Jetzt anmelden</h3>
         <form @submit.prevent="handleSubmit">
           <label for="name">
             Name *
@@ -44,25 +44,25 @@
               v-model="form.name"
               type="text"
               required
-              placeholder="Your full name"
+              placeholder="Dein vollständiger Name"
               :disabled="submitting"
             />
           </label>
 
           <label for="email">
-            Email *
+            E-Mail *
             <input
               id="email"
               v-model="form.email"
               type="email"
               required
-              placeholder="your@email.com"
+              placeholder="deine@email.de"
               :disabled="submitting"
             />
           </label>
 
           <label for="phone">
-            Phone (optional)
+            Telefon (optional)
             <input
               id="phone"
               v-model="form.phone"
@@ -73,7 +73,7 @@
           </label>
 
           <label for="groupSize">
-            Group Size *
+            Gruppengröße *
             <select
               id="groupSize"
               v-model.number="form.groupSize"
@@ -81,17 +81,17 @@
               :disabled="submitting"
             >
               <option v-for="n in 10" :key="n" :value="n">
-                {{ n }} {{ n === 1 ? 'person' : 'people' }}
+                {{ n }} {{ n === 1 ? 'Person' : 'Personen' }}
               </option>
             </select>
           </label>
 
           <label for="notes">
-            Notes (optional)
+            Anmerkungen (optional)
             <textarea
               id="notes"
               v-model="form.notes"
-              placeholder="Any special requirements or comments"
+              placeholder="Besondere Wünsche oder Hinweise"
               :disabled="submitting"
             />
           </label>
@@ -101,36 +101,45 @@
           </div>
 
           <button type="submit" :disabled="submitting" :aria-busy="submitting">
-            {{ submitting ? 'Registering...' : 'Register' }}
+            {{ submitting ? 'Wird gesendet...' : 'Anmelden' }}
           </button>
         </form>
       </section>
 
       <!-- Success state -->
       <section v-else class="success">
-        <h3 v-if="registration?.status === 'CONFIRMED'">
-          Registration Confirmed!
+        <h3 v-if="registration?.status === 'WAITLISTED'">
+          Auf die Warteliste gesetzt
         </h3>
         <h3 v-else>
-          Added to Waitlist
+          Du stehst auf der Liste!
         </h3>
 
-        <p>{{ successMessage }}</p>
+        <p v-if="registration?.status === 'WAITLISTED'">
+          Die Veranstaltung ist aktuell voll, aber du stehst auf der Warteliste.
+          Sobald ein Platz frei wird, rückst du automatisch nach und wirst benachrichtigt.
+        </p>
+        <p v-else>
+          Deine Anmeldung für <strong>{{ event?.name }}</strong> ist eingegangen.
+          Falls mehr Anmeldungen als Plätze eingehen, wird nach Anmeldeschluss per Los entschieden.
+          Du wirst per E-Mail über das Ergebnis informiert.
+        </p>
 
         <div v-if="registration" class="registration-details">
           <p><strong>Name:</strong> {{ registration.name }}</p>
-          <p><strong>Email:</strong> {{ registration.email }}</p>
-          <p><strong>Group Size:</strong> {{ registration.group_size }}</p>
-          <p><strong>Status:</strong> {{ registration.status }}</p>
-          <p v-if="registration.waitlist_position">
-            <strong>Waitlist Position:</strong> #{{ registration.waitlist_position }}
+          <p><strong>E-Mail:</strong> <a :href="`mailto:${registration.email}`">{{ registration.email }}</a></p>
+          <p><strong>Personen:</strong> {{ registration.group_size }}</p>
+          <p v-if="registration.status === 'WAITLISTED' && registration.waitlist_position">
+            <strong>Wartelistenplatz:</strong> #{{ registration.waitlist_position }}
           </p>
         </div>
 
-        <p class="info">
-          A confirmation email has been sent to {{ registration?.email }}.
-          You can use the link in the email to cancel your registration if needed.
-        </p>
+        <div class="info-box">
+          <p>
+            <strong>Bestätigungs-E-Mail:</strong> Eine E-Mail wurde an {{ registration?.email }} gesendet.
+            Über den Link in der E-Mail kannst du deine Anmeldung bei Bedarf stornieren.
+          </p>
+        </div>
       </section>
     </template>
   </article>
@@ -163,7 +172,7 @@ const form = ref({
 
 // Format date for display
 function formatDate(dateStr) {
-  if (!dateStr) return 'TBD'
+  if (!dateStr) return 'Wird noch bekannt gegeben'
   const date = new Date(dateStr)
   return date.toLocaleDateString('de-DE', {
     weekday: 'long',
@@ -179,7 +188,7 @@ function formatDate(dateStr) {
 async function loadEvent() {
   const token = route.params.token
   if (!token) {
-    error.value = 'Invalid registration link'
+    error.value = 'Ungültiger Anmeldelink'
     loading.value = false
     return
   }
@@ -188,12 +197,12 @@ async function loadEvent() {
     event.value = await publicApi.getEventInfo(token)
   } catch (err) {
     if (err.message.includes('410') || err.message.includes('closed')) {
-      error.value = 'This event is no longer accepting registrations.'
+      error.value = 'Diese Veranstaltung nimmt keine Anmeldungen mehr an.'
       eventClosed.value = true
     } else if (err.message.includes('404')) {
-      error.value = 'Event not found. Please check your registration link.'
+      error.value = 'Veranstaltung nicht gefunden. Bitte prüfe deinen Anmeldelink.'
     } else {
-      error.value = err.message || 'Failed to load event information.'
+      error.value = err.message || 'Veranstaltung konnte nicht geladen werden.'
     }
   } finally {
     loading.value = false
@@ -221,11 +230,11 @@ async function handleSubmit() {
     submitted.value = true
   } catch (err) {
     if (err.message.includes('already registered')) {
-      submitError.value = 'This email is already registered for this event.'
+      submitError.value = 'Diese E-Mail-Adresse ist bereits für diese Veranstaltung angemeldet.'
     } else if (err.message.includes('deadline')) {
-      submitError.value = 'Registration deadline has passed.'
+      submitError.value = 'Der Anmeldeschluss ist bereits vorbei.'
     } else {
-      submitError.value = err.message || 'Failed to submit registration. Please try again.'
+      submitError.value = err.message || 'Anmeldung fehlgeschlagen. Bitte versuche es erneut.'
     }
   } finally {
     submitting.value = false
@@ -267,6 +276,28 @@ onMounted(loadEvent)
   font-size: 0.9em;
   color: var(--pico-muted-color);
   margin-top: 1rem;
+}
+
+.info-box {
+  text-align: left;
+  background: white;
+  padding: 1rem;
+  border-radius: var(--pico-border-radius);
+  margin-top: 1.5rem;
+  border-left: 4px solid var(--pico-primary);
+}
+
+.info-box p {
+  margin: 0.5rem 0;
+  font-size: 0.9em;
+}
+
+.info-box p:first-child {
+  margin-top: 0;
+}
+
+.info-box p:last-child {
+  margin-bottom: 0;
 }
 
 dl {

@@ -121,6 +121,29 @@ export const publicApi = {
       method: 'POST',
     })
   },
+
+  /**
+   * Get attendance status for a registration.
+   * @param {string} registrationId - Registration ID
+   * @param {string} token - Registration token
+   * @returns {Promise<object>} Attendance status with registration info
+   */
+  async getAttendanceStatus(registrationId, token) {
+    return request(`/api/public/registrations/${registrationId}/attendance-status?token=${token}`)
+  },
+
+  /**
+   * Confirm or decline attendance.
+   * @param {string} registrationId - Registration ID
+   * @param {string} token - Registration token
+   * @param {string} response - 'yes' or 'no'
+   * @returns {Promise<object>} Updated registration
+   */
+  async confirmAttendance(registrationId, token, response) {
+    return request(`/api/public/registrations/${registrationId}/confirm?token=${token}&response=${response}`, {
+      method: 'POST',
+    })
+  },
 }
 
 // Admin API (requires auth)

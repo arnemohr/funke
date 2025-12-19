@@ -2,7 +2,10 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { authGuard } from '@auth0/auth0-vue'
 
 const routes = [
-  { path: '/', component: () => import('../pages/Home.vue') },
+  {
+    path: '/',
+    redirect: '/login',
+  },
 
   // Auth routes
   {
@@ -30,6 +33,13 @@ const routes = [
     component: () => import('../pages/cancel/CancelPage.vue'),
   },
 
+  // Public confirmation route (attendance confirmation)
+  {
+    path: '/confirm/:registrationId',
+    name: 'confirm',
+    component: () => import('../pages/confirm/ConfirmPage.vue'),
+  },
+
   // Admin routes (protected)
   {
     path: '/admin',
@@ -47,6 +57,12 @@ const routes = [
     component: () => import('../pages/admin/events/[eventId]/lottery.vue'),
     beforeEnter: authGuard,
     props: true,
+  },
+  {
+    path: '/admin/debug',
+    name: 'admin-debug',
+    component: () => import('../pages/admin/DebugPage.vue'),
+    beforeEnter: authGuard,
   },
 ]
 

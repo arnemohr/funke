@@ -27,11 +27,13 @@ class ApiStack(Stack):
         construct_id: str,
         env_name: str,
         database_stack: DatabaseStack,
+        domain_name: str | None = None,
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
         self.env_name = env_name
+        self.domain_name = domain_name
         removal_policy = RemovalPolicy.DESTROY if env_name == "dev" else RemovalPolicy.RETAIN
 
         # Log groups for Lambda functions
@@ -79,6 +81,14 @@ class ApiStack(Stack):
         database_stack.admins_table.grant_read_write_data(self.api_function)
         database_stack.lottery_runs_table.grant_read_write_data(self.api_function)
 
+        # Determine CORS origins
+        if env_name == "dev":
+            cors_origins = ["*"]
+        elif domain_name:
+            cors_origins = [f"https://{domain_name}"]
+        else:
+            cors_origins = [f"https://{env_name}.funke.app"]
+
         # HTTP API with Lambda integration
         # Disable automatic $default stage to configure throttling manually
         self.http_api = apigwv2.HttpApi(
@@ -87,7 +97,7 @@ class ApiStack(Stack):
             api_name=f"funke-{env_name}-api",
             create_default_stage=False,
             cors_preflight=apigwv2.CorsPreflightOptions(
-                allow_origins=["*"] if env_name == "dev" else [f"https://{env_name}.funke.app"],
+                allow_origins=cors_origins,
                 allow_methods=[
                     apigwv2.CorsHttpMethod.GET,
                     apigwv2.CorsHttpMethod.POST,

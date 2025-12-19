@@ -692,6 +692,10 @@ class RegistrationService:
         # confirmed_spots includes CONFIRMED + PARTICIPATING + CHECKED_IN for capacity display
         total_confirmed_spots = confirmed_spots + participating_spots
 
+        # Total active registrations (all signups excluding cancelled)
+        total_registrations = registered_count + confirmed_count + participating_count + waitlist_count + checked_in_count
+        total_registration_spots = registered_spots + confirmed_spots + participating_spots + waitlist_spots
+
         return {
             "event_id": str(event_id),
             "registered_count": registered_count,
@@ -704,6 +708,8 @@ class RegistrationService:
             "waitlist_spots": waitlist_spots,
             "cancelled_count": cancelled_count,
             "checked_in_count": checked_in_count,
+            "total_registrations": total_registrations,
+            "total_registration_spots": total_registration_spots,
         }
 
     async def set_attendance_response(
@@ -784,6 +790,58 @@ class RegistrationService:
                 return None, "Attendance response has already been recorded"
             logger.error("Failed to set attendance response", extra={"error": str(e)})
             return None, "Failed to record attendance response"
+
+    async def cancel_all_registrations_for_event(self, event_id: UUID) -> int:
+        """Cancel all non-cancelled registrations for an event.
+
+        Used when an event is cancelled to transition all registrations to CANCELLED status.
+
+        Args:
+            event_id: Event ID.
+
+        Returns:
+            Number of registrations that were cancelled.
+        """
+        registrations = await self.list_registrations(event_id)
+        cancelled_count = 0
+
+        for registration in registrations:
+            # Skip already-cancelled registrations
+            if registration.status == RegistrationStatus.CANCELLED:
+                continue
+
+            try:
+                self.registrations_table.update_item(
+                    Key={
+                        "pk": f"EVENT#{event_id}",
+                        "sk": f"REG#{registration.id}",
+                    },
+                    UpdateExpression="SET #status = :cancelled",
+                    ExpressionAttributeNames={"#status": "status"},
+                    ExpressionAttributeValues={
+                        ":cancelled": RegistrationStatus.CANCELLED.value,
+                    },
+                )
+                cancelled_count += 1
+            except ClientError as e:
+                logger.error(
+                    "Failed to cancel registration for event cancellation",
+                    extra={
+                        "registration_id": str(registration.id),
+                        "event_id": str(event_id),
+                        "error": str(e),
+                    },
+                )
+
+        logger.info(
+            "Cancelled all registrations for event",
+            extra={
+                "event_id": str(event_id),
+                "cancelled_count": cancelled_count,
+            },
+        )
+
+        return cancelled_count
 
 
 # Singleton instance

@@ -2,69 +2,69 @@
   <article>
     <!-- Loading state -->
     <div v-if="loading" aria-busy="true">
-      Loading registration information...
+      Anmeldung wird geladen...
     </div>
 
     <!-- Error state -->
     <div v-else-if="error" role="alert" class="error">
-      <h2>Unable to Load Registration</h2>
+      <h2>Anmeldung nicht gefunden</h2>
       <p>{{ error }}</p>
     </div>
 
     <!-- Already cancelled -->
     <section v-else-if="registration?.status === 'CANCELLED'" class="already-cancelled">
-      <h2>Registration Already Cancelled</h2>
-      <p>This registration has already been cancelled.</p>
+      <h2>Bereits storniert</h2>
+      <p>Diese Anmeldung wurde bereits storniert.</p>
 
       <div class="registration-details">
         <p><strong>Name:</strong> {{ registration.name }}</p>
-        <p><strong>Email:</strong> {{ registration.email }}</p>
+        <p><strong>E-Mail:</strong> <a :href="`mailto:${registration.email}`">{{ registration.email }}</a></p>
         <p><strong>Status:</strong> {{ registration.status }}</p>
       </div>
     </section>
 
     <!-- Cancellation confirmation -->
     <section v-else-if="cancelled" class="success">
-      <h2>Registration Cancelled</h2>
-      <p>Your registration has been successfully cancelled.</p>
+      <h2>Anmeldung storniert</h2>
+      <p>Deine Anmeldung wurde erfolgreich storniert.</p>
 
       <div class="registration-details">
         <p><strong>Name:</strong> {{ registration.name }}</p>
-        <p><strong>Email:</strong> {{ registration.email }}</p>
+        <p><strong>E-Mail:</strong> <a :href="`mailto:${registration.email}`">{{ registration.email }}</a></p>
       </div>
 
       <p class="info">
-        A confirmation email has been sent to {{ registration.email }}.
+        Eine Bestätigung wurde an {{ registration.email }} gesendet.
       </p>
 
-      <router-link to="/" class="button">Return Home</router-link>
+      <router-link to="/" class="button">Zurück zur Startseite</router-link>
     </section>
 
     <!-- Cancellation form -->
     <section v-else-if="registration">
       <header>
-        <h2>Cancel Registration</h2>
-        <p>Are you sure you want to cancel your registration?</p>
+        <h2>Anmeldung stornieren</h2>
+        <p>Möchtest du deine Anmeldung wirklich stornieren?</p>
       </header>
 
       <div class="registration-details">
-        <h3>Registration Details</h3>
+        <h3>Deine Anmeldung</h3>
         <dl>
           <dt>Name</dt>
           <dd>{{ registration.name }}</dd>
-          <dt>Email</dt>
+          <dt>E-Mail</dt>
           <dd>{{ registration.email }}</dd>
-          <dt>Group Size</dt>
-          <dd>{{ registration.groupSize }} {{ registration.groupSize === 1 ? 'person' : 'people' }}</dd>
+          <dt>Gruppengröße</dt>
+          <dd>{{ registration.groupSize }} {{ registration.groupSize === 1 ? 'Person' : 'Personen' }}</dd>
           <dt>Status</dt>
           <dd>{{ registration.status }}</dd>
-          <dt v-if="registration.waitlistPosition">Waitlist Position</dt>
+          <dt v-if="registration.waitlistPosition">Wartelistenplatz</dt>
           <dd v-if="registration.waitlistPosition">#{{ registration.waitlistPosition }}</dd>
         </dl>
       </div>
 
       <div class="warning">
-        <strong>Warning:</strong> This action cannot be undone. If you want to attend the event after cancelling, you will need to register again.
+        <strong>Hinweis:</strong> Diese Aktion kann nicht rückgängig gemacht werden. Wenn du doch teilnehmen möchtest, musst du dich erneut anmelden.
       </div>
 
       <div v-if="cancelError" role="alert" class="error">
@@ -72,14 +72,14 @@
       </div>
 
       <div class="actions">
-        <router-link to="/" class="button secondary">Keep Registration</router-link>
+        <router-link to="/" class="button secondary">Anmeldung behalten</router-link>
         <button
           @click="handleCancel"
           class="contrast"
           :disabled="cancelling"
           :aria-busy="cancelling"
         >
-          {{ cancelling ? 'Cancelling...' : 'Cancel Registration' }}
+          {{ cancelling ? 'Wird storniert...' : 'Stornieren' }}
         </button>
       </div>
     </section>
@@ -106,7 +106,7 @@ async function loadRegistration() {
   const token = route.query.token
 
   if (!registrationId || !token) {
-    error.value = 'Invalid cancellation link. Please check your email for the correct link.'
+    error.value = 'Ungültiger Stornierungslink. Bitte prüfe den Link in deiner E-Mail.'
     loading.value = false
     return
   }
@@ -118,16 +118,16 @@ async function loadRegistration() {
 
     if (!response.ok) {
       if (response.status === 404) {
-        error.value = 'Registration not found or invalid token.'
+        error.value = 'Anmeldung nicht gefunden oder ungültiger Link.'
       } else {
-        error.value = 'Failed to load registration information.'
+        error.value = 'Anmeldung konnte nicht geladen werden.'
       }
       return
     }
 
     registration.value = await response.json()
   } catch (err) {
-    error.value = err.message || 'Failed to load registration information.'
+    error.value = err.message || 'Anmeldung konnte nicht geladen werden.'
   } finally {
     loading.value = false
   }
@@ -146,7 +146,7 @@ async function handleCancel() {
     registration.value = result.registration
     cancelled.value = true
   } catch (err) {
-    cancelError.value = err.message || 'Failed to cancel registration. Please try again.'
+    cancelError.value = err.message || 'Stornierung fehlgeschlagen. Bitte versuche es erneut.'
   } finally {
     cancelling.value = false
   }
@@ -228,8 +228,12 @@ onMounted(loadRegistration)
 }
 
 .button.secondary {
-  background: var(--pico-secondary-background);
-  color: var(--pico-secondary);
-  border: 1px solid var(--pico-secondary);
+  background: #f1f5f9;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+}
+
+.button.secondary:hover {
+  background: #e2e8f0;
 }
 </style>

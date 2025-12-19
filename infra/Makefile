@@ -4,8 +4,11 @@
 AUTH0_DOMAIN ?= mobilemachenschaften.eu.auth0.com
 AUTH0_AUDIENCE ?= https://b1hdv0usik.execute-api.eu-central-1.amazonaws.com
 
+# Custom domain configuration
+DOMAIN_NAME ?= funke.mobilemachenschaften.de
+
 # CDK context arguments
-CDK_CONTEXT = -c auth0_domain=$(AUTH0_DOMAIN) -c auth0_audience=$(AUTH0_AUDIENCE)
+CDK_CONTEXT = -c auth0_domain=$(AUTH0_DOMAIN) -c auth0_audience=$(AUTH0_AUDIENCE) -c domain_name=$(DOMAIN_NAME)
 
 # Deploy CDK stacks to AWS
 run: synth
@@ -42,6 +45,7 @@ bootstrap:
 clean:
 	rm -rf cdk.out __pycache__ .pytest_cache
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+
 
 
 

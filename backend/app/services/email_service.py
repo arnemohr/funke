@@ -83,8 +83,12 @@ class EmailContext(BaseModel):
 
 
 def _format_date(dt: datetime) -> str:
-    """Format datetime for display in emails."""
-    return dt.strftime("%A, %B %d, %Y at %H:%M")
+    """Format datetime for display in emails (German locale)."""
+    weekdays = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+    months = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"]
+    weekday = weekdays[dt.weekday()]
+    month = months[dt.month - 1]
+    return f"{weekday}, {dt.day}. {month} {dt.year} um {dt.strftime('%H:%M')}"
 
 
 def _build_cancellation_url(registration_id: UUID, token: str) -> str:
@@ -108,24 +112,25 @@ class EmailTemplates:
 
         Returns: (subject, text_body, html_body)
         """
-        subject = f"Registration Confirmed: {ctx.event_name}"
+        subject = f"Anmeldung bestätigt: {ctx.event_name}"
+        persons = "Person" if ctx.group_size == 1 else "Personen"
 
-        text_body = f"""Hello {ctx.attendee_name},
+        text_body = f"""Moin {ctx.attendee_name},
 
-Your registration for "{ctx.event_name}" is confirmed!
+Deine Anmeldung für "{ctx.event_name}" ist bestätigt!
 
-Event Details:
-- Date: {ctx.event_date}
-- Location: {ctx.event_location or 'TBD'}
-- Group Size: {ctx.group_size} {'person' if ctx.group_size == 1 else 'people'}
+Details:
+- Datum: {ctx.event_date}
+- Ort: {ctx.event_location or 'Wird noch bekannt gegeben'}
+- Personen: {ctx.group_size} {persons}
 
-Need to cancel? Use this link:
+Falls du doch nicht kannst, storniere hier:
 {ctx.cancellation_url}
 
-We look forward to seeing you!
+Wir freuen uns auf dich!
 
-Best regards,
-The Event Team
+Bis bald,
+Dein Funke-Team
 """
 
         html_body = f"""
@@ -133,23 +138,23 @@ The Event Team
 <html>
 <head><meta charset="utf-8"></head>
 <body style="font-family: sans-serif; line-height: 1.6; color: #333;">
-    <h2>Registration Confirmed ✓</h2>
-    <p>Hello {ctx.attendee_name},</p>
-    <p>Your registration for <strong>"{ctx.event_name}"</strong> is confirmed!</p>
+    <h2 style="color: #16a34a;">Anmeldung bestätigt ✓</h2>
+    <p>Moin {ctx.attendee_name},</p>
+    <p>Deine Anmeldung für <strong>"{ctx.event_name}"</strong> ist bestätigt!</p>
 
-    <h3>Event Details</h3>
+    <h3>Details</h3>
     <ul>
-        <li><strong>Date:</strong> {ctx.event_date}</li>
-        <li><strong>Location:</strong> {ctx.event_location or 'TBD'}</li>
-        <li><strong>Group Size:</strong> {ctx.group_size} {'person' if ctx.group_size == 1 else 'people'}</li>
+        <li><strong>Datum:</strong> {ctx.event_date}</li>
+        <li><strong>Ort:</strong> {ctx.event_location or 'Wird noch bekannt gegeben'}</li>
+        <li><strong>Personen:</strong> {ctx.group_size} {persons}</li>
     </ul>
 
     <p style="margin-top: 20px;">
-        <a href="{ctx.cancellation_url}" style="color: #666;">Need to cancel?</a>
+        <a href="{ctx.cancellation_url}" style="color: #666;">Falls du doch nicht kannst, storniere hier</a>
     </p>
 
-    <p>We look forward to seeing you!</p>
-    <p>Best regards,<br>The Event Team</p>
+    <p>Wir freuen uns auf dich!</p>
+    <p>Bis bald,<br>Dein Funke-Team</p>
 </body>
 </html>
 """
@@ -161,28 +166,29 @@ The Event Team
 
         Returns: (subject, text_body, html_body)
         """
-        subject = f"Waitlist Position #{ctx.waitlist_position}: {ctx.event_name}"
+        subject = f"Warteliste #{ctx.waitlist_position}: {ctx.event_name}"
+        persons = "Person" if ctx.group_size == 1 else "Personen"
 
-        text_body = f"""Hello {ctx.attendee_name},
+        text_body = f"""Moin {ctx.attendee_name},
 
-Thank you for registering for "{ctx.event_name}".
+Danke für deine Anmeldung zu "{ctx.event_name}".
 
-Unfortunately, the event is currently at capacity. You have been added to the waitlist.
+Leider ist die Veranstaltung schon voll. Du stehst jetzt auf der Warteliste.
 
-Your waitlist position: #{ctx.waitlist_position}
+Dein Wartelistenplatz: #{ctx.waitlist_position}
 
-If a spot becomes available, we will automatically move you to the confirmed list and notify you.
+Sobald ein Platz frei wird, rückst du automatisch nach und wir benachrichtigen dich.
 
-Event Details:
-- Date: {ctx.event_date}
-- Location: {ctx.event_location or 'TBD'}
-- Group Size: {ctx.group_size} {'person' if ctx.group_size == 1 else 'people'}
+Details:
+- Datum: {ctx.event_date}
+- Ort: {ctx.event_location or 'Wird noch bekannt gegeben'}
+- Personen: {ctx.group_size} {persons}
 
-Need to cancel your waitlist position?
+Falls du doch nicht willst, storniere hier:
 {ctx.cancellation_url}
 
-Best regards,
-The Event Team
+Bis bald,
+Dein Funke-Team
 """
 
         html_body = f"""
@@ -190,30 +196,30 @@ The Event Team
 <html>
 <head><meta charset="utf-8"></head>
 <body style="font-family: sans-serif; line-height: 1.6; color: #333;">
-    <h2>Added to Waitlist</h2>
-    <p>Hello {ctx.attendee_name},</p>
-    <p>Thank you for registering for <strong>"{ctx.event_name}"</strong>.</p>
+    <h2>Auf die Warteliste gesetzt</h2>
+    <p>Moin {ctx.attendee_name},</p>
+    <p>Danke für deine Anmeldung zu <strong>"{ctx.event_name}"</strong>.</p>
 
-    <p>Unfortunately, the event is currently at capacity. You have been added to the waitlist.</p>
+    <p>Leider ist die Veranstaltung schon voll. Du stehst jetzt auf der Warteliste.</p>
 
     <p style="font-size: 1.2em; background: #f5f5f5; padding: 15px; border-radius: 5px;">
-        Your waitlist position: <strong>#{ctx.waitlist_position}</strong>
+        Dein Wartelistenplatz: <strong>#{ctx.waitlist_position}</strong>
     </p>
 
-    <p>If a spot becomes available, we will automatically move you to the confirmed list and notify you.</p>
+    <p>Sobald ein Platz frei wird, rückst du automatisch nach und wir benachrichtigen dich.</p>
 
-    <h3>Event Details</h3>
+    <h3>Details</h3>
     <ul>
-        <li><strong>Date:</strong> {ctx.event_date}</li>
-        <li><strong>Location:</strong> {ctx.event_location or 'TBD'}</li>
-        <li><strong>Group Size:</strong> {ctx.group_size} {'person' if ctx.group_size == 1 else 'people'}</li>
+        <li><strong>Datum:</strong> {ctx.event_date}</li>
+        <li><strong>Ort:</strong> {ctx.event_location or 'Wird noch bekannt gegeben'}</li>
+        <li><strong>Personen:</strong> {ctx.group_size} {persons}</li>
     </ul>
 
     <p style="margin-top: 20px;">
-        <a href="{ctx.cancellation_url}" style="color: #666;">Need to cancel your waitlist position?</a>
+        <a href="{ctx.cancellation_url}" style="color: #666;">Falls du doch nicht willst, storniere hier</a>
     </p>
 
-    <p>Best regards,<br>The Event Team</p>
+    <p>Bis bald,<br>Dein Funke-Team</p>
 </body>
 </html>
 """
@@ -225,20 +231,20 @@ The Event Team
 
         Returns: (subject, text_body, html_body)
         """
-        subject = f"Registration Cancelled: {ctx.event_name}"
+        subject = f"Anmeldung storniert: {ctx.event_name}"
 
-        text_body = f"""Hello {ctx.attendee_name},
+        text_body = f"""Moin {ctx.attendee_name},
 
-Your registration for "{ctx.event_name}" has been cancelled.
+Deine Anmeldung für "{ctx.event_name}" wurde storniert.
 
-Event Details:
-- Date: {ctx.event_date}
-- Location: {ctx.event_location or 'TBD'}
+Details:
+- Datum: {ctx.event_date}
+- Ort: {ctx.event_location or 'Wird noch bekannt gegeben'}
 
-If you change your mind and would like to register again, please visit the event registration page.
+Falls du es dir anders überlegst, kannst du dich gerne erneut anmelden.
 
-Best regards,
-The Event Team
+Bis bald,
+Dein Funke-Team
 """
 
         html_body = f"""
@@ -246,19 +252,19 @@ The Event Team
 <html>
 <head><meta charset="utf-8"></head>
 <body style="font-family: sans-serif; line-height: 1.6; color: #333;">
-    <h2>Registration Cancelled</h2>
-    <p>Hello {ctx.attendee_name},</p>
-    <p>Your registration for <strong>"{ctx.event_name}"</strong> has been cancelled.</p>
+    <h2>Anmeldung storniert</h2>
+    <p>Moin {ctx.attendee_name},</p>
+    <p>Deine Anmeldung für <strong>"{ctx.event_name}"</strong> wurde storniert.</p>
 
-    <h3>Event Details</h3>
+    <h3>Details</h3>
     <ul>
-        <li><strong>Date:</strong> {ctx.event_date}</li>
-        <li><strong>Location:</strong> {ctx.event_location or 'TBD'}</li>
+        <li><strong>Datum:</strong> {ctx.event_date}</li>
+        <li><strong>Ort:</strong> {ctx.event_location or 'Wird noch bekannt gegeben'}</li>
     </ul>
 
-    <p>If you change your mind and would like to register again, please visit the event registration page.</p>
+    <p>Falls du es dir anders überlegst, kannst du dich gerne erneut anmelden.</p>
 
-    <p>Best regards,<br>The Event Team</p>
+    <p>Bis bald,<br>Dein Funke-Team</p>
 </body>
 </html>
 """
@@ -270,24 +276,25 @@ The Event Team
 
         Returns: (subject, text_body, html_body)
         """
-        subject = f"Good News! You're Confirmed: {ctx.event_name}"
+        subject = f"Du bist dabei! {ctx.event_name}"
+        persons = "Person" if ctx.group_size == 1 else "Personen"
 
-        text_body = f"""Hello {ctx.attendee_name},
+        text_body = f"""Moin {ctx.attendee_name},
 
-Great news! A spot has opened up and your registration for "{ctx.event_name}" is now CONFIRMED!
+Gute Nachrichten! Ein Platz ist frei geworden und du bist jetzt für "{ctx.event_name}" bestätigt!
 
-Event Details:
-- Date: {ctx.event_date}
-- Location: {ctx.event_location or 'TBD'}
-- Group Size: {ctx.group_size} {'person' if ctx.group_size == 1 else 'people'}
+Details:
+- Datum: {ctx.event_date}
+- Ort: {ctx.event_location or 'Wird noch bekannt gegeben'}
+- Personen: {ctx.group_size} {persons}
 
-Need to cancel? Use this link:
+Falls du doch nicht kannst, storniere hier:
 {ctx.cancellation_url}
 
-We look forward to seeing you!
+Wir freuen uns auf dich!
 
-Best regards,
-The Event Team
+Bis bald,
+Dein Funke-Team
 """
 
         html_body = f"""
@@ -295,23 +302,23 @@ The Event Team
 <html>
 <head><meta charset="utf-8"></head>
 <body style="font-family: sans-serif; line-height: 1.6; color: #333;">
-    <h2>🎉 You're Confirmed!</h2>
-    <p>Hello {ctx.attendee_name},</p>
-    <p>Great news! A spot has opened up and your registration for <strong>"{ctx.event_name}"</strong> is now <strong>CONFIRMED</strong>!</p>
+    <h2>Du bist dabei!</h2>
+    <p>Moin {ctx.attendee_name},</p>
+    <p>Gute Nachrichten! Ein Platz ist frei geworden und du bist jetzt für <strong>"{ctx.event_name}"</strong> <strong>bestätigt</strong>!</p>
 
-    <h3>Event Details</h3>
+    <h3>Details</h3>
     <ul>
-        <li><strong>Date:</strong> {ctx.event_date}</li>
-        <li><strong>Location:</strong> {ctx.event_location or 'TBD'}</li>
-        <li><strong>Group Size:</strong> {ctx.group_size} {'person' if ctx.group_size == 1 else 'people'}</li>
+        <li><strong>Datum:</strong> {ctx.event_date}</li>
+        <li><strong>Ort:</strong> {ctx.event_location or 'Wird noch bekannt gegeben'}</li>
+        <li><strong>Personen:</strong> {ctx.group_size} {persons}</li>
     </ul>
 
     <p style="margin-top: 20px;">
-        <a href="{ctx.cancellation_url}" style="color: #666;">Need to cancel?</a>
+        <a href="{ctx.cancellation_url}" style="color: #666;">Falls du doch nicht kannst, storniere hier</a>
     </p>
 
-    <p>We look forward to seeing you!</p>
-    <p>Best regards,<br>The Event Team</p>
+    <p>Wir freuen uns auf dich!</p>
+    <p>Bis bald,<br>Dein Funke-Team</p>
 </body>
 </html>
 """
@@ -320,21 +327,25 @@ The Event Team
     @staticmethod
     def lottery_winner(ctx: EmailContext) -> tuple[str, str, str]:
         """Generate lottery winner notification email."""
-        subject = f"Lottery Result: You're in for {ctx.event_name}"
+        subject = f"Verlosung: Du bist dabei bei {ctx.event_name}!"
+        persons = "Person" if ctx.group_size == 1 else "Personen"
 
-        text_body = f"""Hello {ctx.attendee_name},
+        text_body = f"""Moin {ctx.attendee_name},
 
-Great news! You have been selected to attend "{ctx.event_name}".
+Glückwunsch! Du wurdest für "{ctx.event_name}" ausgelost!
 
-Event Details:
-- Date: {ctx.event_date}
-- Location: {ctx.event_location or 'TBD'}
-- Group Size: {ctx.group_size} {'person' if ctx.group_size == 1 else 'people'}
+Details:
+- Datum: {ctx.event_date}
+- Ort: {ctx.event_location or 'Wird noch bekannt gegeben'}
+- Personen: {ctx.group_size} {persons}
 
-Need to cancel? Use this link:
+Falls du doch nicht kannst, storniere hier:
 {ctx.cancellation_url}
 
-See you there!
+Wir freuen uns auf dich!
+
+Bis bald,
+Dein Funke-Team
 """
 
         html_body = f"""
@@ -342,23 +353,23 @@ See you there!
 <html>
 <head><meta charset="utf-8"></head>
 <body style="font-family: sans-serif; line-height: 1.6; color: #333;">
-    <h2>🎉 You're In!</h2>
-    <p>Hello {ctx.attendee_name},</p>
-    <p>You have been selected to attend <strong>"{ctx.event_name}"</strong>.</p>
+    <h2>Du bist dabei!</h2>
+    <p>Moin {ctx.attendee_name},</p>
+    <p>Glückwunsch! Du wurdest für <strong>"{ctx.event_name}"</strong> ausgelost!</p>
 
-    <h3>Event Details</h3>
+    <h3>Details</h3>
     <ul>
-        <li><strong>Date:</strong> {ctx.event_date}</li>
-        <li><strong>Location:</strong> {ctx.event_location or 'TBD'}</li>
-        <li><strong>Group Size:</strong> {ctx.group_size} {'person' if ctx.group_size == 1 else 'people'}</li>
+        <li><strong>Datum:</strong> {ctx.event_date}</li>
+        <li><strong>Ort:</strong> {ctx.event_location or 'Wird noch bekannt gegeben'}</li>
+        <li><strong>Personen:</strong> {ctx.group_size} {persons}</li>
     </ul>
 
     <p style="margin-top: 20px;">
-        <a href="{ctx.cancellation_url}" style="color: #666;">Need to cancel?</a>
+        <a href="{ctx.cancellation_url}" style="color: #666;">Falls du doch nicht kannst, storniere hier</a>
     </p>
 
-    <p>See you there!</p>
-    <p>Best regards,<br>The Event Team</p>
+    <p>Wir freuen uns auf dich!</p>
+    <p>Bis bald,<br>Dein Funke-Team</p>
 </body>
 </html>
 """
@@ -367,26 +378,30 @@ See you there!
     @staticmethod
     def lottery_waitlisted(ctx: EmailContext) -> tuple[str, str, str]:
         """Generate lottery waitlist notification email."""
-        subject = f"Lottery Result: Waitlisted for {ctx.event_name}"
+        subject = f"Verlosung: Warteliste für {ctx.event_name}"
+        persons = "Person" if ctx.group_size == 1 else "Personen"
 
-        text_body = f"""Hello {ctx.attendee_name},
+        text_body = f"""Moin {ctx.attendee_name},
 
-Thank you for registering for "{ctx.event_name}".
+Danke für deine Anmeldung zu "{ctx.event_name}".
 
-After the lottery draw, your registration is currently on the waitlist.
-Your position: #{ctx.waitlist_position}
+Bei der Verlosung hast du leider keinen Platz bekommen, aber du stehst auf der Warteliste.
+Dein Wartelistenplatz: #{ctx.waitlist_position}
 
-If a spot opens up, we'll notify you immediately.
+Sobald ein Platz frei wird, benachrichtigen wir dich sofort.
 
-Event Details:
-- Date: {ctx.event_date}
-- Location: {ctx.event_location or 'TBD'}
-- Group Size: {ctx.group_size} {'person' if ctx.group_size == 1 else 'people'}
+Details:
+- Datum: {ctx.event_date}
+- Ort: {ctx.event_location or 'Wird noch bekannt gegeben'}
+- Personen: {ctx.group_size} {persons}
 
-Need to cancel your waitlist spot?
+Falls du doch nicht willst, storniere hier:
 {ctx.cancellation_url}
 
-Thank you for your patience!
+Drück die Daumen!
+
+Bis bald,
+Dein Funke-Team
 """
 
         html_body = f"""
@@ -394,29 +409,29 @@ Thank you for your patience!
 <html>
 <head><meta charset="utf-8"></head>
 <body style="font-family: sans-serif; line-height: 1.6; color: #333;">
-    <h2>You're on the Waitlist</h2>
-    <p>Hello {ctx.attendee_name},</p>
-    <p>Thank you for registering for <strong>"{ctx.event_name}"</strong>.</p>
+    <h2>Du stehst auf der Warteliste</h2>
+    <p>Moin {ctx.attendee_name},</p>
+    <p>Danke für deine Anmeldung zu <strong>"{ctx.event_name}"</strong>.</p>
 
-    <p>After the lottery draw, your registration is currently on the waitlist.</p>
+    <p>Bei der Verlosung hast du leider keinen Platz bekommen, aber du stehst auf der Warteliste.</p>
 
     <p style="font-size: 1.2em; background: #f5f5f5; padding: 15px; border-radius: 5px;">
-        Waitlist position: <strong>#{ctx.waitlist_position}</strong>
+        Dein Wartelistenplatz: <strong>#{ctx.waitlist_position}</strong>
     </p>
 
-    <h3>Event Details</h3>
+    <h3>Details</h3>
     <ul>
-        <li><strong>Date:</strong> {ctx.event_date}</li>
-        <li><strong>Location:</strong> {ctx.event_location or 'TBD'}</li>
-        <li><strong>Group Size:</strong> {ctx.group_size} {'person' if ctx.group_size == 1 else 'people'}</li>
+        <li><strong>Datum:</strong> {ctx.event_date}</li>
+        <li><strong>Ort:</strong> {ctx.event_location or 'Wird noch bekannt gegeben'}</li>
+        <li><strong>Personen:</strong> {ctx.group_size} {persons}</li>
     </ul>
 
     <p style="margin-top: 20px;">
-        <a href="{ctx.cancellation_url}" style="color: #666;">Need to cancel your waitlist spot?</a>
+        <a href="{ctx.cancellation_url}" style="color: #666;">Falls du doch nicht willst, storniere hier</a>
     </p>
 
-    <p>Thank you for your patience!</p>
-    <p>Best regards,<br>The Event Team</p>
+    <p>Drück die Daumen!</p>
+    <p>Bis bald,<br>Dein Funke-Team</p>
 </body>
 </html>
 """
@@ -425,24 +440,25 @@ Thank you for your patience!
     @staticmethod
     def lottery_rejected(ctx: EmailContext) -> tuple[str, str, str]:
         """Generate lottery rejection notification email (no waitlist)."""
-        subject = f"Lottery Result: Not Selected for {ctx.event_name}"
+        subject = f"Verlosung: Leider nicht dabei bei {ctx.event_name}"
+        persons = "Person" if ctx.group_size == 1 else "Personen"
 
-        text_body = f"""Hello {ctx.attendee_name},
+        text_body = f"""Moin {ctx.attendee_name},
 
-Thank you for registering for "{ctx.event_name}".
+Danke für deine Anmeldung zu "{ctx.event_name}".
 
-Unfortunately, after the lottery draw, your registration was not selected.
-Due to high demand, we were unable to accommodate all registrations.
+Leider hast du bei der Verlosung keinen Platz bekommen.
+Die Nachfrage war diesmal einfach zu groß.
 
-Event Details:
-- Date: {ctx.event_date}
-- Location: {ctx.event_location or 'TBD'}
-- Group Size: {ctx.group_size} {'person' if ctx.group_size == 1 else 'people'}
+Details:
+- Datum: {ctx.event_date}
+- Ort: {ctx.event_location or 'Wird noch bekannt gegeben'}
+- Personen: {ctx.group_size} {persons}
 
-We hope to see you at future events!
+Wir hoffen, dich beim nächsten Mal dabei zu haben!
 
-Best regards,
-The Event Team
+Bis bald,
+Dein Funke-Team
 """
 
         html_body = f"""
@@ -450,21 +466,21 @@ The Event Team
 <html>
 <head><meta charset="utf-8"></head>
 <body style="font-family: sans-serif; line-height: 1.6; color: #333;">
-    <h2>Lottery Result</h2>
-    <p>Hello {ctx.attendee_name},</p>
-    <p>Thank you for registering for <strong>"{ctx.event_name}"</strong>.</p>
-    <p>Unfortunately, after the lottery draw, your registration was not selected.
-    Due to high demand, we were unable to accommodate all registrations.</p>
+    <h2>Verlosungsergebnis</h2>
+    <p>Moin {ctx.attendee_name},</p>
+    <p>Danke für deine Anmeldung zu <strong>"{ctx.event_name}"</strong>.</p>
+    <p>Leider hast du bei der Verlosung keinen Platz bekommen.
+    Die Nachfrage war diesmal einfach zu groß.</p>
 
-    <h3>Event Details</h3>
+    <h3>Details</h3>
     <ul>
-        <li><strong>Date:</strong> {ctx.event_date}</li>
-        <li><strong>Location:</strong> {ctx.event_location or 'TBD'}</li>
-        <li><strong>Group Size:</strong> {ctx.group_size} {'person' if ctx.group_size == 1 else 'people'}</li>
+        <li><strong>Datum:</strong> {ctx.event_date}</li>
+        <li><strong>Ort:</strong> {ctx.event_location or 'Wird noch bekannt gegeben'}</li>
+        <li><strong>Personen:</strong> {ctx.group_size} {persons}</li>
     </ul>
 
-    <p>We hope to see you at future events!</p>
-    <p>Best regards,<br>The Event Team</p>
+    <p>Wir hoffen, dich beim nächsten Mal dabei zu haben!</p>
+    <p>Bis bald,<br>Dein Funke-Team</p>
 </body>
 </html>
 """
@@ -476,20 +492,20 @@ The Event Team
 
         Returns: (subject, text_body, html_body)
         """
-        subject = f"Event Cancelled: {ctx.event_name}"
+        subject = f"Veranstaltung abgesagt: {ctx.event_name}"
 
-        text_body = f"""Hello {ctx.attendee_name},
+        text_body = f"""Moin {ctx.attendee_name},
 
-We regret to inform you that "{ctx.event_name}" has been cancelled.
+Leider müssen wir dir mitteilen, dass "{ctx.event_name}" abgesagt wurde.
 
-Original Event Details:
-- Date: {ctx.event_date}
-- Location: {ctx.event_location or 'TBD'}
+Ursprüngliche Details:
+- Datum: {ctx.event_date}
+- Ort: {ctx.event_location or 'Wird noch bekannt gegeben'}
 
-We apologize for any inconvenience this may cause.
+Wir entschuldigen uns für die Unannehmlichkeiten.
 
-Best regards,
-The Event Team
+Bis bald,
+Dein Funke-Team
 """
 
         html_body = f"""
@@ -497,19 +513,19 @@ The Event Team
 <html>
 <head><meta charset="utf-8"></head>
 <body style="font-family: sans-serif; line-height: 1.6; color: #333;">
-    <h2 style="color: #dc2626;">Event Cancelled</h2>
-    <p>Hello {ctx.attendee_name},</p>
-    <p>We regret to inform you that <strong>"{ctx.event_name}"</strong> has been cancelled.</p>
+    <h2 style="color: #dc2626;">Veranstaltung abgesagt</h2>
+    <p>Moin {ctx.attendee_name},</p>
+    <p>Leider müssen wir dir mitteilen, dass <strong>"{ctx.event_name}"</strong> abgesagt wurde.</p>
 
-    <h3>Original Event Details</h3>
+    <h3>Ursprüngliche Details</h3>
     <ul>
-        <li><strong>Date:</strong> {ctx.event_date}</li>
-        <li><strong>Location:</strong> {ctx.event_location or 'TBD'}</li>
+        <li><strong>Datum:</strong> {ctx.event_date}</li>
+        <li><strong>Ort:</strong> {ctx.event_location or 'Wird noch bekannt gegeben'}</li>
     </ul>
 
-    <p>We apologize for any inconvenience this may cause.</p>
+    <p>Wir entschuldigen uns für die Unannehmlichkeiten.</p>
 
-    <p>Best regards,<br>The Event Team</p>
+    <p>Bis bald,<br>Dein Funke-Team</p>
 </body>
 </html>
 """
@@ -525,28 +541,33 @@ The Event Team
 
         Returns: (subject, text_body, html_body)
         """
-        urgency = "soon" if days_until_event <= 3 else f"in {days_until_event} days"
-        subject = f"Please Confirm: {ctx.event_name} is {urgency}"
+        if days_until_event <= 1:
+            urgency = "morgen"
+        elif days_until_event <= 3:
+            urgency = "bald"
+        else:
+            urgency = f"in {days_until_event} Tagen"
+        subject = f"Bitte bestätigen: {ctx.event_name} ist {urgency}!"
 
-        text_body = f"""Hello {ctx.attendee_name},
+        text_body = f"""Moin {ctx.attendee_name},
 
-Your event "{ctx.event_name}" is coming up {urgency}!
+"{ctx.event_name}" steht {urgency} an!
 
-Event Details:
-- Date: {ctx.event_date}
-- Location: {ctx.event_location or 'TBD'}
-- Your group size: {ctx.group_size}
+Details:
+- Datum: {ctx.event_date}
+- Ort: {ctx.event_location or 'Wird noch bekannt gegeben'}
+- Personen: {ctx.group_size}
 
-Please confirm your attendance:
+Bitte bestätige deine Teilnahme:
 
-✅ YES, I will attend: {ctx.confirmation_yes_url}
+✅ JA, ich bin dabei: {ctx.confirmation_yes_url}
 
-❌ NO, I cannot attend: {ctx.confirmation_no_url}
+❌ NEIN, ich kann nicht: {ctx.confirmation_no_url}
 
-If you cannot attend, please let us know as soon as possible so we can offer your spot to someone on the waitlist.
+Falls du nicht teilnehmen kannst, sag bitte so früh wie möglich Bescheid, damit wir deinen Platz an jemanden von der Warteliste vergeben können.
 
-Best regards,
-The Event Team
+Bis bald!
+Dein Funke-Team
 """
 
         html_body = f"""
@@ -554,33 +575,33 @@ The Event Team
 <html>
 <head><meta charset="utf-8"></head>
 <body style="font-family: sans-serif; line-height: 1.6; color: #333;">
-    <h2 style="color: #2563eb;">Please Confirm Your Attendance</h2>
-    <p>Hello {ctx.attendee_name},</p>
-    <p>Your event <strong>"{ctx.event_name}"</strong> is coming up {urgency}!</p>
+    <h2 style="color: #2563eb;">Bitte bestätige deine Teilnahme</h2>
+    <p>Moin {ctx.attendee_name},</p>
+    <p><strong>"{ctx.event_name}"</strong> steht {urgency} an!</p>
 
-    <h3>Event Details</h3>
+    <h3>Details</h3>
     <ul>
-        <li><strong>Date:</strong> {ctx.event_date}</li>
-        <li><strong>Location:</strong> {ctx.event_location or 'TBD'}</li>
-        <li><strong>Your group size:</strong> {ctx.group_size}</li>
+        <li><strong>Datum:</strong> {ctx.event_date}</li>
+        <li><strong>Ort:</strong> {ctx.event_location or 'Wird noch bekannt gegeben'}</li>
+        <li><strong>Personen:</strong> {ctx.group_size}</li>
     </ul>
 
-    <p><strong>Please confirm your attendance:</strong></p>
+    <p><strong>Bitte bestätige deine Teilnahme:</strong></p>
 
     <div style="margin: 20px 0;">
         <a href="{ctx.confirmation_yes_url}" style="display: inline-block; padding: 12px 24px; background: #16a34a; color: white; text-decoration: none; border-radius: 6px; margin-right: 10px;">
-            ✅ Yes, I will attend
+            Ja, ich bin dabei!
         </a>
         <a href="{ctx.confirmation_no_url}" style="display: inline-block; padding: 12px 24px; background: #dc2626; color: white; text-decoration: none; border-radius: 6px;">
-            ❌ No, I cannot attend
+            Nein, ich kann nicht
         </a>
     </div>
 
     <p style="color: #666; font-size: 0.9em;">
-        If you cannot attend, please let us know as soon as possible so we can offer your spot to someone on the waitlist.
+        Falls du nicht teilnehmen kannst, sag bitte so früh wie möglich Bescheid, damit wir deinen Platz an jemanden von der Warteliste vergeben können.
     </p>
 
-    <p>Best regards,<br>The Event Team</p>
+    <p>Bis bald!<br>Dein Funke-Team</p>
 </body>
 </html>
 """

@@ -51,10 +51,20 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Determine CORS origins based on environment
+if settings.env_name == "dev":
+    cors_allow_origins = settings.cors_origins
+else:
+    # In production, use configured origins or default to funke.app pattern
+    cors_allow_origins = settings.cors_origins if settings.cors_origins != ["*"] else [
+        "https://funke.mobilemachenschaften.de",
+        "https://*.funke.app",
+    ]
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins if settings.env_name == "dev" else ["https://*.funke.app"],
+    allow_origins=cors_allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

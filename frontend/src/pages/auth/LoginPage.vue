@@ -2,14 +2,14 @@
   <article>
     <header>
       <hgroup>
-        <h2>Admin Login</h2>
-        <p>Sign in to manage your funke events</p>
+        <h2>Admin-Bereich</h2>
+        <p>Melde dich an, um deine Veranstaltungen zu verwalten</p>
       </hgroup>
     </header>
 
     <!-- Loading state while checking auth -->
     <div v-if="isLoading" aria-busy="true">
-      Checking authentication...
+      Authentifizierung wird geprüft...
     </div>
 
     <!-- Error state -->
@@ -19,18 +19,27 @@
 
     <!-- Login button -->
     <div v-else class="login-container">
-      <p>Click the button below to sign in with your account.</p>
       <button @click="handleLogin" :disabled="isLoading">
-        Sign In
+        Anmelden
       </button>
     </div>
   </article>
 </template>
 
 <script setup>
+import { watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAuth0 } from '@auth0/auth0-vue'
 
-const { loginWithRedirect, isLoading, error } = useAuth0()
+const router = useRouter()
+const { loginWithRedirect, isLoading, isAuthenticated, error } = useAuth0()
+
+// Redirect to admin if already authenticated
+watch(isAuthenticated, (authenticated) => {
+  if (authenticated) {
+    router.push('/admin/events')
+  }
+}, { immediate: true })
 
 function handleLogin() {
   loginWithRedirect({

@@ -7,17 +7,20 @@
         </ul>
         <ul>
           <li v-if="isAuthenticated">
-            <router-link to="/admin/events">Events</router-link>
+            <router-link to="/admin/events">Veranstaltungen</router-link>
+          </li>
+          <li v-if="isAuthenticated">
+            <router-link to="/admin/debug" class="debug-link">Debug</router-link>
           </li>
           <li v-if="isAuthenticated">
             <span class="user-email">{{ user?.email }}</span>
           </li>
           <li>
             <button v-if="isAuthenticated" @click="handleLogout" class="outline secondary">
-              Logout
+              Abmelden
             </button>
             <router-link v-else to="/login">
-              <button class="outline">Login</button>
+              <button class="outline">Anmelden</button>
             </router-link>
           </li>
         </ul>
@@ -49,6 +52,16 @@ header {
 .user-email {
   font-size: 0.875rem;
   color: var(--pico-muted-color);
+}
+
+.debug-link {
+  font-size: 0.8rem;
+  color: var(--pico-muted-color);
+  text-decoration: none;
+}
+
+.debug-link:hover {
+  color: var(--pico-primary);
 }
 
 nav ul li button {
