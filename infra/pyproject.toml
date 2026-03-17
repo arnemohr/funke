@@ -1,0 +1,24 @@
+[project]
+name = "funke-infra"
+version = "0.1.0"
+description = "AWS CDK infrastructure for Funke Event Management"
+requires-python = ">=3.11"
+dependencies = [
+    "aws-cdk-lib>=2.232.2",
+    "aws-cdk.aws-lambda-python-alpha>=2.232.2a0",
+    "constructs>=10.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+
+
+
+
