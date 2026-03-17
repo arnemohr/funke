@@ -71,25 +71,30 @@ class EmailTemplates:
 
         Returns: (subject, text_body, html_body)
         """
-        subject = f"Anmeldung bestätigt: {ctx.event_name}"
+        subject = f"Anmeldung eingegangen: {ctx.event_name}"
         persons = "Person" if ctx.group_size == 1 else "Personen"
 
         text_body = f"""Moin {ctx.attendee_name},
 
-Deine Anmeldung für "{ctx.event_name}" ist bestätigt!
+schön, dass du dabei sein willst! Deine Anmeldung für "{ctx.event_name}" ist bei uns eingegangen.
 
-Details:
+So geht's weiter:
+- Bis zum Anmeldeschluss sammeln wir alle Anmeldungen.
+- Gibt es mehr Anmeldungen als Plätze, entscheidet das Los.
+- Du bekommst danach eine E-Mail, ob du einen Platz hast.
+
+Deine Anmeldung:
 - Datum: {ctx.event_date}
 - Ort: {ctx.event_location or 'Wird noch bekannt gegeben'}
 - Personen: {ctx.group_size} {persons}
 
-Falls du doch nicht kannst, storniere hier:
+Falls du es dir anders überlegst, kannst du hier stornieren:
 {ctx.cancellation_url}
 
-Wir freuen uns auf dich!
+Bei Fragen, einfach melden!
 
 Bis bald,
-Dein Team vom Verein für mobile Machenschaften
+Deine Crew von der Schaluppe
 """
 
         html_body = f"""
@@ -97,11 +102,18 @@ Dein Team vom Verein für mobile Machenschaften
 <html>
 <head><meta charset="utf-8"></head>
 <body style="font-family: sans-serif; line-height: 1.6; color: #333;">
-    <h2 style="color: #16a34a;">Anmeldung bestätigt ✓</h2>
+    <h2 style="color: #16a34a;">Anmeldung eingegangen ✓</h2>
     <p>Moin {ctx.attendee_name},</p>
-    <p>Deine Anmeldung für <strong>"{ctx.event_name}"</strong> ist bestätigt!</p>
+    <p>schön, dass du dabei sein willst! Deine Anmeldung für <strong>"{ctx.event_name}"</strong> ist bei uns eingegangen.</p>
 
-    <h3>Details</h3>
+    <h3>So geht's weiter</h3>
+    <ul>
+        <li>Bis zum Anmeldeschluss sammeln wir alle Anmeldungen.</li>
+        <li>Gibt es mehr Anmeldungen als Plätze, entscheidet das Los.</li>
+        <li>Du bekommst danach eine E-Mail, ob du einen Platz hast.</li>
+    </ul>
+
+    <h3>Deine Anmeldung</h3>
     <ul>
         <li><strong>Datum:</strong> {ctx.event_date}</li>
         <li><strong>Ort:</strong> {ctx.event_location or 'Wird noch bekannt gegeben'}</li>
@@ -109,11 +121,11 @@ Dein Team vom Verein für mobile Machenschaften
     </ul>
 
     <p style="margin-top: 20px;">
-        <a href="{ctx.cancellation_url}" style="color: #666;">Falls du doch nicht kannst, storniere hier</a>
+        <a href="{ctx.cancellation_url}" style="color: #666;">Falls du es dir anders überlegst, kannst du hier stornieren</a>
     </p>
 
-    <p>Wir freuen uns auf dich!</p>
-    <p>Bis bald,<br>Dein Team vom Verein für mobile Machenschaften</p>
+    <p>Bei Fragen, einfach melden!</p>
+    <p>Bis bald,<br>Deine Crew von der Schaluppe</p>
 </body>
 </html>
 """
@@ -147,7 +159,7 @@ Falls du doch nicht willst, storniere hier:
 {ctx.cancellation_url}
 
 Bis bald,
-Dein Team vom Verein für mobile Machenschaften
+Deine Crew von der Schaluppe
 """
 
         html_body = f"""
@@ -178,7 +190,7 @@ Dein Team vom Verein für mobile Machenschaften
         <a href="{ctx.cancellation_url}" style="color: #666;">Falls du doch nicht willst, storniere hier</a>
     </p>
 
-    <p>Bis bald,<br>Dein Team vom Verein für mobile Machenschaften</p>
+    <p>Bis bald,<br>Deine Crew von der Schaluppe</p>
 </body>
 </html>
 """
@@ -203,7 +215,7 @@ Details:
 Falls du es dir anders überlegst, kannst du dich gerne erneut anmelden.
 
 Bis bald,
-Dein Team vom Verein für mobile Machenschaften
+Deine Crew von der Schaluppe
 """
 
         html_body = f"""
@@ -223,7 +235,7 @@ Dein Team vom Verein für mobile Machenschaften
 
     <p>Falls du es dir anders überlegst, kannst du dich gerne erneut anmelden.</p>
 
-    <p>Bis bald,<br>Dein Team vom Verein für mobile Machenschaften</p>
+    <p>Bis bald,<br>Deine Crew von der Schaluppe</p>
 </body>
 </html>
 """
@@ -253,7 +265,7 @@ Falls du doch nicht kannst, storniere hier:
 Wir freuen uns auf dich!
 
 Bis bald,
-Dein Team vom Verein für mobile Machenschaften
+Deine Crew von der Schaluppe
 """
 
         html_body = f"""
@@ -277,7 +289,7 @@ Dein Team vom Verein für mobile Machenschaften
     </p>
 
     <p>Wir freuen uns auf dich!</p>
-    <p>Bis bald,<br>Dein Team vom Verein für mobile Machenschaften</p>
+    <p>Bis bald,<br>Deine Crew von der Schaluppe</p>
 </body>
 </html>
 """
@@ -304,7 +316,7 @@ Falls du doch nicht kannst, storniere hier:
 Wir freuen uns auf dich!
 
 Bis bald,
-Dein Team vom Verein für mobile Machenschaften
+Deine Crew von der Schaluppe
 """
 
         html_body = f"""
@@ -328,7 +340,7 @@ Dein Team vom Verein für mobile Machenschaften
     </p>
 
     <p>Wir freuen uns auf dich!</p>
-    <p>Bis bald,<br>Dein Team vom Verein für mobile Machenschaften</p>
+    <p>Bis bald,<br>Deine Crew von der Schaluppe</p>
 </body>
 </html>
 """
@@ -360,7 +372,7 @@ Falls du doch nicht willst, storniere hier:
 Drück die Daumen!
 
 Bis bald,
-Dein Team vom Verein für mobile Machenschaften
+Deine Crew von der Schaluppe
 """
 
         html_body = f"""
@@ -390,7 +402,7 @@ Dein Team vom Verein für mobile Machenschaften
     </p>
 
     <p>Drück die Daumen!</p>
-    <p>Bis bald,<br>Dein Team vom Verein für mobile Machenschaften</p>
+    <p>Bis bald,<br>Deine Crew von der Schaluppe</p>
 </body>
 </html>
 """
@@ -417,7 +429,7 @@ Details:
 Wir hoffen, dich beim nächsten Mal dabei zu haben!
 
 Bis bald,
-Dein Team vom Verein für mobile Machenschaften
+Deine Crew von der Schaluppe
 """
 
         html_body = f"""
@@ -439,7 +451,7 @@ Dein Team vom Verein für mobile Machenschaften
     </ul>
 
     <p>Wir hoffen, dich beim nächsten Mal dabei zu haben!</p>
-    <p>Bis bald,<br>Dein Team vom Verein für mobile Machenschaften</p>
+    <p>Bis bald,<br>Deine Crew von der Schaluppe</p>
 </body>
 </html>
 """
@@ -464,7 +476,7 @@ Ursprüngliche Details:
 Wir entschuldigen uns für die Unannehmlichkeiten.
 
 Bis bald,
-Dein Team vom Verein für mobile Machenschaften
+Deine Crew von der Schaluppe
 """
 
         html_body = f"""
@@ -484,7 +496,7 @@ Dein Team vom Verein für mobile Machenschaften
 
     <p>Wir entschuldigen uns für die Unannehmlichkeiten.</p>
 
-    <p>Bis bald,<br>Dein Team vom Verein für mobile Machenschaften</p>
+    <p>Bis bald,<br>Deine Crew von der Schaluppe</p>
 </body>
 </html>
 """
@@ -526,7 +538,7 @@ Bitte bestätige deine Teilnahme:
 Falls du nicht teilnehmen kannst, sag bitte so früh wie möglich Bescheid, damit wir deinen Platz an jemanden von der Warteliste vergeben können.
 
 Bis bald!
-Dein Team vom Verein für mobile Machenschaften
+Deine Crew von der Schaluppe
 """
 
         html_body = f"""
@@ -560,7 +572,7 @@ Dein Team vom Verein für mobile Machenschaften
         Falls du nicht teilnehmen kannst, sag bitte so früh wie möglich Bescheid, damit wir deinen Platz an jemanden von der Warteliste vergeben können.
     </p>
 
-    <p>Bis bald!<br>Dein Team vom Verein für mobile Machenschaften</p>
+    <p>Bis bald!<br>Deine Crew von der Schaluppe</p>
 </body>
 </html>
 """
@@ -999,7 +1011,7 @@ class EmailService:
     <p style="color: #666; font-size: 0.9em;">
         Diese Nachricht bezieht sich auf die Veranstaltung "{event.name}".
     </p>
-    <p style="color: #666; font-size: 0.9em;">Dein Team vom Verein für mobile Machenschaften</p>
+    <p style="color: #666; font-size: 0.9em;">Deine Crew von der Schaluppe</p>
 </body>
 </html>
 """

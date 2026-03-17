@@ -429,10 +429,24 @@ class LotteryService:
         winners = []
         waitlist = []
 
+        logger.info(
+            "Building lottery result",
+            extra={
+                "run_winners": run.winners,
+                "run_waitlist": run.waitlist,
+                "registration_ids": list(registrations_by_id.keys()),
+            },
+        )
+
         for reg_id in run.winners:
             reg = registrations_by_id.get(reg_id)
             if reg:
                 winners.append(_serialize_registration(reg))
+            else:
+                logger.warning(
+                    "Winner registration not found",
+                    extra={"reg_id": reg_id},
+                )
 
         for reg_id in run.waitlist:
             reg = registrations_by_id.get(reg_id)

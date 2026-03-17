@@ -8,8 +8,10 @@ Provides:
 
 import secrets
 import smtplib
+from email.header import Header
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import formataddr
 from functools import lru_cache
 
 from pydantic import BaseModel
@@ -29,7 +31,7 @@ class EmailSettings(BaseSettings):
     smtp_username: str = ""
     smtp_password: str = ""
     smtp_sender_email: str = ""
-    smtp_sender_name: str = "Verein für mobile Machenschaften e.V."
+    smtp_sender_name: str = "Schaluppe"
 
     class Config:
         env_prefix = ""
@@ -84,7 +86,9 @@ class SmtpClient:
 
         # Set headers
         msg["To"] = email.to
-        msg["From"] = f"{settings.smtp_sender_name} <{settings.smtp_sender_email}>"
+        msg["From"] = formataddr(
+            (str(Header(settings.smtp_sender_name, "utf-8")), settings.smtp_sender_email)
+        )
         msg["Subject"] = email.subject
 
         # Generate or use provided Message-ID

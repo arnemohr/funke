@@ -81,11 +81,18 @@
             Duplizieren
           </button>
           <button
-            v-if="['REGISTRATION_CLOSED', 'LOTTERY_PENDING', 'CONFIRMED'].includes(event?.status)"
+            v-if="['REGISTRATION_CLOSED', 'LOTTERY_PENDING'].includes(event?.status)"
             @click="$emit('go-to-lottery', event)"
             class="outline"
           >
             Verlosung
+          </button>
+          <button
+            v-if="event?.status === 'CONFIRMED'"
+            @click="$emit('go-to-lottery', event)"
+            class="outline secondary"
+          >
+            Verlosung ansehen
           </button>
           <button
             @click="$emit('export-csv', event)"

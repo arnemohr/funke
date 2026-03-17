@@ -7,6 +7,8 @@ Configures:
 - CORS configuration
 """
 
+import os
+
 from aws_cdk import Duration, RemovalPolicy, Stack
 from aws_cdk import aws_apigatewayv2 as apigwv2
 from aws_cdk import aws_apigatewayv2_integrations as integrations
@@ -70,14 +72,14 @@ class ApiStack(Stack):
                 # Auth0 configuration
                 "AUTH0_DOMAIN": self.node.try_get_context("auth0_domain") or "",
                 "AUTH0_AUDIENCE": self.node.try_get_context("auth0_audience") or "",
-                # SMTP configuration (Strato)
-                "SMTP_HOST": self.node.try_get_context("smtp_host") or "smtp.strato.de",
-                "SMTP_PORT": self.node.try_get_context("smtp_port") or "465",
-                "SMTP_USE_SSL": self.node.try_get_context("smtp_use_ssl") or "true",
-                "SMTP_USERNAME": self.node.try_get_context("smtp_username") or "",
-                "SMTP_PASSWORD": self.node.try_get_context("smtp_password") or "",
-                "SMTP_SENDER_EMAIL": self.node.try_get_context("smtp_sender_email") or "",
-                "SMTP_SENDER_NAME": self.node.try_get_context("smtp_sender_name") or "Verein für mobile Machenschaften e.V.",
+                # SMTP configuration (Strato) — loaded from environment (.envrc)
+                "SMTP_HOST": os.environ.get("SMTP_HOST", "smtp.strato.de"),
+                "SMTP_PORT": os.environ.get("SMTP_PORT", "465"),
+                "SMTP_USE_SSL": os.environ.get("SMTP_USE_SSL", "true"),
+                "SMTP_USERNAME": os.environ.get("SMTP_USERNAME", ""),
+                "SMTP_PASSWORD": os.environ.get("SMTP_PASSWORD", ""),
+                "SMTP_SENDER_EMAIL": os.environ.get("SMTP_SENDER_EMAIL", ""),
+                "SMTP_SENDER_NAME": os.environ.get("SMTP_SENDER_NAME", "Verein für mobile Machenschaften e.V."),
                 "BASE_URL": self.node.try_get_context("base_url") or f"https://{domain_name}" if domain_name else "http://localhost:5173",
             },
             log_group=api_log_group,

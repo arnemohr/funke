@@ -54,7 +54,7 @@ async def main():
     <p>Moin!</p>
     <p>Dies ist eine Testnachricht vom Funke Event-System.</p>
     <p>Wenn du diese Mail lesen kannst, funktioniert der SMTP-Versand.</p>
-    <p>Bis bald,<br>Dein Team vom Verein für mobile Machenschaften</p>
+    <p>Bis bald,<br>Deine Crew von der Schaluppe</p>
 </body>
 </html>
 """,

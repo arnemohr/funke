@@ -29,12 +29,21 @@
           <dt>Plätze</dt>
           <dd>{{ event.capacity }}</dd>
           <dt>Anmeldeschluss</dt>
-          <dd>{{ formatDate(event.registration_deadline) }}</dd>
+          <dd :class="{ 'deadline-passed': deadlinePassed }">
+            {{ formatDate(event.registration_deadline) }}
+            <span v-if="deadlinePassed"> (abgelaufen)</span>
+          </dd>
         </dl>
       </section>
 
+      <!-- Deadline passed notice -->
+      <section v-if="deadlinePassed && !submitted" class="deadline-notice">
+        <h3>Anmeldeschluss erreicht</h3>
+        <p>Der Anmeldeschluss für diese Veranstaltung war am <strong>{{ formatDate(event.registration_deadline) }}</strong>. Eine Anmeldung ist leider nicht mehr möglich.</p>
+      </section>
+
       <!-- Registration form -->
-      <section v-if="!submitted">
+      <section v-if="!deadlinePassed && !submitted">
         <h3>Jetzt anmelden</h3>
         <form @submit.prevent="handleSubmit">
           <label for="name">
@@ -146,7 +155,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { publicApi } from '../../services/api'
 
@@ -161,6 +170,11 @@ const submitting = ref(false)
 const submitError = ref(null)
 const registration = ref(null)
 const successMessage = ref('')
+
+const deadlinePassed = computed(() => {
+  if (!event.value?.registration_deadline) return false
+  return new Date(event.value.registration_deadline) < new Date()
+})
 
 const form = ref({
   name: '',
@@ -298,6 +312,19 @@ onMounted(loadEvent)
 
 .info-box p:last-child {
   margin-bottom: 0;
+}
+
+.deadline-passed {
+  color: var(--pico-color-red-500, #dc3545);
+  font-weight: bold;
+}
+
+.deadline-notice {
+  padding: 2rem;
+  background: var(--pico-color-amber-50, #fffbeb);
+  border-radius: var(--pico-border-radius);
+  border-left: 4px solid var(--pico-color-amber-500, #f59e0b);
+  text-align: center;
 }
 
 dl {

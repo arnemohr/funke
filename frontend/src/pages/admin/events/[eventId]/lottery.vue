@@ -59,20 +59,21 @@
           </div>
           <div class="actions">
             <button
+              v-if="!lottery?.is_finalized && event?.status !== 'CONFIRMED'"
               class="secondary"
-              :disabled="running || finalizing || lottery?.is_finalized"
+              :disabled="running || finalizing"
               :aria-busy="running"
               @click="handleRun"
             >
               {{ running ? 'Läuft...' : 'Verlosung starten' }}
             </button>
             <button
-              v-if="lottery"
-              :disabled="lottery.is_finalized || finalizing"
+              v-if="lottery && !lottery.is_finalized && event?.status !== 'CONFIRMED'"
+              :disabled="finalizing"
               :aria-busy="finalizing"
               @click="handleFinalize"
             >
-              {{ finalizing ? 'Wird abgeschlossen...' : lottery.is_finalized ? 'Abgeschlossen' : 'Abschließen & Benachrichtigen' }}
+              {{ finalizing ? 'Wird abgeschlossen...' : 'Abschließen & Benachrichtigen' }}
             </button>
           </div>
         </header>
