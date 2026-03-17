@@ -8,62 +8,21 @@ Provides:
 - Email templating with event/registration context
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-import boto3
 from botocore.exceptions import ClientError
 from pydantic import BaseModel
-from pydantic_settings import BaseSettings
 
 from ..models import Event, Message, MessageDirection, MessageStatus, MessageType, Registration
+from .config import get_messages_table, get_settings
 from .logging import get_logger
 
 if TYPE_CHECKING:
     from mypy_boto3_dynamodb.service_resource import Table
 
 logger = get_logger(__name__)
-
-
-class EmailServiceSettings(BaseSettings):
-    """Email service configuration."""
-
-    base_url: str = "http://localhost:5173"  # Frontend base URL
-    dynamodb_table_prefix: str = "funke-dev"
-    aws_region: str = "eu-central-1"
-    dynamodb_endpoint_url: str | None = None
-
-    class Config:
-        env_prefix = ""
-        case_sensitive = False
-
-
-_settings: EmailServiceSettings | None = None
-
-
-def get_email_service_settings() -> EmailServiceSettings:
-    """Get email service settings (cached)."""
-    global _settings
-    if _settings is None:
-        _settings = EmailServiceSettings()
-    return _settings
-
-
-def get_dynamodb_resource():
-    """Get DynamoDB resource."""
-    settings = get_email_service_settings()
-    kwargs = {"region_name": settings.aws_region}
-    if settings.dynamodb_endpoint_url:
-        kwargs["endpoint_url"] = settings.dynamodb_endpoint_url
-    return boto3.resource("dynamodb", **kwargs)
-
-
-def get_messages_table() -> "Table":
-    """Get the messages DynamoDB table."""
-    settings = get_email_service_settings()
-    dynamodb = get_dynamodb_resource()
-    return dynamodb.Table(f"{settings.dynamodb_table_prefix}-messages")
 
 
 class EmailContext(BaseModel):
@@ -93,13 +52,13 @@ def _format_date(dt: datetime) -> str:
 
 def _build_cancellation_url(registration_id: UUID, token: str) -> str:
     """Build the cancellation URL for a registration."""
-    settings = get_email_service_settings()
+    settings = get_settings()
     return f"{settings.base_url}/cancel/{registration_id}?token={token}"
 
 
 def _build_confirmation_url(registration_id: UUID, token: str, response: str) -> str:
     """Build a confirmation response URL."""
-    settings = get_email_service_settings()
+    settings = get_settings()
     return f"{settings.base_url}/confirm/{registration_id}?token={token}&response={response}"
 
 
@@ -130,7 +89,7 @@ Falls du doch nicht kannst, storniere hier:
 Wir freuen uns auf dich!
 
 Bis bald,
-Dein Funke-Team
+Dein Team vom Verein für mobile Machenschaften
 """
 
         html_body = f"""
@@ -154,7 +113,7 @@ Dein Funke-Team
     </p>
 
     <p>Wir freuen uns auf dich!</p>
-    <p>Bis bald,<br>Dein Funke-Team</p>
+    <p>Bis bald,<br>Dein Team vom Verein für mobile Machenschaften</p>
 </body>
 </html>
 """
@@ -188,7 +147,7 @@ Falls du doch nicht willst, storniere hier:
 {ctx.cancellation_url}
 
 Bis bald,
-Dein Funke-Team
+Dein Team vom Verein für mobile Machenschaften
 """
 
         html_body = f"""
@@ -219,7 +178,7 @@ Dein Funke-Team
         <a href="{ctx.cancellation_url}" style="color: #666;">Falls du doch nicht willst, storniere hier</a>
     </p>
 
-    <p>Bis bald,<br>Dein Funke-Team</p>
+    <p>Bis bald,<br>Dein Team vom Verein für mobile Machenschaften</p>
 </body>
 </html>
 """
@@ -244,7 +203,7 @@ Details:
 Falls du es dir anders überlegst, kannst du dich gerne erneut anmelden.
 
 Bis bald,
-Dein Funke-Team
+Dein Team vom Verein für mobile Machenschaften
 """
 
         html_body = f"""
@@ -264,7 +223,7 @@ Dein Funke-Team
 
     <p>Falls du es dir anders überlegst, kannst du dich gerne erneut anmelden.</p>
 
-    <p>Bis bald,<br>Dein Funke-Team</p>
+    <p>Bis bald,<br>Dein Team vom Verein für mobile Machenschaften</p>
 </body>
 </html>
 """
@@ -294,7 +253,7 @@ Falls du doch nicht kannst, storniere hier:
 Wir freuen uns auf dich!
 
 Bis bald,
-Dein Funke-Team
+Dein Team vom Verein für mobile Machenschaften
 """
 
         html_body = f"""
@@ -318,7 +277,7 @@ Dein Funke-Team
     </p>
 
     <p>Wir freuen uns auf dich!</p>
-    <p>Bis bald,<br>Dein Funke-Team</p>
+    <p>Bis bald,<br>Dein Team vom Verein für mobile Machenschaften</p>
 </body>
 </html>
 """
@@ -345,7 +304,7 @@ Falls du doch nicht kannst, storniere hier:
 Wir freuen uns auf dich!
 
 Bis bald,
-Dein Funke-Team
+Dein Team vom Verein für mobile Machenschaften
 """
 
         html_body = f"""
@@ -369,7 +328,7 @@ Dein Funke-Team
     </p>
 
     <p>Wir freuen uns auf dich!</p>
-    <p>Bis bald,<br>Dein Funke-Team</p>
+    <p>Bis bald,<br>Dein Team vom Verein für mobile Machenschaften</p>
 </body>
 </html>
 """
@@ -401,7 +360,7 @@ Falls du doch nicht willst, storniere hier:
 Drück die Daumen!
 
 Bis bald,
-Dein Funke-Team
+Dein Team vom Verein für mobile Machenschaften
 """
 
         html_body = f"""
@@ -431,7 +390,7 @@ Dein Funke-Team
     </p>
 
     <p>Drück die Daumen!</p>
-    <p>Bis bald,<br>Dein Funke-Team</p>
+    <p>Bis bald,<br>Dein Team vom Verein für mobile Machenschaften</p>
 </body>
 </html>
 """
@@ -458,7 +417,7 @@ Details:
 Wir hoffen, dich beim nächsten Mal dabei zu haben!
 
 Bis bald,
-Dein Funke-Team
+Dein Team vom Verein für mobile Machenschaften
 """
 
         html_body = f"""
@@ -480,7 +439,7 @@ Dein Funke-Team
     </ul>
 
     <p>Wir hoffen, dich beim nächsten Mal dabei zu haben!</p>
-    <p>Bis bald,<br>Dein Funke-Team</p>
+    <p>Bis bald,<br>Dein Team vom Verein für mobile Machenschaften</p>
 </body>
 </html>
 """
@@ -505,7 +464,7 @@ Ursprüngliche Details:
 Wir entschuldigen uns für die Unannehmlichkeiten.
 
 Bis bald,
-Dein Funke-Team
+Dein Team vom Verein für mobile Machenschaften
 """
 
         html_body = f"""
@@ -525,7 +484,7 @@ Dein Funke-Team
 
     <p>Wir entschuldigen uns für die Unannehmlichkeiten.</p>
 
-    <p>Bis bald,<br>Dein Funke-Team</p>
+    <p>Bis bald,<br>Dein Team vom Verein für mobile Machenschaften</p>
 </body>
 </html>
 """
@@ -567,7 +526,7 @@ Bitte bestätige deine Teilnahme:
 Falls du nicht teilnehmen kannst, sag bitte so früh wie möglich Bescheid, damit wir deinen Platz an jemanden von der Warteliste vergeben können.
 
 Bis bald!
-Dein Funke-Team
+Dein Team vom Verein für mobile Machenschaften
 """
 
         html_body = f"""
@@ -601,7 +560,7 @@ Dein Funke-Team
         Falls du nicht teilnehmen kannst, sag bitte so früh wie möglich Bescheid, damit wir deinen Platz an jemanden von der Warteliste vergeben können.
     </p>
 
-    <p>Bis bald!<br>Dein Funke-Team</p>
+    <p>Bis bald!<br>Dein Team vom Verein für mobile Machenschaften</p>
 </body>
 </html>
 """
@@ -639,6 +598,9 @@ def _message_to_item(message: Message) -> dict:
 
     if message.received_at:
         item["received_at"] = message.received_at.isoformat()
+
+    if message.recipient_email:
+        item["recipient_email"] = message.recipient_email
 
     if message.error_code:
         item["error_code"] = message.error_code
@@ -1009,6 +971,93 @@ class EmailService:
             message_type=MessageType.CONFIRMATION_REQUEST,
         )
 
+    async def send_custom_message(
+        self,
+        event: Event,
+        registration: Registration,
+        subject: str,
+        body: str,
+    ) -> bool:
+        """Send a custom message to a registration.
+
+        Args:
+            event: The event.
+            registration: The registration to send to.
+            subject: Email subject.
+            body: Email body text.
+
+        Returns:
+            True if email was sent successfully.
+        """
+        html_body = f"""
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: sans-serif; line-height: 1.6; color: #333;">
+    <p>{body.replace(chr(10), '<br>')}</p>
+    <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;">
+    <p style="color: #666; font-size: 0.9em;">
+        Diese Nachricht bezieht sich auf die Veranstaltung "{event.name}".
+    </p>
+    <p style="color: #666; font-size: 0.9em;">Dein Team vom Verein für mobile Machenschaften</p>
+</body>
+</html>
+"""
+
+        return await self._send_email(
+            event_id=event.id,
+            registration_id=registration.id,
+            to=registration.email,
+            subject=subject,
+            text_body=body,
+            html_body=html_body,
+            message_type=MessageType.CUSTOM,
+        )
+
+    async def list_messages_for_event(self, event_id: UUID) -> list[dict]:
+        """List outbound messages for an event.
+
+        Args:
+            event_id: Event ID.
+
+        Returns:
+            List of message dicts with type, subject, recipient, status, sent_at.
+        """
+        from boto3.dynamodb.conditions import Key
+
+        try:
+            response = self.messages_table.query(
+                KeyConditionExpression=Key("pk").eq(f"EVENT#{event_id}"),
+                FilterExpression="direction = :outbound",
+                ExpressionAttributeValues={":outbound": "outbound"},
+            )
+            items = response.get("Items", [])
+
+            while "LastEvaluatedKey" in response:
+                response = self.messages_table.query(
+                    KeyConditionExpression=Key("pk").eq(f"EVENT#{event_id}"),
+                    FilterExpression="direction = :outbound",
+                    ExpressionAttributeValues={":outbound": "outbound"},
+                    ExclusiveStartKey=response["LastEvaluatedKey"],
+                )
+                items.extend(response.get("Items", []))
+
+            return [
+                {
+                    "id": item.get("id"),
+                    "type": item.get("type"),
+                    "subject": item.get("subject"),
+                    "recipient_email": item.get("recipient_email"),
+                    "status": item.get("status"),
+                    "sent_at": item.get("sent_at"),
+                }
+                for item in items
+            ]
+
+        except ClientError as e:
+            logger.error("Failed to list messages", extra={"error": str(e)})
+            return []
+
     async def _send_email(
         self,
         event_id: UUID,
@@ -1047,12 +1096,50 @@ class EmailService:
         )
 
         try:
-            # Log-only mode for development/testing
-            # TODO: Replace with actual Gmail API call when ready for production
-            logger.info(f"email {message_type.value} sent to {to}")
+            # Try to send via Gmail API
+            from .email_client import EmailMessage as GmailEmailMessage
+            from .email_client import get_gmail_client
 
-            message.status = MessageStatus.SENT
-            message.sent_at = datetime.utcnow()
+            try:
+                gmail_client = get_gmail_client()
+                gmail_message = GmailEmailMessage(
+                    to=to,
+                    subject=subject,
+                    body_text=text_body,
+                    body_html=html_body,
+                )
+                result = await gmail_client.send_email(gmail_message)
+
+                if result.success:
+                    message = message.model_copy(
+                        update={
+                            "status": MessageStatus.SENT,
+                            "email_message_id": result.message_id,
+                            "sent_at": datetime.now(timezone.utc),
+                            "recipient_email": to,
+                        },
+                    )
+                else:
+                    message = message.model_copy(
+                        update={
+                            "status": MessageStatus.FAILED,
+                            "error_code": result.error or "send_failed",
+                            "retry_count": 1,
+                            "recipient_email": to,
+                        },
+                    )
+            except ValueError:
+                # Gmail credentials not configured — log-only fallback for local dev
+                logger.info(
+                    f"[LOG-ONLY] email {message_type.value} to {to} (Gmail not configured)",
+                )
+                message = message.model_copy(
+                    update={
+                        "status": MessageStatus.SENT,
+                        "sent_at": datetime.now(timezone.utc),
+                        "recipient_email": to,
+                    },
+                )
 
             # Store message (best effort - don't fail if DynamoDB unavailable)
             try:
@@ -1063,7 +1150,7 @@ class EmailService:
                     extra={"error": str(store_error)},
                 )
 
-            return True
+            return message.status == MessageStatus.SENT
 
         except Exception as e:
             logger.error(

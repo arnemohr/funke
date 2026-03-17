@@ -81,7 +81,10 @@ async def cancel_registration(
         else:
             logger.warning(
                 "Could not send cancellation email: event not found",
-                extra={"event_id": str(registration.event_id), "registration_id": str(registration_id)},
+                extra={
+                    "event_id": str(registration.event_id),
+                    "registration_id": str(registration_id),
+                },
             )
     except Exception as e:
         # Don't fail the cancellation if email fails

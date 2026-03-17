@@ -4,7 +4,7 @@ Represents event registrations with status tracking,
 waitlist positioning, and attendance confirmation workflow.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from uuid import UUID, uuid4
 
@@ -71,7 +71,7 @@ class Registration(BaseModel):
     status: RegistrationStatus = RegistrationStatus.REGISTERED
     waitlist_position: int | None = None
     registration_token: str  # For cancellation/confirmation links
-    registered_at: datetime = Field(default_factory=datetime.utcnow)
+    registered_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     responded_at: datetime | None = None  # When they responded YES/NO
     promoted_from_waitlist: bool = False
     ttl: int | None = None  # DynamoDB TTL timestamp
@@ -151,7 +151,7 @@ class Registration(BaseModel):
         return self.model_copy(
             update={
                 "status": new_status,
-                "responded_at": datetime.utcnow(),
+                "responded_at": lambda: datetime.now(timezone.utc)(),
             },
         )
 

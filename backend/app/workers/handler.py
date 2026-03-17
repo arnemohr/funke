@@ -6,7 +6,7 @@ Handles EventBridge-triggered tasks:
 - cleanup_expired_data: Handle TTL-based data cleanup
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ..models import EventStatus, RegistrationStatus
@@ -136,20 +136,204 @@ async def retry_failed_emails() -> dict:
     Uses exponential backoff for retry timing.
     """
     logger.info("Starting email retry task")
-    # Implementation will be added in Phase 3 (US1)
-    return {"task": "retry_failed_emails", "status": "not_implemented"}
+
+    from ..services.config import get_messages_table
+    from ..services.email_client import EmailMessage as GmailEmailMessage
+    from ..services.email_client import get_gmail_client
+    from ..models import MessageStatus
+
+    max_retries = 3
+    retried = 0
+    succeeded = 0
+    failed = 0
+
+    try:
+        messages_table = get_messages_table()
+
+        # Scan for FAILED messages with retry_count < max_retries
+        scan_kwargs = {
+            "FilterExpression": "#status = :failed",
+            "ExpressionAttributeNames": {"#status": "status"},
+            "ExpressionAttributeValues": {":failed": MessageStatus.FAILED.value},
+        }
+
+        response = messages_table.scan(**scan_kwargs)
+        items = response.get("Items", [])
+
+        while "LastEvaluatedKey" in response:
+            scan_kwargs["ExclusiveStartKey"] = response["LastEvaluatedKey"]
+            response = messages_table.scan(**scan_kwargs)
+            items.extend(response.get("Items", []))
+
+        now = datetime.now(timezone.utc)
+
+        for item in items:
+            retry_count = item.get("retry_count", 0)
+            if retry_count >= max_retries:
+                continue
+
+            # Exponential backoff: skip if too recent
+            sent_at = item.get("sent_at")
+            if sent_at:
+                last_attempt = datetime.fromisoformat(sent_at)
+                if last_attempt.tzinfo is None:
+                    last_attempt = last_attempt.replace(tzinfo=timezone.utc)
+                backoff_seconds = 60 * (2 ** retry_count)  # 1min, 2min, 4min
+                if (now - last_attempt).total_seconds() < backoff_seconds:
+                    continue
+
+            recipient_email = item.get("recipient_email")
+            if not recipient_email:
+                continue
+
+            retried += 1
+
+            try:
+                gmail_client = get_gmail_client()
+                gmail_message = GmailEmailMessage(
+                    to=recipient_email,
+                    subject=item.get("subject", ""),
+                    body_text=item.get("body", ""),
+                )
+                result = await gmail_client.send_email(gmail_message)
+
+                if result.success:
+                    messages_table.update_item(
+                        Key={"pk": item["pk"], "sk": item["sk"]},
+                        UpdateExpression="SET #status = :sent, sent_at = :now, email_message_id = :mid",
+                        ExpressionAttributeNames={"#status": "status"},
+                        ExpressionAttributeValues={
+                            ":sent": MessageStatus.SENT.value,
+                            ":now": now.isoformat(),
+                            ":mid": result.message_id,
+                        },
+                    )
+                    succeeded += 1
+                else:
+                    messages_table.update_item(
+                        Key={"pk": item["pk"], "sk": item["sk"]},
+                        UpdateExpression="SET #status = :failed, retry_count = :rc, error_code = :err, sent_at = :now",
+                        ExpressionAttributeNames={"#status": "status"},
+                        ExpressionAttributeValues={
+                            ":failed": MessageStatus.FAILED.value,
+                            ":rc": retry_count + 1,
+                            ":err": result.error or "retry_failed",
+                            ":now": now.isoformat(),
+                        },
+                    )
+                    failed += 1
+            except ValueError:
+                # Gmail not configured
+                logger.warning("Gmail not configured, skipping retry")
+                break
+            except Exception as e:
+                failed += 1
+                logger.error("Failed to retry email", extra={"error": str(e), "pk": item["pk"]})
+
+    except Exception as e:
+        logger.error("Email retry task failed", extra={"error": str(e)})
+
+    result = {
+        "task": "retry_failed_emails",
+        "status": "completed",
+        "retried": retried,
+        "succeeded": succeeded,
+        "failed": failed,
+    }
+    logger.info("Email retry task completed", extra=result)
+    return result
 
 
 async def cleanup_expired_data() -> dict:
-    """Clean up expired data for GDPR compliance.
+    """Clean up expired data for GDPR compliance (FR-037).
 
     Handles:
-    - TTL-expired records verification
-    - Personal data scrubbing for completed events
+    - Find COMPLETED events older than 90 days
+    - Batch-delete associated registrations and messages
     """
     logger.info("Starting data cleanup task")
-    # Implementation will be added in Phase 9 (Polish)
-    return {"task": "cleanup_expired_data", "status": "not_implemented"}
+
+    from ..services.config import get_events_table, get_messages_table, get_registrations_table
+    from boto3.dynamodb.conditions import Key as DKey
+
+    retention_days = 90
+    cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+    events_deleted = 0
+    registrations_deleted = 0
+    messages_deleted = 0
+
+    try:
+        events_table = get_events_table()
+        registrations_table = get_registrations_table()
+        messages_table = get_messages_table()
+
+        event_service = get_event_service()
+        events = await event_service.get_events_by_status(EventStatus.COMPLETED)
+
+        for event in events:
+            # Only clean up events completed more than 90 days ago
+            # Use start_at as proxy for completion time
+            event_date = event.start_at
+            if event_date.tzinfo is None:
+                event_date = event_date.replace(tzinfo=timezone.utc)
+            if event_date > cutoff:
+                continue
+
+            event_id = str(event.id)
+
+            # Delete registrations for this event
+            reg_response = registrations_table.query(
+                KeyConditionExpression=DKey("pk").eq(f"EVENT#{event_id}"),
+            )
+            for item in reg_response.get("Items", []):
+                registrations_table.delete_item(Key={"pk": item["pk"], "sk": item["sk"]})
+                registrations_deleted += 1
+
+            # Handle pagination
+            while "LastEvaluatedKey" in reg_response:
+                reg_response = registrations_table.query(
+                    KeyConditionExpression=DKey("pk").eq(f"EVENT#{event_id}"),
+                    ExclusiveStartKey=reg_response["LastEvaluatedKey"],
+                )
+                for item in reg_response.get("Items", []):
+                    registrations_table.delete_item(Key={"pk": item["pk"], "sk": item["sk"]})
+                    registrations_deleted += 1
+
+            # Delete messages for this event
+            msg_response = messages_table.query(
+                KeyConditionExpression=DKey("pk").eq(f"EVENT#{event_id}"),
+            )
+            for item in msg_response.get("Items", []):
+                messages_table.delete_item(Key={"pk": item["pk"], "sk": item["sk"]})
+                messages_deleted += 1
+
+            while "LastEvaluatedKey" in msg_response:
+                msg_response = messages_table.query(
+                    KeyConditionExpression=DKey("pk").eq(f"EVENT#{event_id}"),
+                    ExclusiveStartKey=msg_response["LastEvaluatedKey"],
+                )
+                for item in msg_response.get("Items", []):
+                    messages_table.delete_item(Key={"pk": item["pk"], "sk": item["sk"]})
+                    messages_deleted += 1
+
+            events_deleted += 1
+            logger.info(
+                "Cleaned up expired event data",
+                extra={"event_id": event_id, "event_name": event.name},
+            )
+
+    except Exception as e:
+        logger.error("Data cleanup task failed", extra={"error": str(e)})
+
+    result = {
+        "task": "cleanup_expired_data",
+        "status": "completed",
+        "events_processed": events_deleted,
+        "registrations_deleted": registrations_deleted,
+        "messages_deleted": messages_deleted,
+    }
+    logger.info("Data cleanup task completed", extra=result)
+    return result
 
 
 def handler(event: dict[str, Any], context: Any) -> dict:
@@ -184,7 +368,7 @@ def handler(event: dict[str, Any], context: Any) -> dict:
         return {"error": f"Unknown task: {task_name}"}
 
     try:
-        result = asyncio.get_event_loop().run_until_complete(task_fn())
+        result = asyncio.run(task_fn())
         logger.info(f"Task {task_name} completed", extra={"result": result})
         return result
     except Exception as e:

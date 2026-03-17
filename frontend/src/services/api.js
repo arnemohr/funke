@@ -133,6 +133,16 @@ export const publicApi = {
   },
 
   /**
+   * Get registration info for cancellation page.
+   * @param {string} registrationId - Registration ID
+   * @param {string} token - Registration token
+   * @returns {Promise<object>} Registration info
+   */
+  async getRegistrationInfo(registrationId, token) {
+    return request(`/api/public/registrations/${registrationId}?token=${token}`)
+  },
+
+  /**
    * Confirm or decline attendance.
    * @param {string} registrationId - Registration ID
    * @param {string} token - Registration token
@@ -293,6 +303,58 @@ export const adminApi = {
     return request(`/api/admin/events/${eventId}/lottery/finalize`, {
       method: 'POST',
     }, true)
+  },
+
+  /**
+   * Export registrations as CSV.
+   * @param {string} eventId - Event ID
+   * @returns {Promise<void>} Triggers file download
+   */
+  async exportRegistrationsCsv(eventId) {
+    const token = await getAccessToken()
+    const url = `${API_BASE_URL}/api/admin/events/${eventId}/registrations/export`
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    })
+    if (!response.ok) {
+      throw new Error(`Export failed with status ${response.status}`)
+    }
+    const blob = await response.blob()
+    const downloadUrl = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = downloadUrl
+    // Extract filename from Content-Disposition header or use default
+    const disposition = response.headers.get('Content-Disposition')
+    const match = disposition && disposition.match(/filename="?([^"]+)"?/)
+    a.download = match ? match[1] : `registrations_${eventId}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    window.URL.revokeObjectURL(downloadUrl)
+  },
+
+  /**
+   * Send a custom message to selected registrations.
+   * @param {string} eventId - Event ID
+   * @param {object} data - { registration_ids: string[], subject: string, body: string }
+   * @returns {Promise<object>} Send result { sent, failed, total }
+   */
+  async sendCustomMessage(eventId, data) {
+    return request(`/api/admin/events/${eventId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }, true)
+  },
+
+  /**
+   * List sent messages for an event.
+   * @param {string} eventId - Event ID
+   * @returns {Promise<object>} Messages list
+   */
+  async listMessages(eventId) {
+    return request(`/api/admin/events/${eventId}/messages`, {}, true)
   },
 }
 

@@ -6,8 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from ...models import LotteryResult
 from ...services.auth import AdminRole, CurrentUser, require_role
-from ...services.lottery_service import get_lottery_service
 from ...services.logging import get_logger
+from ...services.lottery_service import get_lottery_service
 
 logger = get_logger(__name__)
 router = APIRouter()

@@ -4,7 +4,7 @@ Represents lottery executions with seed storage for
 deterministic replay and audit compliance.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -22,7 +22,7 @@ class LotteryRun(BaseModel):
     shuffled_order: list[str]  # Registration IDs in shuffled order
     winners: list[str]  # Registration IDs of winners
     waitlist: list[str]  # Registration IDs of waitlisted (ordered)
-    executed_at: datetime = Field(default_factory=datetime.utcnow)
+    executed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     finalized_at: datetime | None = None
     finalization_by_admin_id: UUID | None = None
     ttl: int | None = None  # DynamoDB TTL timestamp
@@ -42,7 +42,7 @@ class LotteryRun(BaseModel):
             raise ValueError("Lottery has already been finalized")
         return self.model_copy(
             update={
-                "finalized_at": datetime.utcnow(),
+                "finalized_at": datetime.now(timezone.utc),
                 "finalization_by_admin_id": admin_id,
             },
         )

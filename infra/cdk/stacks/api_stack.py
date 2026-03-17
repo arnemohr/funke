@@ -70,6 +70,15 @@ class ApiStack(Stack):
                 # Auth0 configuration
                 "AUTH0_DOMAIN": self.node.try_get_context("auth0_domain") or "",
                 "AUTH0_AUDIENCE": self.node.try_get_context("auth0_audience") or "",
+                # SMTP configuration (Strato)
+                "SMTP_HOST": self.node.try_get_context("smtp_host") or "smtp.strato.de",
+                "SMTP_PORT": self.node.try_get_context("smtp_port") or "465",
+                "SMTP_USE_SSL": self.node.try_get_context("smtp_use_ssl") or "true",
+                "SMTP_USERNAME": self.node.try_get_context("smtp_username") or "",
+                "SMTP_PASSWORD": self.node.try_get_context("smtp_password") or "",
+                "SMTP_SENDER_EMAIL": self.node.try_get_context("smtp_sender_email") or "",
+                "SMTP_SENDER_NAME": self.node.try_get_context("smtp_sender_name") or "Verein für mobile Machenschaften e.V.",
+                "BASE_URL": self.node.try_get_context("base_url") or f"https://{domain_name}" if domain_name else "http://localhost:5173",
             },
             log_group=api_log_group,
         )
@@ -157,6 +166,15 @@ class ApiStack(Stack):
                 "ADMINS_TABLE": database_stack.admins_table.table_name,
                 "LOTTERY_RUNS_TABLE": database_stack.lottery_runs_table.table_name,
                 "LOG_LEVEL": "DEBUG" if env_name == "dev" else "INFO",
+                # SMTP configuration (Strato, needed for retry worker)
+                "SMTP_HOST": self.node.try_get_context("smtp_host") or "smtp.strato.de",
+                "SMTP_PORT": self.node.try_get_context("smtp_port") or "465",
+                "SMTP_USE_SSL": self.node.try_get_context("smtp_use_ssl") or "true",
+                "SMTP_USERNAME": self.node.try_get_context("smtp_username") or "",
+                "SMTP_PASSWORD": self.node.try_get_context("smtp_password") or "",
+                "SMTP_SENDER_EMAIL": self.node.try_get_context("smtp_sender_email") or "",
+                "SMTP_SENDER_NAME": self.node.try_get_context("smtp_sender_name") or "Verein für mobile Machenschaften e.V.",
+                "BASE_URL": self.node.try_get_context("base_url") or f"https://{domain_name}" if domain_name else "http://localhost:5173",
             },
             log_group=worker_log_group,
         )

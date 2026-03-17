@@ -50,7 +50,7 @@ async def get_event_info(link_token: str) -> EventPublic:
         )
 
     # Return 410 if event is not accepting registrations
-    if event.status.value not in ["OPEN", "DRAFT"]:
+    if event.status.value != "OPEN":
         raise HTTPException(
             status_code=status.HTTP_410_GONE,
             detail=f"Event registration is closed (status: {event.status.value})",
@@ -128,9 +128,9 @@ async def submit_registration(
         event = await event_service.get_event_by_link_token(link_token)
         if event:
             email_service = get_email_service()
-            if registration.status.value == "CONFIRMED":
+            if registration.status.value == "REGISTERED":
                 await email_service.send_registration_confirmation(event, registration)
-            else:
+            elif registration.status.value == "WAITLISTED":
                 await email_service.send_waitlist_notification(event, registration)
         else:
             logger.warning(
@@ -145,12 +145,12 @@ async def submit_registration(
         )
 
     # Build response message based on status
-    if registration.status.value == "CONFIRMED":
-        message = "Your registration is confirmed! You will receive a confirmation email shortly."
+    if registration.status.value == "REGISTERED":
+        message = "Deine Anmeldung ist eingegangen! Du erhältst in Kürze eine Bestätigungsmail."
     else:
         message = (
-            f"You have been added to the waitlist at position {registration.waitlist_position}. "
-            "We will notify you if a spot becomes available."
+            f"Du stehst auf der Warteliste (Platz {registration.waitlist_position}). "
+            "Wir benachrichtigen dich, sobald ein Platz frei wird."
         )
 
     return RegistrationSubmitResponse(

@@ -6,7 +6,6 @@ Provides:
 - FastAPI dependency injection for protected routes
 """
 
-from enum import Enum
 from functools import lru_cache
 from typing import Annotated
 
@@ -16,6 +15,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings
+
+from ..models.admin import AdminRole
 
 
 class AuthSettings(BaseSettings):
@@ -35,14 +36,6 @@ class AuthSettings(BaseSettings):
 def get_auth_settings() -> AuthSettings:
     """Get cached auth settings."""
     return AuthSettings()
-
-
-class AdminRole(str, Enum):
-    """Admin role levels."""
-
-    OWNER = "Owner"
-    ADMIN = "Admin"
-    VIEWER = "Viewer"
 
 
 class TokenPayload(BaseModel):

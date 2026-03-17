@@ -4,7 +4,7 @@ Represents email communications with threading support,
 delivery status tracking, and retry handling.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from uuid import UUID, uuid4
 
@@ -69,9 +69,10 @@ class Message(BaseModel):
     retry_count: int = 0
     sent_at: datetime | None = None
     received_at: datetime | None = None
+    recipient_email: str | None = None
     error_code: str | None = None
     ttl: int | None = None  # DynamoDB TTL timestamp
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     def mark_sent(self, email_message_id: str) -> "Message":
         """Mark message as sent."""
@@ -79,7 +80,7 @@ class Message(BaseModel):
             update={
                 "status": MessageStatus.SENT,
                 "email_message_id": email_message_id,
-                "sent_at": datetime.utcnow(),
+                "sent_at": lambda: datetime.now(timezone.utc)(),
             },
         )
 

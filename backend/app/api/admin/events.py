@@ -9,17 +9,20 @@ Provides:
 - Cancel event
 """
 
+import csv
+import io
 from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from ...models import (
+    CustomMessageRequest,
     Event,
     EventCreate,
-    EventPublic,
     EventStatus,
     EventUpdate,
     Registration,
@@ -28,7 +31,7 @@ from ...models import (
 from ...services.auth import AdminRole, CurrentUser, require_role
 from ...services.email_service import get_email_service
 from ...services.event_service import get_event_service
-from ...services.logging import get_logger
+from ...services.logging import get_logger, log_admin_action
 from ...services.registration_service import get_registration_service
 
 logger = get_logger(__name__)
@@ -137,13 +140,7 @@ async def create_event(
     event_service = get_event_service()
     event = await event_service.create_event(org_id, event_data, admin_id)
 
-    logger.info(
-        "Event created via API",
-        extra={
-            "event_id": str(event.id),
-            "admin_email": user.email,
-        },
-    )
+    log_admin_action("event.create", user.email, str(event.id), {"event_name": event.name})
 
     return await _event_to_response(event)
 
@@ -220,13 +217,7 @@ async def update_event(
             detail="Event not found or cannot be updated (must be in DRAFT or OPEN status)",
         )
 
-    logger.info(
-        "Event updated via API",
-        extra={
-            "event_id": str(event_id),
-            "admin_email": user.email,
-        },
-    )
+    log_admin_action("event.update", user.email, str(event_id))
 
     return await _event_to_response(event)
 
@@ -255,13 +246,7 @@ async def publish_event(
             detail="Event not found or cannot be published (not in DRAFT status)",
         )
 
-    logger.info(
-        "Event published via API",
-        extra={
-            "event_id": str(event_id),
-            "admin_email": user.email,
-        },
-    )
+    log_admin_action("event.publish", user.email, str(event_id))
 
     return await _event_to_response(event)
 
@@ -298,13 +283,9 @@ async def clone_event(
             detail="Source event not found",
         )
 
-    logger.info(
-        "Event cloned via API",
-        extra={
-            "source_event_id": str(event_id),
-            "new_event_id": str(new_event.id),
-            "admin_email": user.email,
-        },
+    log_admin_action(
+        "event.clone", user.email, str(new_event.id),
+        {"source_event_id": str(event_id)},
     )
 
     return await _event_to_response(new_event)
@@ -331,13 +312,7 @@ async def close_registration(
             detail="Event not found or cannot close registration (not in OPEN status)",
         )
 
-    logger.info(
-        "Event registration closed via API",
-        extra={
-            "event_id": str(event_id),
-            "admin_email": user.email,
-        },
-    )
+    log_admin_action("event.close_registration", user.email, str(event_id))
 
     return await _event_to_response(event)
 
@@ -357,7 +332,17 @@ async def cancel_event(
     All registrants will be notified via email.
     """
     org_id = _get_org_id(user)
+    registration_service = get_registration_service()
+    email_service = get_email_service()
 
+    # Fetch active registrations BEFORE cancelling (so we have their details for notifications)
+    active_registrations = [
+        r
+        for r in await registration_service.list_registrations(event_id)
+        if r.status != RegistrationStatus.CANCELLED
+    ]
+
+    # Cancel the event
     event_service = get_event_service()
     event = await event_service.cancel_event(org_id, event_id)
 
@@ -367,27 +352,23 @@ async def cancel_event(
             detail="Event not found or cannot be cancelled",
         )
 
+    log_admin_action("event.cancel", user.email, str(event_id))
+
+    # Cancel all registrations for this event
+    cancelled_count = await registration_service.cancel_all_registrations_for_event(event_id)
     logger.info(
-        "Event cancelled via API",
+        "All registrations cancelled for event",
         extra={
             "event_id": str(event_id),
-            "admin_email": user.email,
+            "cancelled_count": cancelled_count,
         },
     )
 
-    # Notify all registrants about the cancellation
-    registration_service = get_registration_service()
-    email_service = get_email_service()
-
-    registrations = await registration_service.list_registrations(event_id)
+    # Notify using pre-fetched list (registrations already cancelled in DB)
     notified_count = 0
     failed_count = 0
 
-    for registration in registrations:
-        # Skip already-cancelled registrations
-        if registration.status == RegistrationStatus.CANCELLED:
-            continue
-
+    for registration in active_registrations:
         try:
             await email_service.send_event_cancellation(event, registration)
             notified_count += 1
@@ -408,16 +389,6 @@ async def cancel_event(
             "event_id": str(event_id),
             "notified_count": notified_count,
             "failed_count": failed_count,
-        },
-    )
-
-    # Cancel all registrations for this event
-    cancelled_registrations = await registration_service.cancel_all_registrations_for_event(event_id)
-    logger.info(
-        "All registrations cancelled for event",
-        extra={
-            "event_id": str(event_id),
-            "cancelled_registrations": cancelled_registrations,
         },
     )
 
@@ -448,13 +419,7 @@ async def delete_event(
             detail="Event not found or cannot be deleted (must be in CANCELLED status)",
         )
 
-    logger.info(
-        "Event deleted via API",
-        extra={
-            "event_id": str(event_id),
-            "admin_email": user.email,
-        },
-    )
+    log_admin_action("event.delete", user.email, str(event_id))
 
 
 class RegistrationResponse(BaseModel):
@@ -529,10 +494,182 @@ async def list_registrations(
 
     registration_service = get_registration_service()
     registrations = await registration_service.list_registrations(
-        event_id, status_filter, search
+        event_id, status_filter, search,
     )
 
     return RegistrationListResponse(
         items=[_registration_to_response(r) for r in registrations],
         total=len(registrations),
+    )
+
+
+@router.get(
+    "/{event_id}/registrations/export",
+    dependencies=[Depends(require_role([AdminRole.OWNER, AdminRole.ADMIN]))],
+)
+async def export_registrations_csv(
+    event_id: UUID,
+    user: CurrentUser,
+) -> StreamingResponse:
+    """Export registrations as CSV with BOM for Excel/German umlaut compatibility."""
+    org_id = _get_org_id(user)
+
+    event_service = get_event_service()
+    event = await event_service.get_event(org_id, event_id)
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found",
+        )
+
+    registration_service = get_registration_service()
+    registrations = await registration_service.list_registrations(event_id)
+
+    # Build CSV with BOM for Excel compatibility
+    output = io.StringIO()
+    output.write("\ufeff")  # UTF-8 BOM
+    writer = csv.writer(output, delimiter=";")
+    writer.writerow([
+        "Name", "E-Mail", "Telefon", "Gruppengröße", "Status",
+        "Wartelistenplatz", "Angemeldet am", "Bestätigt am", "Notizen",
+    ])
+
+    for reg in registrations:
+        writer.writerow([
+            reg.name,
+            reg.email,
+            reg.phone or "",
+            reg.group_size,
+            reg.status.value,
+            reg.waitlist_position or "",
+            reg.registered_at.isoformat() if reg.registered_at else "",
+            reg.responded_at.isoformat() if reg.responded_at else "",
+            reg.notes or "",
+        ])
+
+    log_admin_action("registrations.export", user.email, str(event_id))
+
+    output.seek(0)
+    filename = f"anmeldungen_{event.name.replace(' ', '_')}_{event_id}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+class CustomMessageResponse(BaseModel):
+    """Response for custom message sending."""
+
+    sent: int
+    failed: int
+    total: int
+
+
+@router.post(
+    "/{event_id}/messages",
+    response_model=CustomMessageResponse,
+    dependencies=[Depends(require_role([AdminRole.OWNER, AdminRole.ADMIN]))],
+)
+async def send_custom_message(
+    event_id: UUID,
+    message_data: CustomMessageRequest,
+    user: CurrentUser,
+) -> CustomMessageResponse:
+    """Send a custom message to selected registrations."""
+    org_id = _get_org_id(user)
+
+    event_service = get_event_service()
+    event = await event_service.get_event(org_id, event_id)
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found",
+        )
+
+    registration_service = get_registration_service()
+    email_service = get_email_service()
+
+    sent = 0
+    failed = 0
+
+    for reg_id in message_data.registration_ids:
+        registration = await registration_service.get_registration(event_id, reg_id)
+        if not registration:
+            failed += 1
+            continue
+
+        try:
+            success = await email_service.send_custom_message(
+                event, registration, message_data.subject, message_data.body,
+            )
+            if success:
+                sent += 1
+            else:
+                failed += 1
+        except Exception as e:
+            failed += 1
+            logger.error(
+                "Failed to send custom message",
+                extra={"registration_id": str(reg_id), "error": str(e)},
+            )
+
+    log_admin_action(
+        "message.send_custom",
+        user.email,
+        str(event_id),
+        {"sent": sent, "failed": failed, "total": len(message_data.registration_ids)},
+    )
+
+    return CustomMessageResponse(
+        sent=sent,
+        failed=failed,
+        total=len(message_data.registration_ids),
+    )
+
+
+class MessageLogEntry(BaseModel):
+    """Single message in the log."""
+
+    id: str | None
+    type: str | None
+    subject: str | None
+    recipient_email: str | None
+    status: str | None
+    sent_at: str | None
+
+
+class MessageListResponse(BaseModel):
+    """Response for messages list endpoint."""
+
+    items: list[MessageLogEntry]
+    total: int
+
+
+@router.get(
+    "/{event_id}/messages",
+    response_model=MessageListResponse,
+    dependencies=[Depends(require_role([AdminRole.OWNER, AdminRole.ADMIN, AdminRole.VIEWER]))],
+)
+async def list_messages(
+    event_id: UUID,
+    user: CurrentUser,
+) -> MessageListResponse:
+    """List sent messages for an event."""
+    org_id = _get_org_id(user)
+
+    event_service = get_event_service()
+    event = await event_service.get_event(org_id, event_id)
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found",
+        )
+
+    email_service = get_email_service()
+    messages = await email_service.list_messages_for_event(event_id)
+
+    return MessageListResponse(
+        items=[MessageLogEntry(**m) for m in messages],
+        total=len(messages),
     )

@@ -55,11 +55,11 @@
           <dt>E-Mail</dt>
           <dd>{{ registration.email }}</dd>
           <dt>Gruppengröße</dt>
-          <dd>{{ registration.groupSize }} {{ registration.groupSize === 1 ? 'Person' : 'Personen' }}</dd>
+          <dd>{{ registration.group_size }} {{ registration.group_size === 1 ? 'Person' : 'Personen' }}</dd>
           <dt>Status</dt>
           <dd>{{ registration.status }}</dd>
-          <dt v-if="registration.waitlistPosition">Wartelistenplatz</dt>
-          <dd v-if="registration.waitlistPosition">#{{ registration.waitlistPosition }}</dd>
+          <dt v-if="registration.waitlist_position">Wartelistenplatz</dt>
+          <dd v-if="registration.waitlist_position">#{{ registration.waitlist_position }}</dd>
         </dl>
       </div>
 
@@ -112,22 +112,13 @@ async function loadRegistration() {
   }
 
   try {
-    const response = await fetch(
-      `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/api/public/registrations/${registrationId}?token=${token}`
-    )
-
-    if (!response.ok) {
-      if (response.status === 404) {
-        error.value = 'Anmeldung nicht gefunden oder ungültiger Link.'
-      } else {
-        error.value = 'Anmeldung konnte nicht geladen werden.'
-      }
-      return
-    }
-
-    registration.value = await response.json()
+    registration.value = await publicApi.getRegistrationInfo(registrationId, token)
   } catch (err) {
-    error.value = err.message || 'Anmeldung konnte nicht geladen werden.'
+    if (err.message?.includes('404')) {
+      error.value = 'Anmeldung nicht gefunden oder ungültiger Link.'
+    } else {
+      error.value = err.message || 'Anmeldung konnte nicht geladen werden.'
+    }
   } finally {
     loading.value = false
   }

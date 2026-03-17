@@ -236,6 +236,34 @@ def timed(logger: ContextualLogger | None = None):
     return decorator
 
 
+def log_admin_action(
+    action: str,
+    admin_email: str | None,
+    event_id: str | None = None,
+    details: dict[str, Any] | None = None,
+) -> None:
+    """Log an admin action for audit purposes.
+
+    Uses structured logging with `audit_action` field for CloudWatch querying.
+
+    Args:
+        action: Action identifier (e.g., 'event.create', 'event.publish').
+        admin_email: Email of the admin performing the action.
+        event_id: Optional event ID.
+        details: Optional additional details.
+    """
+    audit_logger = get_logger("audit")
+    extra: dict[str, Any] = {
+        "audit_action": action,
+        "admin_email": admin_email or "unknown",
+    }
+    if event_id:
+        extra["event_id"] = event_id
+    if details:
+        extra.update(details)
+    audit_logger.info(f"Admin action: {action}", extra=extra)
+
+
 class Timer:
     """Context manager for timing code blocks.
 

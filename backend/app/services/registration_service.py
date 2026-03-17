@@ -13,10 +13,8 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-import boto3
 from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
-from pydantic_settings import BaseSettings
 
 from ..models import (
     Event,
@@ -25,59 +23,13 @@ from ..models import (
     RegistrationCreate,
     RegistrationStatus,
 )
+from .config import get_events_table, get_registrations_table
 from .logging import get_logger
 
 if TYPE_CHECKING:
-    from mypy_boto3_dynamodb import DynamoDBServiceResource
     from mypy_boto3_dynamodb.service_resource import Table
 
 logger = get_logger(__name__)
-
-
-class DynamoDBSettings(BaseSettings):
-    """DynamoDB configuration settings."""
-
-    dynamodb_table_prefix: str = "funke-dev"
-    aws_region: str = "eu-central-1"
-    dynamodb_endpoint_url: str | None = None
-
-    class Config:
-        env_prefix = ""
-        case_sensitive = False
-
-
-_settings: DynamoDBSettings | None = None
-
-
-def get_dynamodb_settings() -> DynamoDBSettings:
-    """Get DynamoDB settings (cached)."""
-    global _settings
-    if _settings is None:
-        _settings = DynamoDBSettings()
-    return _settings
-
-
-def get_dynamodb_resource() -> "DynamoDBServiceResource":
-    """Get DynamoDB resource."""
-    settings = get_dynamodb_settings()
-    kwargs = {"region_name": settings.aws_region}
-    if settings.dynamodb_endpoint_url:
-        kwargs["endpoint_url"] = settings.dynamodb_endpoint_url
-    return boto3.resource("dynamodb", **kwargs)
-
-
-def get_registrations_table() -> "Table":
-    """Get the registrations DynamoDB table."""
-    settings = get_dynamodb_settings()
-    dynamodb = get_dynamodb_resource()
-    return dynamodb.Table(f"{settings.dynamodb_table_prefix}-registrations")
-
-
-def get_events_table() -> "Table":
-    """Get the events DynamoDB table."""
-    settings = get_dynamodb_settings()
-    dynamodb = get_dynamodb_resource()
-    return dynamodb.Table(f"{settings.dynamodb_table_prefix}-events")
 
 
 def _generate_registration_token() -> str:
@@ -185,34 +137,42 @@ class RegistrationService:
             logger.error("Failed to get event by link token", extra={"error": str(e)})
             return None
 
-    async def _get_confirmed_count(self, event_id: UUID) -> int:
-        """Get total confirmed spots (sum of group_size for confirmed registrations)."""
+    async def _get_active_spots_count(self, event_id: UUID) -> int:
+        """Get total active spots (REGISTERED + CONFIRMED + PARTICIPATING).
+
+        These are the spots that count against capacity. WAITLISTED and
+        CANCELLED registrations do not occupy capacity.
+        """
         try:
+            active_statuses = {
+                RegistrationStatus.REGISTERED.value,
+                RegistrationStatus.CONFIRMED.value,
+                RegistrationStatus.PARTICIPATING.value,
+            }
             response = self.registrations_table.query(
                 KeyConditionExpression=Key("pk").eq(f"EVENT#{event_id}"),
-                FilterExpression="#status = :confirmed",
+                ProjectionExpression="group_size, #status",
                 ExpressionAttributeNames={"#status": "status"},
-                ExpressionAttributeValues={":confirmed": RegistrationStatus.CONFIRMED.value},
-                ProjectionExpression="group_size",
             )
 
             items = response.get("Items", [])
-            # Handle pagination
             while "LastEvaluatedKey" in response:
                 response = self.registrations_table.query(
                     KeyConditionExpression=Key("pk").eq(f"EVENT#{event_id}"),
-                    FilterExpression="#status = :confirmed",
+                    ProjectionExpression="group_size, #status",
                     ExpressionAttributeNames={"#status": "status"},
-                    ExpressionAttributeValues={":confirmed": RegistrationStatus.CONFIRMED.value},
-                    ProjectionExpression="group_size",
                     ExclusiveStartKey=response["LastEvaluatedKey"],
                 )
                 items.extend(response.get("Items", []))
 
-            return sum(item.get("group_size", 1) for item in items)
+            return sum(
+                item.get("group_size", 1)
+                for item in items
+                if item.get("status") in active_statuses
+            )
 
         except ClientError as e:
-            logger.error("Failed to get confirmed count", extra={"error": str(e)})
+            logger.error("Failed to get active spots count", extra={"error": str(e)})
             return 0
 
     async def _get_max_waitlist_position(self, event_id: UUID) -> int:
@@ -298,8 +258,18 @@ class RegistrationService:
         if registration_data.group_size > 10:
             return None, "Group size cannot exceed 10"
 
-        # Create registration with REGISTERED status
-        # Capacity check happens after deadline or during lottery
+        # Check capacity to determine REGISTERED vs WAITLISTED
+        registered_spots = await self._get_active_spots_count(event.id)
+        remaining = event.capacity - registered_spots
+
+        if registration_data.group_size <= remaining:
+            initial_status = RegistrationStatus.REGISTERED
+            waitlist_position = None
+        else:
+            initial_status = RegistrationStatus.WAITLISTED
+            max_pos = await self._get_max_waitlist_position(event.id)
+            waitlist_position = max_pos + 1
+
         registration = Registration(
             id=uuid4(),
             event_id=event.id,
@@ -308,8 +278,8 @@ class RegistrationService:
             phone=registration_data.phone,
             notes=registration_data.notes,
             group_size=registration_data.group_size,
-            status=RegistrationStatus.REGISTERED,
-            waitlist_position=None,
+            status=initial_status,
+            waitlist_position=waitlist_position,
             registration_token=_generate_registration_token(),
             registered_at=datetime.now(timezone.utc),
         )
@@ -320,7 +290,7 @@ class RegistrationService:
             # Use conditional write to prevent race conditions
             self.registrations_table.put_item(
                 Item=item,
-                ConditionExpression="attribute_not_exists(PK) AND attribute_not_exists(SK)",
+                ConditionExpression="attribute_not_exists(pk) AND attribute_not_exists(sk)",
             )
 
             logger.info(
@@ -329,7 +299,7 @@ class RegistrationService:
                     "registration_id": str(registration.id),
                     "event_id": str(event.id),
                     "email": email,
-                    "status": RegistrationStatus.REGISTERED.value,
+                    "status": initial_status.value,
                     "group_size": registration_data.group_size,
                 },
             )
@@ -487,7 +457,10 @@ class RegistrationService:
         if not registration.can_cancel():
             return None, f"Cannot cancel registration with status {registration.status.value}"
 
-        was_confirmed = registration.status == RegistrationStatus.CONFIRMED
+        held_spot = registration.status in (
+            RegistrationStatus.CONFIRMED,
+            RegistrationStatus.PARTICIPATING,
+        )
         group_size = registration.group_size
 
         try:
@@ -518,8 +491,8 @@ class RegistrationService:
                 },
             )
 
-            # If was confirmed, trigger waitlist promotion
-            if was_confirmed:
+            # If held a spot (CONFIRMED or PARTICIPATING), trigger waitlist promotion
+            if held_spot:
                 await self._promote_from_waitlist(registration.event_id, group_size)
 
             return cancelled_registration, None

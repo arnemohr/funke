@@ -4,7 +4,7 @@ Represents admin users with role-based access control
 and organization membership.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from uuid import UUID, uuid4
 
@@ -29,7 +29,7 @@ class AdminUser(BaseModel):
     email: EmailStr
     role: AdminRole
     auth0_user_id: str | None = None  # Auth0 sub claim
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     last_login_at: datetime | None = None
     invited_at: datetime | None = None
     invited_by_admin_id: UUID | None = None
@@ -56,7 +56,7 @@ class Organization(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     primary_locale: str = "de-DE"
     owner_admin_id: UUID
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class InvitationCreate(BaseModel):
@@ -77,14 +77,14 @@ class Invitation(BaseModel):
     role: AdminRole
     token: str  # Secure token for accepting invitation
     invited_by_admin_id: UUID
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     expires_at: datetime
     accepted_at: datetime | None = None
 
     @property
     def is_expired(self) -> bool:
         """Check if invitation has expired."""
-        return datetime.utcnow() > self.expires_at
+        return lambda: datetime.now(timezone.utc)() > self.expires_at
 
     @property
     def is_accepted(self) -> bool:
@@ -97,4 +97,4 @@ class Invitation(BaseModel):
             raise ValueError("Invitation has expired")
         if self.is_accepted:
             raise ValueError("Invitation already accepted")
-        return self.model_copy(update={"accepted_at": datetime.utcnow()})
+        return self.model_copy(update={"accepted_at": lambda: datetime.now(timezone.utc)()})

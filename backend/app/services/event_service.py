@@ -12,57 +12,16 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-import boto3
 from botocore.exceptions import ClientError
-from pydantic_settings import BaseSettings
 
 from ..models import Event, EventCreate, EventStatus, EventUpdate
+from .config import get_events_table
 from .logging import get_logger
 
 if TYPE_CHECKING:
-    from mypy_boto3_dynamodb import DynamoDBServiceResource
     from mypy_boto3_dynamodb.service_resource import Table
 
 logger = get_logger(__name__)
-
-
-class DynamoDBSettings(BaseSettings):
-    """DynamoDB configuration settings."""
-
-    dynamodb_table_prefix: str = "funke-dev"
-    aws_region: str = "eu-central-1"
-    dynamodb_endpoint_url: str | None = None  # For local development
-
-    class Config:
-        env_prefix = ""
-        case_sensitive = False
-
-
-_settings: DynamoDBSettings | None = None
-
-
-def get_dynamodb_settings() -> DynamoDBSettings:
-    """Get DynamoDB settings (cached)."""
-    global _settings
-    if _settings is None:
-        _settings = DynamoDBSettings()
-    return _settings
-
-
-def get_dynamodb_resource() -> "DynamoDBServiceResource":
-    """Get DynamoDB resource."""
-    settings = get_dynamodb_settings()
-    kwargs = {"region_name": settings.aws_region}
-    if settings.dynamodb_endpoint_url:
-        kwargs["endpoint_url"] = settings.dynamodb_endpoint_url
-    return boto3.resource("dynamodb", **kwargs)
-
-
-def get_events_table() -> "Table":
-    """Get the events DynamoDB table."""
-    settings = get_dynamodb_settings()
-    dynamodb = get_dynamodb_resource()
-    return dynamodb.Table(f"{settings.dynamodb_table_prefix}-events")
 
 
 def _generate_link_token() -> str:

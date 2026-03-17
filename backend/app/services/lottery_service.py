@@ -13,60 +13,19 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-import boto3
 from botocore.exceptions import ClientError
-from pydantic_settings import BaseSettings
 
 from ..models import Event, EventStatus, LotteryResult, LotteryRun, Registration, RegistrationStatus
+from .config import get_lottery_runs_table
 from .email_service import get_email_service
 from .event_service import get_event_service
 from .logging import get_logger
 from .registration_service import get_registration_service
 
 if TYPE_CHECKING:
-    from mypy_boto3_dynamodb import DynamoDBServiceResource
     from mypy_boto3_dynamodb.service_resource import Table
 
 logger = get_logger(__name__)
-
-
-class DynamoDBSettings(BaseSettings):
-    """DynamoDB configuration settings."""
-
-    dynamodb_table_prefix: str = "funke-dev"
-    aws_region: str = "eu-central-1"
-    dynamodb_endpoint_url: str | None = None
-
-    class Config:
-        env_prefix = ""
-        case_sensitive = False
-
-
-_settings: DynamoDBSettings | None = None
-
-
-def get_dynamodb_settings() -> DynamoDBSettings:
-    """Get DynamoDB settings (cached)."""
-    global _settings
-    if _settings is None:
-        _settings = DynamoDBSettings()
-    return _settings
-
-
-def get_dynamodb_resource() -> "DynamoDBServiceResource":
-    """Get DynamoDB resource."""
-    settings = get_dynamodb_settings()
-    kwargs = {"region_name": settings.aws_region}
-    if settings.dynamodb_endpoint_url:
-        kwargs["endpoint_url"] = settings.dynamodb_endpoint_url
-    return boto3.resource("dynamodb", **kwargs)
-
-
-def get_lottery_runs_table() -> "Table":
-    """Get the lottery runs DynamoDB table."""
-    settings = get_dynamodb_settings()
-    dynamodb = get_dynamodb_resource()
-    return dynamodb.Table(f"{settings.dynamodb_table_prefix}-lottery-runs")
 
 
 def _lottery_run_to_item(run: LotteryRun) -> dict:
@@ -189,11 +148,14 @@ class LotteryService:
         candidates = [
             r
             for r in registrations
-            if r.status == RegistrationStatus.REGISTERED
+            if r.status in (
+                RegistrationStatus.REGISTERED,
+                RegistrationStatus.WAITLISTED,
+            )
         ]
 
         if not candidates:
-            raise ValueError("No REGISTERED registrations available for lottery")
+            raise ValueError("No eligible registrations available for lottery")
 
         # Deterministic but high-entropy seed for reproducible shuffle
         seed = secrets.token_hex(32)
@@ -282,7 +244,7 @@ class LotteryService:
         winners: list[Registration] = []
         losers: list[Registration] = []
 
-        # Update winners: REGISTERED -> CONFIRMED
+        # Update winners -> CONFIRMED
         for reg_id in run.winners:
             reg = registrations_by_id.get(reg_id)
             if not reg or reg.status == RegistrationStatus.CANCELLED:
@@ -314,7 +276,7 @@ class LotteryService:
             except ClientError as e:
                 logger.error("Failed to update winner", extra={"registration_id": reg_id, "error": str(e)})
 
-        # Update losers: REGISTERED -> WAITLISTED (if autopromote) or CANCELLED
+        # Update losers -> WAITLISTED (if autopromote) or CANCELLED
         loser_status = RegistrationStatus.WAITLISTED if event.autopromote_waitlist else RegistrationStatus.CANCELLED
 
         for position, reg_id in enumerate(run.waitlist, start=1):

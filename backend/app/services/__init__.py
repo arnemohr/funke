@@ -11,10 +11,15 @@ from .auth import (
     require_role,
     verify_token,
 )
+from .config import (
+    DynamoDBSettings,
+    get_dynamodb_resource,
+    get_settings,
+)
 from .email_client import (
     EmailMessage,
     EmailResult,
-    GmailClient,
+    SmtpClient,
     get_gmail_client,
 )
 from .email_service import (
@@ -39,6 +44,10 @@ from .registration_service import (
 )
 
 __all__ = [
+    # Config
+    "DynamoDBSettings",
+    "get_dynamodb_resource",
+    "get_settings",
     # Auth
     "AdminRole",
     "CurrentUser",
@@ -52,7 +61,7 @@ __all__ = [
     # Email Client
     "EmailMessage",
     "EmailResult",
-    "GmailClient",
+    "SmtpClient",
     "get_gmail_client",
     # Email Service
     "EmailService",

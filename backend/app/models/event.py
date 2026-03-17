@@ -4,7 +4,7 @@ Represents funke events with their lifecycle status,
 capacity settings, and registration configuration.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Self
 from uuid import UUID, uuid4
@@ -98,7 +98,7 @@ class Event(EventBase):
     registration_link_token: str | None = None
     created_by_admin_id: UUID | None = None
     cloned_from_event_id: UUID | None = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     published_at: datetime | None = None
     cancelled_at: datetime | None = None
     ttl: int | None = None  # DynamoDB TTL timestamp
@@ -121,9 +121,9 @@ class Event(EventBase):
         updates = {"status": new_status}
 
         if new_status == EventStatus.OPEN:
-            updates["published_at"] = datetime.utcnow()
+            updates["published_at"] = lambda: datetime.now(timezone.utc)()
         elif new_status == EventStatus.CANCELLED:
-            updates["cancelled_at"] = datetime.utcnow()
+            updates["cancelled_at"] = lambda: datetime.now(timezone.utc)()
 
         return self.model_copy(update=updates)
 
@@ -131,7 +131,7 @@ class Event(EventBase):
         """Check if registration is currently open."""
         if self.status != EventStatus.OPEN:
             return False
-        if datetime.utcnow() >= self.registration_deadline:
+        if lambda: datetime.now(timezone.utc)() >= self.registration_deadline:
             return False
         return True
 
