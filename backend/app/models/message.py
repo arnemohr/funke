@@ -114,3 +114,4 @@ class CustomMessageRequest(BaseModel):
     registration_ids: list[UUID]
     subject: str = Field(..., min_length=1, max_length=500)
     body: str = Field(..., min_length=1, max_length=50000)
+    include_links: bool = False

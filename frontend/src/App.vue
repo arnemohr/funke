@@ -44,6 +44,12 @@ function handleLogout() {
 }
 </script>
 
+<style>
+:root {
+  font-size: 87.5%;
+}
+</style>
+
 <style scoped>
 header {
   margin-bottom: 2rem;

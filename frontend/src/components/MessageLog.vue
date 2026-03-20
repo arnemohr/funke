@@ -82,7 +82,7 @@ watch(
       error.value = null
       try {
         const result = await adminApi.listMessages(props.eventId)
-        messages.value = result.messages || result
+        messages.value = result.items || []
       } catch (err) {
         error.value = err.message || 'Nachrichten konnten nicht geladen werden'
       } finally {

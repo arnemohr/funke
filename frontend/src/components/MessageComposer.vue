@@ -22,10 +22,10 @@
               @change="toggleAll"
               :disabled="sending"
             />
-            Alle auswählen ({{ registrations.length }})
+            Alle auswählen ({{ activeRegistrations.length }})
           </label>
           <div class="recipient-list">
-            <label v-for="reg in registrations" :key="reg.id" class="recipient-item">
+            <label v-for="reg in activeRegistrations" :key="reg.id" class="recipient-item">
               <input
                 type="checkbox"
                 :value="reg.id"
@@ -62,6 +62,15 @@
             placeholder="Deine Nachricht..."
             :disabled="sending"
           />
+        </label>
+
+        <label class="checkbox-label">
+          <input
+            type="checkbox"
+            v-model="includeLinks"
+            :disabled="sending"
+          />
+          Bestätigungs- und Stornierungslinks einfügen
         </label>
 
         <div v-if="error" role="alert" class="error">
@@ -110,17 +119,22 @@ const emit = defineEmits(['close', 'sent'])
 const selectedIds = ref([])
 const subject = ref('')
 const body = ref('')
+const includeLinks = ref(false)
 const sending = ref(false)
 const error = ref(null)
 const result = ref(null)
 
+const activeRegistrations = computed(() =>
+  props.registrations.filter(r => r.status !== 'CANCELLED'),
+)
+
 const allSelected = computed(() =>
-  props.registrations.length > 0 && selectedIds.value.length === props.registrations.length,
+  activeRegistrations.value.length > 0 && selectedIds.value.length === activeRegistrations.value.length,
 )
 
 function toggleAll(e) {
   if (e.target.checked) {
-    selectedIds.value = props.registrations.map(r => r.id)
+    selectedIds.value = activeRegistrations.value.map(r => r.id)
   } else {
     selectedIds.value = []
   }
@@ -138,6 +152,7 @@ async function handleSend() {
       registration_ids: selectedIds.value,
       subject: subject.value,
       body: body.value,
+      include_links: includeLinks.value,
     })
     result.value = res
     emit('sent', res)
@@ -146,6 +161,7 @@ async function handleSend() {
     if (res.failed === 0) {
       subject.value = ''
       body.value = ''
+      includeLinks.value = false
       selectedIds.value = []
     }
   } catch (err) {
@@ -209,6 +225,19 @@ legend {
 .status-participating { background: #dcfce7; color: #16a34a; }
 .status-waitlisted { background: #e5e7eb; color: #6b7280; }
 .status-registered { background: #e0e7ff; color: #4f46e5; }
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  margin-bottom: 1rem;
+  cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+  margin: 0;
+}
 
 .error {
   color: var(--pico-color-red-500, #dc3545);

@@ -487,7 +487,7 @@ class RegistrationService:
                 extra={
                     "registration_id": str(registration_id),
                     "event_id": str(registration.event_id),
-                    "was_confirmed": was_confirmed,
+                    "held_spot": held_spot,
                 },
             )
 

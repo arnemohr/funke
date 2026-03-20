@@ -46,7 +46,7 @@
     </p>
 
     <!-- Attendance summary for CONFIRMED events -->
-    <div v-if="eventStatus === 'CONFIRMED'" class="confirmation-summary">
+    <div v-if="['CONFIRMED', 'COMPLETED'].includes(eventStatus)" class="confirmation-summary">
       <strong>Teilnahmestatus:</strong>
       <span class="confirmation-stat yes">
         {{ registrations.filter(r => r.status === 'PARTICIPATING').length }} bestätigt

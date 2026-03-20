@@ -80,8 +80,9 @@ async def submit_registration(
 ) -> RegistrationSubmitResponse:
     """Submit a registration for an event.
 
-    The registration will be CONFIRMED if capacity is available,
-    or WAITLISTED if the event is at capacity.
+    The registration will be REGISTERED if capacity is available,
+    or WAITLISTED if the event is at capacity. After registration
+    closes, a lottery determines who gets confirmed.
 
     Returns 409 Conflict if email is already registered for this event.
     """

@@ -318,6 +318,32 @@ async def close_registration(
 
 
 @router.post(
+    "/{event_id}/complete",
+    response_model=EventResponse,
+    dependencies=[Depends(require_role([AdminRole.OWNER, AdminRole.ADMIN]))],
+)
+async def complete_event(
+    event_id: UUID,
+    user: CurrentUser,
+) -> EventResponse:
+    """Mark event as completed (CONFIRMED -> COMPLETED)."""
+    org_id = _get_org_id(user)
+
+    event_service = get_event_service()
+    event = await event_service.complete_event(org_id, event_id)
+
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Event not found or cannot be completed (not in CONFIRMED status)",
+        )
+
+    log_admin_action("event.complete", user.email, str(event_id))
+
+    return await _event_to_response(event)
+
+
+@router.post(
     "/{event_id}/cancel",
     response_model=EventResponse,
     dependencies=[Depends(require_role([AdminRole.OWNER, AdminRole.ADMIN]))],
@@ -602,6 +628,7 @@ async def send_custom_message(
         try:
             success = await email_service.send_custom_message(
                 event, registration, message_data.subject, message_data.body,
+                include_links=message_data.include_links,
             )
             if success:
                 sent += 1

@@ -49,9 +49,12 @@ async function request(endpoint, options = {}, requiresAuth = false) {
   // Add auth token if required
   if (requiresAuth) {
     const token = await getAccessToken()
-    if (token) {
-      defaultHeaders['Authorization'] = `Bearer ${token}`
+    if (!token) {
+      const { loginWithRedirect } = useAuth0()
+      await loginWithRedirect({ appState: { targetUrl: window.location.pathname } })
+      throw new Error('Sitzung abgelaufen. Du wirst zur Anmeldung weitergeleitet.')
     }
+    defaultHeaders['Authorization'] = `Bearer ${token}`
   }
 
   const config = {
@@ -255,6 +258,17 @@ export const adminApi = {
    */
   async closeRegistration(eventId) {
     return request(`/api/admin/events/${eventId}/close-registration`, {
+      method: 'POST',
+    }, true)
+  },
+
+  /**
+   * Complete an event (CONFIRMED -> COMPLETED).
+   * @param {string} eventId - Event ID
+   * @returns {Promise<object>} Updated event
+   */
+  async completeEvent(eventId) {
+    return request(`/api/admin/events/${eventId}/complete`, {
       method: 'POST',
     }, true)
   },

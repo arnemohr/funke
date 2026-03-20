@@ -59,13 +59,22 @@
           </div>
           <div class="actions">
             <button
-              v-if="!lottery?.is_finalized && event?.status !== 'CONFIRMED'"
+              v-if="!lottery && event?.status !== 'CONFIRMED'"
               class="secondary"
-              :disabled="running || finalizing"
+              :disabled="running"
               :aria-busy="running"
               @click="handleRun"
             >
               {{ running ? 'Läuft...' : 'Verlosung starten' }}
+            </button>
+            <button
+              v-if="lottery && !lottery.is_finalized && event?.status !== 'CONFIRMED'"
+              class="secondary"
+              :disabled="running"
+              :aria-busy="running"
+              @click="handleRun"
+            >
+              {{ running ? 'Läuft...' : 'Neu mischen' }}
             </button>
             <button
               v-if="lottery && !lottery.is_finalized && event?.status !== 'CONFIRMED'"
@@ -97,7 +106,7 @@
               <span
                 :class="[
                   'status-badge',
-                  lottery.is_finalized ? 'status-confirmed' : 'status-registration_closed',
+                  lottery.is_finalized ? 'status-finalized' : 'status-registration_closed',
                 ]"
               >
                 {{ lottery.is_finalized ? 'ABGESCHLOSSEN' : 'PRÜFUNG AUSSTEHEND' }}
@@ -289,8 +298,13 @@ onMounted(loadData)
 }
 
 .status-confirmed {
-  background: #dcfce7;
-  color: #16a34a;
+  background: #fef3c7;
+  color: #d97706;
+}
+
+.status-finalized {
+  background: #d1fae5;
+  color: #065f46;
 }
 
 .status-registration_closed {

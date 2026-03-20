@@ -23,6 +23,26 @@
       </div>
     </section>
 
+    <!-- Cannot cancel (PARTICIPATING or CHECKED_IN) -->
+    <section v-else-if="registration && !canCancel" class="already-cancelled">
+      <h2>Stornierung nicht möglich</h2>
+      <p v-if="registration.status === 'PARTICIPATING'">
+        Du hast deine Teilnahme bereits bestätigt. Eine Stornierung ist nicht mehr möglich.
+        Bei Fragen, einfach melden!
+      </p>
+      <p v-else-if="registration.status === 'CHECKED_IN'">
+        Du bist bereits eingecheckt. Eine Stornierung ist nicht mehr möglich.
+      </p>
+      <p v-else>
+        Eine Stornierung ist für den aktuellen Status nicht möglich.
+      </p>
+
+      <div class="registration-details">
+        <p><strong>Name:</strong> {{ registration.name }}</p>
+        <p><strong>E-Mail:</strong> <a :href="`mailto:${registration.email}`">{{ registration.email }}</a></p>
+      </div>
+    </section>
+
     <!-- Cancellation confirmation -->
     <section v-else-if="cancelled" class="success">
       <h2>Anmeldung storniert</h2>
@@ -87,7 +107,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { publicApi } from '../../services/api'
 
@@ -99,6 +119,11 @@ const registration = ref(null)
 const cancelled = ref(false)
 const cancelling = ref(false)
 const cancelError = ref(null)
+
+const CANCELLABLE_STATUSES = ['REGISTERED', 'CONFIRMED', 'WAITLISTED']
+const canCancel = computed(() =>
+  registration.value && CANCELLABLE_STATUSES.includes(registration.value.status),
+)
 
 // Load registration info
 async function loadRegistration() {

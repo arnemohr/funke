@@ -95,6 +95,15 @@
             Verlosung ansehen
           </button>
           <button
+            v-if="event?.status === 'CONFIRMED'"
+            @click="$emit('complete-event', event)"
+            class="outline"
+            :disabled="completing"
+            :aria-busy="completing"
+          >
+            {{ completing ? 'Wird abgeschlossen...' : 'Abschließen' }}
+          </button>
+          <button
             @click="$emit('export-csv', event)"
             class="outline"
             :disabled="registrations.length === 0"
@@ -145,11 +154,12 @@ defineProps({
   error: { type: String, default: null },
   publishing: { type: Boolean, default: false },
   closingRegistration: { type: Boolean, default: false },
+  completing: { type: Boolean, default: false },
 })
 
 defineEmits([
   'close', 'edit', 'publish', 'clone', 'cancel-event', 'delete',
-  'close-registration', 'copy-link', 'go-to-lottery',
+  'close-registration', 'copy-link', 'go-to-lottery', 'complete-event',
   'export-csv', 'send-message', 'show-messages',
 ])
 

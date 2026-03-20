@@ -638,6 +638,55 @@ class EventService:
                 return None
             raise
 
+    async def complete_event(self, org_id: UUID, event_id: UUID) -> Event | None:
+        """Mark event as completed (CONFIRMED -> COMPLETED).
+
+        Args:
+            org_id: Organization ID.
+            event_id: Event ID.
+
+        Returns:
+            Updated Event or None if not found/cannot complete.
+        """
+        event = await self.get_event(org_id, event_id)
+        if not event:
+            return None
+
+        if not event.can_transition_to(EventStatus.COMPLETED):
+            logger.warning(
+                "Cannot complete event",
+                extra={"event_id": str(event_id), "current_status": event.status},
+            )
+            return None
+
+        try:
+            response = self.table.update_item(
+                Key={
+                    "pk": f"ORG#{org_id}",
+                    "sk": f"EVENT#{event_id}",
+                },
+                UpdateExpression="SET #status = :new_status",
+                ExpressionAttributeNames={"#status": "status"},
+                ExpressionAttributeValues={
+                    ":new_status": EventStatus.COMPLETED.value,
+                    ":confirmed_status": EventStatus.CONFIRMED.value,
+                },
+                ConditionExpression="#status = :confirmed_status",
+                ReturnValues="ALL_NEW",
+            )
+
+            logger.info(
+                "Event completed",
+                extra={"event_id": str(event_id), "org_id": str(org_id)},
+            )
+
+            return _item_to_event(response["Attributes"])
+
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                return None
+            raise
+
     async def cancel_event(self, org_id: UUID, event_id: UUID) -> Event | None:
         """Cancel an event.
 

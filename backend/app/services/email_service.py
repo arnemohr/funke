@@ -247,22 +247,26 @@ Deine Crew von der Schaluppe
 
         Returns: (subject, text_body, html_body)
         """
-        subject = f"Du bist dabei! {ctx.event_name}"
+        subject = f"Platz frei geworden: {ctx.event_name}"
         persons = "Person" if ctx.group_size == 1 else "Personen"
 
         text_body = f"""Moin {ctx.attendee_name},
 
-Gute Nachrichten! Ein Platz ist frei geworden und du bist jetzt für "{ctx.event_name}" bestätigt!
+gute Nachrichten! Ein Platz ist frei geworden und du bist von der Warteliste nachgerückt für "{ctx.event_name}".
+
+Bitte bestätige kurz, ob du dabei sein kannst:
+
+Ja, ich bin dabei: {ctx.confirmation_yes_url}
+Nein, ich kann nicht: {ctx.confirmation_no_url}
 
 Details:
 - Datum: {ctx.event_date}
 - Ort: {ctx.event_location or 'Wird noch bekannt gegeben'}
 - Personen: {ctx.group_size} {persons}
 
-Falls du doch nicht kannst, storniere hier:
-{ctx.cancellation_url}
+Falls du nicht antwortest, wird dein Platz an die nächste Person auf der Warteliste vergeben.
 
-Wir freuen uns auf dich!
+Bei Fragen, einfach melden!
 
 Bis bald,
 Deine Crew von der Schaluppe
@@ -273,9 +277,16 @@ Deine Crew von der Schaluppe
 <html>
 <head><meta charset="utf-8"></head>
 <body style="font-family: sans-serif; line-height: 1.6; color: #333;">
-    <h2>Du bist dabei!</h2>
+    <h2>Platz frei geworden!</h2>
     <p>Moin {ctx.attendee_name},</p>
-    <p>Gute Nachrichten! Ein Platz ist frei geworden und du bist jetzt für <strong>"{ctx.event_name}"</strong> <strong>bestätigt</strong>!</p>
+    <p>Gute Nachrichten! Ein Platz ist frei geworden und du bist von der Warteliste nachgerückt für <strong>"{ctx.event_name}"</strong>.</p>
+
+    <p><strong>Bitte bestätige kurz, ob du dabei sein kannst:</strong></p>
+
+    <p style="margin: 20px 0;">
+        <a href="{ctx.confirmation_yes_url}" style="display: inline-block; padding: 12px 24px; background: #16a34a; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; margin-right: 10px;">Ja, ich bin dabei!</a>
+        <a href="{ctx.confirmation_no_url}" style="display: inline-block; padding: 12px 24px; background: #dc2626; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">Nein, ich kann nicht</a>
+    </p>
 
     <h3>Details</h3>
     <ul>
@@ -284,11 +295,9 @@ Deine Crew von der Schaluppe
         <li><strong>Personen:</strong> {ctx.group_size} {persons}</li>
     </ul>
 
-    <p style="margin-top: 20px;">
-        <a href="{ctx.cancellation_url}" style="color: #666;">Falls du doch nicht kannst, storniere hier</a>
-    </p>
+    <p style="color: #666; font-size: 0.9em;">Falls du nicht antwortest, wird dein Platz an die nächste Person auf der Warteliste vergeben.</p>
 
-    <p>Wir freuen uns auf dich!</p>
+    <p>Bei Fragen, einfach melden!</p>
     <p>Bis bald,<br>Deine Crew von der Schaluppe</p>
 </body>
 </html>
@@ -792,6 +801,16 @@ class EmailService:
                 registration.id,
                 registration.registration_token,
             ),
+            confirmation_yes_url=_build_confirmation_url(
+                registration.id,
+                registration.registration_token,
+                "yes",
+            ),
+            confirmation_no_url=_build_confirmation_url(
+                registration.id,
+                registration.registration_token,
+                "no",
+            ),
         )
 
         subject, text_body, html_body = EmailTemplates.promoted_from_waitlist(ctx)
@@ -803,7 +822,7 @@ class EmailService:
             subject=subject,
             text_body=text_body,
             html_body=html_body,
-            message_type=MessageType.LOTTERY_RESULT,  # Reusing for promotion
+            message_type=MessageType.CONFIRMATION_REQUEST,
         )
 
     async def send_lottery_winner(
@@ -989,6 +1008,8 @@ class EmailService:
         registration: Registration,
         subject: str,
         body: str,
+        *,
+        include_links: bool = False,
     ) -> bool:
         """Send a custom message to a registration.
 
@@ -997,16 +1018,41 @@ class EmailService:
             registration: The registration to send to.
             subject: Email subject.
             body: Email body text.
+            include_links: Whether to append confirmation and cancellation links.
 
         Returns:
             True if email was sent successfully.
         """
+        text_links = ""
+        html_links = ""
+
+        if include_links:
+            confirm_yes_url = _build_confirmation_url(
+                registration.id, registration.registration_token, "yes",
+            )
+            confirm_no_url = _build_confirmation_url(
+                registration.id, registration.registration_token, "no",
+            )
+
+            text_links = f"""
+
+---
+Ja, ich bin dabei: {confirm_yes_url}
+Nein, ich kann nicht: {confirm_no_url}"""
+
+            html_links = f"""
+    <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;">
+    <p style="margin: 10px 0;">
+        <a href="{confirm_yes_url}" style="display: inline-block; padding: 10px 20px; background: #16a34a; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; margin-right: 8px;">Ja, ich bin dabei!</a>
+        <a href="{confirm_no_url}" style="display: inline-block; padding: 10px 20px; background: #dc2626; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">Nein, ich kann nicht</a>
+    </p>"""
+
         html_body = f"""
 <!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
 <body style="font-family: sans-serif; line-height: 1.6; color: #333;">
-    <p>{body.replace(chr(10), '<br>')}</p>
+    <p>{body.replace(chr(10), '<br>')}</p>{html_links}
     <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;">
     <p style="color: #666; font-size: 0.9em;">
         Diese Nachricht bezieht sich auf die Veranstaltung "{event.name}".
@@ -1021,7 +1067,7 @@ class EmailService:
             registration_id=registration.id,
             to=registration.email,
             subject=subject,
-            text_body=body,
+            text_body=body + text_links,
             html_body=html_body,
             message_type=MessageType.CUSTOM,
         )

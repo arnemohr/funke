@@ -41,7 +41,13 @@
             <a href="#" :class="{ active: statusFilter === 'OPEN' }" @click.prevent="statusFilter = 'OPEN'">Offen</a>
           </li>
           <li>
+            <a href="#" :class="{ active: statusFilter === 'IN_PROGRESS' }" @click.prevent="statusFilter = 'IN_PROGRESS'">In Bearbeitung</a>
+          </li>
+          <li>
             <a href="#" :class="{ active: statusFilter === 'COMPLETED' }" @click.prevent="statusFilter = 'COMPLETED'">Abgeschlossen</a>
+          </li>
+          <li>
+            <a href="#" :class="{ active: statusFilter === 'CANCELLED' }" @click.prevent="statusFilter = 'CANCELLED'">Abgesagt</a>
           </li>
         </ul>
       </nav>
@@ -154,6 +160,7 @@
       :error="registrationsError"
       :publishing="publishing === selectedEvent?.id"
       :closing-registration="closing === selectedEvent?.id"
+      :completing="completing === selectedEvent?.id"
       @close="selectedEvent = null"
       @edit="showEditModal"
       @publish="publishEvent"
@@ -163,6 +170,7 @@
       @close-registration="closeRegistration"
       @copy-link="copyRegistrationLink"
       @go-to-lottery="goToLottery"
+      @complete-event="completeEvent"
       @export-csv="handleExportCsv"
       @send-message="showMessageComposer = true"
       @show-messages="showMessageLog = true"
@@ -271,6 +279,7 @@ const cloneError = ref(null)
 // Action states
 const publishing = ref(null)
 const closing = ref(null)
+const completing = ref(null)
 
 // Registrations / detail modal
 const selectedEvent = ref(null)
@@ -299,8 +308,13 @@ const showMessageComposer = ref(false)
 const showMessageLog = ref(false)
 
 // Computed
+const IN_PROGRESS_STATUSES = ['REGISTRATION_CLOSED', 'LOTTERY_PENDING', 'CONFIRMED']
+
 const filteredEvents = computed(() => {
   if (!statusFilter.value) return events.value
+  if (statusFilter.value === 'IN_PROGRESS') {
+    return events.value.filter(e => IN_PROGRESS_STATUSES.includes(e.status))
+  }
   return events.value.filter(e => e.status === statusFilter.value)
 })
 
@@ -372,6 +386,17 @@ async function closeRegistration(event) {
     alert(err.message || 'Anmeldung konnte nicht geschlossen werden')
   } finally {
     closing.value = null
+  }
+}
+
+async function completeEvent(event) {
+  completing.value = event.id
+  try {
+    updateEventInList(await adminApi.completeEvent(event.id))
+  } catch (err) {
+    alert(err.message || 'Abschließen fehlgeschlagen')
+  } finally {
+    completing.value = null
   }
 }
 
@@ -536,6 +561,8 @@ nav a.active {
 .status-draft { background: #e2e8f0; color: #64748b; }
 .status-open { background: #dcfce7; color: #16a34a; }
 .status-registration_closed { background: #fef3c7; color: #d97706; }
+.status-lottery_pending { background: #ede9fe; color: #7c3aed; }
+.status-confirmed { background: #d1fae5; color: #065f46; }
 .status-completed { background: #dbeafe; color: #2563eb; }
 .status-cancelled { background: #fee2e2; color: #dc2626; }
 

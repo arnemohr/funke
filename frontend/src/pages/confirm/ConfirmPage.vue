@@ -120,6 +120,33 @@
       </p>
     </section>
 
+    <!-- Already checked in -->
+    <section v-else-if="registration?.status === 'CHECKED_IN'" class="status-card success">
+      <div class="status-icon">✓</div>
+      <h2>Du bist eingecheckt</h2>
+      <p>Du bist bereits vor Ort eingecheckt. Viel Spaß!</p>
+
+      <div class="registration-details">
+        <p><strong>Name:</strong> {{ registration.name }}</p>
+        <p><strong>E-Mail:</strong> {{ registration.email }}</p>
+      </div>
+    </section>
+
+    <!-- Registered but lottery not yet run -->
+    <section v-else-if="registration?.status === 'REGISTERED'" class="status-card waitlist">
+      <div class="status-icon">⏳</div>
+      <h2>Anmeldung eingegangen</h2>
+      <p>
+        Deine Anmeldung ist bei uns eingegangen. Nach Anmeldeschluss wird per Los entschieden,
+        ob du einen Platz bekommst. Du wirst per E-Mail benachrichtigt.
+      </p>
+
+      <div class="registration-details">
+        <p><strong>Name:</strong> {{ registration.name }}</p>
+        <p><strong>E-Mail:</strong> {{ registration.email }}</p>
+      </div>
+    </section>
+
     <!-- Unknown/other status -->
     <section v-else-if="registration" class="status-card">
       <h2>Status: {{ registration.status }}</h2>
