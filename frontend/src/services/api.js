@@ -370,6 +370,54 @@ export const adminApi = {
   async listMessages(eventId) {
     return request(`/api/admin/events/${eventId}/messages`, {}, true)
   },
+
+  /**
+   * Toggle promoted flag on a registration.
+   * @param {string} eventId - Event ID
+   * @param {string} registrationId - Registration ID
+   * @param {boolean} promoted - Whether to promote
+   * @returns {Promise<object>} Updated registration
+   */
+  async togglePromoted(eventId, registrationId, promoted) {
+    return request(`/api/admin/events/${eventId}/registrations/${registrationId}/promote`, {
+      method: 'PATCH',
+      body: JSON.stringify({ promoted }),
+    }, true)
+  },
+
+  /**
+   * Get unacknowledged (CONFIRMED) registrations for preview.
+   * @param {string} eventId - Event ID
+   * @returns {Promise<object>} Registrations list
+   */
+  async getUnacknowledged(eventId) {
+    return request(`/api/admin/events/${eventId}/registrations/unacknowledged`, {}, true)
+  },
+
+  /**
+   * Discard all unacknowledged registrations.
+   * @param {string} eventId - Event ID
+   * @returns {Promise<object>} { discarded_count, discarded_spots }
+   */
+  async discardUnacknowledged(eventId) {
+    return request(`/api/admin/events/${eventId}/registrations/discard-unacknowledged`, {
+      method: 'POST',
+    }, true)
+  },
+
+  /**
+   * Manually promote a waitlisted registration.
+   * @param {string} eventId - Event ID
+   * @param {string} registrationId - Registration ID
+   * @param {string} targetStatus - 'CONFIRMED' or 'PARTICIPATING'
+   * @returns {Promise<object>} Updated registration
+   */
+  async promoteFromWaitlist(eventId, registrationId, targetStatus = 'CONFIRMED') {
+    return request(`/api/admin/events/${eventId}/registrations/${registrationId}/promote-from-waitlist`, {
+      method: 'POST',
+      body: JSON.stringify({ target_status: targetStatus }),
+    }, true)
+  },
 }
 
 export default { publicApi, adminApi }

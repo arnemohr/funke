@@ -46,8 +46,18 @@
             <p class="label">Warteliste</p>
             <p class="value">{{ event.waitlist_count }}</p>
           </div>
+          <div>
+            <p class="label">Bevorzugt</p>
+            <p class="value">{{ event.promoted_count || 0 }} <span class="value-detail">({{ event.promoted_spots || 0 }} Plätze)</span></p>
+          </div>
         </div>
       </section>
+
+      <!-- Promoted capacity warning -->
+      <div v-if="event.promoted_spots > event.capacity" class="capacity-warning" role="alert">
+        Achtung: Bevorzugte Anmeldungen ({{ event.promoted_spots }} Plätze) übersteigen die Kapazität ({{ event.capacity }}).
+        Bitte Bevorzugungen anpassen, bevor die Verlosung gestartet wird.
+      </div>
 
       <section class="panel">
         <header class="panel-header">
@@ -61,7 +71,7 @@
             <button
               v-if="!lottery && event?.status !== 'CONFIRMED'"
               class="secondary"
-              :disabled="running"
+              :disabled="running || (event?.promoted_spots > event?.capacity)"
               :aria-busy="running"
               @click="handleRun"
             >
@@ -70,7 +80,7 @@
             <button
               v-if="lottery && !lottery.is_finalized && event?.status !== 'CONFIRMED'"
               class="secondary"
-              :disabled="running"
+              :disabled="running || (event?.promoted_spots > event?.capacity)"
               :aria-busy="running"
               @click="handleRun"
             >
@@ -140,7 +150,7 @@
           </thead>
           <tbody>
             <tr v-for="winner in lottery.winners" :key="winner.id">
-              <td>{{ winner.name }}</td>
+              <td>{{ winner.name }} <span v-if="winner.promoted" class="promoted-star" title="Bevorzugt">★</span></td>
               <td class="mono">{{ winner.email }}</td>
               <td>{{ winner.group_size }}</td>
               <td>
@@ -407,5 +417,26 @@ th {
   padding: 1rem;
   background: var(--pico-color-red-50, #fff5f5);
   border-radius: var(--pico-border-radius);
+}
+
+.value-detail {
+  font-size: 0.75rem;
+  font-weight: normal;
+  color: var(--pico-muted-color);
+}
+
+.capacity-warning {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-radius: var(--pico-border-radius);
+  color: #92400e;
+  font-weight: 500;
+}
+
+.promoted-star {
+  color: #d97706;
+  font-size: 0.9rem;
 }
 </style>

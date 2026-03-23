@@ -67,6 +67,8 @@ class EventResponse(BaseModel):
     confirmed_spots: int = 0
     waitlist_count: int = 0
     waitlist_spots: int = 0
+    promoted_count: int = 0
+    promoted_spots: int = 0
 
 
 class EventListResponse(BaseModel):
@@ -117,6 +119,8 @@ async def _event_to_response(event: Event) -> EventResponse:
         confirmed_spots=stats.get("confirmed_spots", 0),
         waitlist_count=stats.get("waitlist_registrations", 0),
         waitlist_spots=stats.get("waitlist_spots", 0),
+        promoted_count=stats.get("promoted_count", 0),
+        promoted_spots=stats.get("promoted_spots", 0),
     )
 
 
@@ -464,6 +468,7 @@ class RegistrationResponse(BaseModel):
     registered_at: datetime
     responded_at: datetime | None
     promoted_from_waitlist: bool
+    promoted: bool
 
 
 class RegistrationListResponse(BaseModel):
@@ -489,6 +494,7 @@ def _registration_to_response(registration: Registration) -> RegistrationRespons
         registered_at=registration.registered_at,
         responded_at=registration.responded_at,
         promoted_from_waitlist=registration.promoted_from_waitlist,
+        promoted=registration.promoted,
     )
 
 
@@ -530,6 +536,200 @@ async def list_registrations(
 
 
 @router.get(
+    "/{event_id}/registrations/unacknowledged",
+    response_model=RegistrationListResponse,
+    dependencies=[Depends(require_role([AdminRole.OWNER, AdminRole.ADMIN, AdminRole.VIEWER]))],
+)
+async def list_unacknowledged(
+    event_id: UUID,
+    user: CurrentUser,
+) -> RegistrationListResponse:
+    """List unacknowledged (CONFIRMED) registrations for preview before discard."""
+    org_id = _get_org_id(user)
+
+    event_service = get_event_service()
+    event = await event_service.get_event(org_id, event_id)
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found",
+        )
+
+    registration_service = get_registration_service()
+    registrations = await registration_service.list_registrations(
+        event_id, status_filter=RegistrationStatus.CONFIRMED,
+    )
+
+    return RegistrationListResponse(
+        items=[_registration_to_response(r) for r in registrations],
+        total=len(registrations),
+    )
+
+
+class DiscardResponse(BaseModel):
+    """Response for discard unacknowledged endpoint."""
+
+    discarded_count: int
+    discarded_spots: int
+
+
+@router.post(
+    "/{event_id}/registrations/discard-unacknowledged",
+    response_model=DiscardResponse,
+    dependencies=[Depends(require_role([AdminRole.OWNER, AdminRole.ADMIN]))],
+)
+async def discard_unacknowledged(
+    event_id: UUID,
+    user: CurrentUser,
+) -> DiscardResponse:
+    """Discard all unacknowledged (CONFIRMED) registrations.
+
+    Cancels registrations and sends notification emails.
+    """
+    org_id = _get_org_id(user)
+
+    event_service = get_event_service()
+    event = await event_service.get_event(org_id, event_id)
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found",
+        )
+
+    registration_service = get_registration_service()
+    discarded_count, discarded_spots = await registration_service.discard_unacknowledged(event_id)
+
+    log_admin_action(
+        "registrations.discard_unacknowledged",
+        user.email,
+        str(event_id),
+        {"discarded_count": discarded_count, "discarded_spots": discarded_spots},
+    )
+
+    return DiscardResponse(
+        discarded_count=discarded_count,
+        discarded_spots=discarded_spots,
+    )
+
+
+class PromoteFromWaitlistRequest(BaseModel):
+    """Request body for manual waitlist promotion."""
+
+    target_status: str = "CONFIRMED"  # "CONFIRMED" or "PARTICIPATING"
+
+
+@router.post(
+    "/{event_id}/registrations/{registration_id}/promote-from-waitlist",
+    response_model=RegistrationResponse,
+    dependencies=[Depends(require_role([AdminRole.OWNER, AdminRole.ADMIN]))],
+)
+async def promote_from_waitlist(
+    event_id: UUID,
+    registration_id: UUID,
+    body: PromoteFromWaitlistRequest,
+    user: CurrentUser,
+) -> RegistrationResponse:
+    """Manually promote a waitlisted registration.
+
+    target_status can be CONFIRMED (user must acknowledge) or PARTICIPATING (direct).
+    """
+    org_id = _get_org_id(user)
+
+    event_service = get_event_service()
+    event = await event_service.get_event(org_id, event_id)
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found",
+        )
+
+    target = RegistrationStatus(body.target_status)
+    if target not in (RegistrationStatus.CONFIRMED, RegistrationStatus.PARTICIPATING):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="target_status must be CONFIRMED or PARTICIPATING",
+        )
+
+    registration_service = get_registration_service()
+    registration = await registration_service.promote_single_from_waitlist(
+        event_id, registration_id, target,
+    )
+
+    if not registration:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Registration not found or not in WAITLISTED status",
+        )
+
+    log_admin_action(
+        "registration.promote_from_waitlist",
+        user.email,
+        str(event_id),
+        {"registration_id": str(registration_id), "target_status": body.target_status},
+    )
+
+    return _registration_to_response(registration)
+
+
+class TogglePromotedRequest(BaseModel):
+    """Request body for toggling promoted flag."""
+
+    promoted: bool
+
+
+@router.patch(
+    "/{event_id}/registrations/{registration_id}/promote",
+    response_model=RegistrationResponse,
+    dependencies=[Depends(require_role([AdminRole.OWNER, AdminRole.ADMIN]))],
+)
+async def toggle_promoted(
+    event_id: UUID,
+    registration_id: UUID,
+    body: TogglePromotedRequest,
+    user: CurrentUser,
+) -> RegistrationResponse:
+    """Toggle the promoted flag on a registration.
+
+    Only allowed when event is OPEN or REGISTRATION_CLOSED.
+    """
+    org_id = _get_org_id(user)
+
+    event_service = get_event_service()
+    event = await event_service.get_event(org_id, event_id)
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found",
+        )
+
+    if event.status not in (EventStatus.OPEN, EventStatus.REGISTRATION_CLOSED):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Promoted flag can only be changed when event is OPEN or REGISTRATION_CLOSED",
+        )
+
+    registration_service = get_registration_service()
+    registration = await registration_service.set_promoted(
+        event_id, registration_id, body.promoted,
+    )
+
+    if not registration:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Registration not found or not in REGISTERED status",
+        )
+
+    log_admin_action(
+        "registration.toggle_promoted",
+        user.email,
+        str(event_id),
+        {"registration_id": str(registration_id), "promoted": body.promoted},
+    )
+
+    return _registration_to_response(registration)
+
+
+@router.get(
     "/{event_id}/registrations/export",
     dependencies=[Depends(require_role([AdminRole.OWNER, AdminRole.ADMIN]))],
 )
@@ -557,7 +757,7 @@ async def export_registrations_csv(
     writer = csv.writer(output, delimiter=";")
     writer.writerow([
         "Name", "E-Mail", "Telefon", "Gruppengröße", "Status",
-        "Wartelistenplatz", "Angemeldet am", "Bestätigt am", "Notizen",
+        "Wartelistenplatz", "Bevorzugt", "Angemeldet am", "Bestätigt am", "Notizen",
     ])
 
     for reg in registrations:
@@ -568,6 +768,7 @@ async def export_registrations_csv(
             reg.group_size,
             reg.status.value,
             reg.waitlist_position or "",
+            "Ja" if reg.promoted else "Nein",
             reg.registered_at.isoformat() if reg.registered_at else "",
             reg.responded_at.isoformat() if reg.responded_at else "",
             reg.notes or "",

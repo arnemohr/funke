@@ -12,38 +12,100 @@
       Noch keine Anmeldungen für diese Veranstaltung.
     </p>
 
-    <table v-else>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>E-Mail</th>
-          <th>Personen</th>
-          <th>Status</th>
-          <th>Angemeldet am</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="reg in registrations" :key="reg.id">
-          <td>{{ reg.name }}</td>
-          <td><a :href="`mailto:${reg.email}`">{{ reg.email }}</a></td>
-          <td>{{ reg.group_size }}</td>
-          <td>
-            <span :class="['status-badge', `status-${reg.status.toLowerCase()}`]">
-              {{ formatStatus(reg.status) }}
-              <template v-if="reg.status === 'WAITLISTED' && reg.waitlist_position">
-                (#{{ reg.waitlist_position }})
-              </template>
-            </span>
-          </td>
-          <td>{{ formatDate(reg.registered_at) }}</td>
-        </tr>
-      </tbody>
-    </table>
+    <template v-else>
+      <!-- Filters -->
+      <div class="filters">
+        <input
+          v-model="searchTerm"
+          type="search"
+          placeholder="Name oder E-Mail suchen..."
+          class="search-input"
+        />
+        <select v-model="statusFilter" class="status-filter">
+          <option value="">Alle</option>
+          <option value="REGISTERED">Angemeldet</option>
+          <option value="CONFIRMED">Bestätigung ausstehend</option>
+          <option value="PARTICIPATING">Nimmt teil</option>
+          <option value="WAITLISTED">Warteliste</option>
+          <option value="CANCELLED">Abgesagt</option>
+          <option value="CHECKED_IN">Eingecheckt</option>
+          <option value="PROMOTED">Bevorzugt</option>
+        </select>
+      </div>
 
-    <p class="total-info">
-      Gesamt: {{ registrations.length }} Anmeldung(en),
-      {{ registrations.reduce((sum, r) => sum + r.group_size, 0) }} Platz/Plätze
-    </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>E-Mail</th>
+            <th>Personen</th>
+            <th>Status</th>
+            <th v-if="showPromotedColumn">Bevorzugt</th>
+            <th>Angemeldet am</th>
+            <th v-if="showActions">Aktionen</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="reg in filteredRegistrations" :key="reg.id">
+            <td>{{ reg.name }}</td>
+            <td><a :href="`mailto:${reg.email}`">{{ reg.email }}</a></td>
+            <td>{{ reg.group_size }}</td>
+            <td>
+              <span :class="['status-badge', `status-${reg.status.toLowerCase()}`]">
+                {{ formatStatus(reg.status) }}
+                <template v-if="reg.status === 'WAITLISTED' && reg.waitlist_position">
+                  (#{{ reg.waitlist_position }})
+                </template>
+              </span>
+            </td>
+            <td v-if="showPromotedColumn">
+              <template v-if="isPromotedEditable">
+                <label class="promoted-toggle" :title="'Garantierte Teilnahme bei der Verlosung'">
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    :checked="reg.promoted"
+                    :disabled="togglingId === reg.id"
+                    @change="$emit('toggle-promoted', { registrationId: reg.id, promoted: !reg.promoted })"
+                  />
+                </label>
+              </template>
+              <template v-else>
+                <span v-if="reg.promoted" class="promoted-badge" title="Bevorzugt">★</span>
+              </template>
+            </td>
+            <td>{{ formatDate(reg.registered_at) }}</td>
+            <td v-if="showActions">
+              <template v-if="reg.status === 'WAITLISTED' && eventStatus === 'CONFIRMED'">
+                <div class="promote-actions">
+                  <button
+                    class="small-button"
+                    @click="$emit('promote-waitlisted', { registrationId: reg.id, targetStatus: 'CONFIRMED' })"
+                  >
+                    Nachrücken
+                  </button>
+                  <button
+                    class="small-button secondary"
+                    @click="$emit('promote-waitlisted', { registrationId: reg.id, targetStatus: 'PARTICIPATING' })"
+                    title="Direkt als teilnehmend markieren"
+                  >
+                    Direkt
+                  </button>
+                </div>
+              </template>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p class="total-info">
+        Gesamt: {{ filteredRegistrations.length }} Anmeldung(en),
+        {{ filteredRegistrations.reduce((sum, r) => sum + r.group_size, 0) }} Platz/Plätze
+        <template v-if="filteredRegistrations.length !== registrations.length">
+          ({{ registrations.length }} insgesamt)
+        </template>
+      </p>
+    </template>
 
     <!-- Attendance summary for CONFIRMED events -->
     <div v-if="['CONFIRMED', 'COMPLETED'].includes(eventStatus)" class="confirmation-summary">
@@ -62,11 +124,53 @@
 </template>
 
 <script setup>
-defineProps({
+import { ref, computed } from 'vue'
+
+const props = defineProps({
   registrations: { type: Array, required: true },
   eventStatus: { type: String, default: null },
   loading: { type: Boolean, default: false },
   error: { type: String, default: null },
+  togglingId: { type: String, default: null },
+})
+
+defineEmits(['toggle-promoted', 'promote-waitlisted'])
+
+const searchTerm = ref('')
+const statusFilter = ref('')
+
+const showPromotedColumn = computed(() => {
+  return ['OPEN', 'REGISTRATION_CLOSED', 'LOTTERY_PENDING', 'CONFIRMED', 'COMPLETED'].includes(props.eventStatus)
+})
+
+const isPromotedEditable = computed(() => {
+  return ['OPEN', 'REGISTRATION_CLOSED'].includes(props.eventStatus)
+})
+
+const showActions = computed(() => {
+  return props.eventStatus === 'CONFIRMED'
+    && props.registrations.some(r => r.status === 'WAITLISTED')
+})
+
+const filteredRegistrations = computed(() => {
+  let result = props.registrations
+
+  // Status filter
+  if (statusFilter.value === 'PROMOTED') {
+    result = result.filter(r => r.promoted)
+  } else if (statusFilter.value) {
+    result = result.filter(r => r.status === statusFilter.value)
+  }
+
+  // Search filter
+  if (searchTerm.value) {
+    const term = searchTerm.value.toLowerCase()
+    result = result.filter(r =>
+      r.name.toLowerCase().includes(term) || r.email.toLowerCase().includes(term)
+    )
+  }
+
+  return result
 })
 
 function formatDate(dateStr) {
@@ -84,7 +188,7 @@ function formatDate(dateStr) {
 function formatStatus(status) {
   const statusLabels = {
     'REGISTERED': 'Angemeldet',
-    'CONFIRMED': 'Wartet auf Bestätigung',
+    'CONFIRMED': 'Bestätigung ausstehend',
     'PARTICIPATING': 'Nimmt teil',
     'WAITLISTED': 'Warteliste',
     'CANCELLED': 'Abgesagt',
@@ -95,6 +199,22 @@ function formatStatus(status) {
 </script>
 
 <style scoped>
+.filters {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.search-input {
+  flex: 1;
+  min-width: 200px;
+}
+
+.status-filter {
+  min-width: 180px;
+}
+
 .status-badge {
   display: inline-block;
   padding: 0.25rem 0.5rem;
@@ -110,6 +230,37 @@ function formatStatus(status) {
 .status-waitlisted { background: #e5e7eb; color: #6b7280; }
 .status-cancelled { background: #fee2e2; color: #dc2626; }
 .status-checked_in { background: #dbeafe; color: #2563eb; }
+
+.promoted-toggle {
+  margin: 0;
+}
+
+.promoted-toggle input[type="checkbox"] {
+  margin: 0;
+}
+
+.promoted-badge {
+  color: #d97706;
+  font-size: 1.2rem;
+}
+
+.promote-actions {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.small-button {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.small-button.secondary {
+  background: transparent;
+  border: 1px solid var(--pico-muted-border-color);
+  color: var(--pico-muted-color);
+}
 
 .total-info {
   margin-top: 1rem;

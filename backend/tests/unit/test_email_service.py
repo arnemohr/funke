@@ -55,10 +55,10 @@ class TestEmailTemplates:
         assert "<html>" in html
 
     def test_registration_waitlisted(self, ctx):
-        ctx.waitlist_position = 5
         subject, text, html = EmailTemplates.registration_waitlisted(ctx)
-        assert "#5" in text
         assert "Warteliste" in subject
+        assert "#" not in subject  # No position in subject
+        assert "Max Müller" in text
 
     def test_registration_cancelled(self, ctx):
         subject, text, html = EmailTemplates.registration_cancelled(ctx)
@@ -67,7 +67,7 @@ class TestEmailTemplates:
 
     def test_promoted_from_waitlist(self, ctx):
         subject, text, html = EmailTemplates.promoted_from_waitlist(ctx)
-        assert "dabei" in subject.lower()
+        assert "platz frei" in subject.lower()
 
     def test_event_cancelled(self, ctx):
         subject, text, html = EmailTemplates.event_cancelled(ctx)
@@ -89,13 +89,36 @@ class TestEmailTemplates:
         assert "ausgelost" in text.lower()
 
     def test_lottery_waitlisted(self, ctx):
-        ctx.waitlist_position = 3
         subject, text, html = EmailTemplates.lottery_waitlisted(ctx)
         assert "Warteliste" in subject
+        # No position in subject or body
+        assert "#" not in subject
 
     def test_lottery_rejected(self, ctx):
         subject, text, html = EmailTemplates.lottery_rejected(ctx)
         assert "Leider" in subject
+
+    def test_attendance_response_yes(self, ctx):
+        """T13.8: Attendance response confirmation — YES."""
+        subject, text, html = EmailTemplates.attendance_response_confirmation(ctx, participating=True)
+        assert "Rückmeldung" in subject
+        assert "Teilnahme" in html
+        assert "Max Müller" in text
+
+    def test_attendance_response_no(self, ctx):
+        """T13.8: Attendance response confirmation — NO."""
+        subject, text, html = EmailTemplates.attendance_response_confirmation(ctx, participating=False)
+        assert "Rückmeldung" in subject
+        assert "Absage" in html
+        assert "Max Müller" in text
+
+    def test_registration_confirmed_includes_deadline(self, ctx):
+        """T13.9: Registration confirmation email includes deadline."""
+        ctx.registration_deadline = "Freitag, 20. März 2026 um 18:00"
+        subject, text, html = EmailTemplates.registration_confirmed(ctx)
+        assert "Anmeldeschluss" in text
+        assert "20. März 2026" in text
+        assert "Anmeldeschluss" in html
 
 
 class TestFormatDate:

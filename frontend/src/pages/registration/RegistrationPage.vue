@@ -117,18 +117,9 @@
 
       <!-- Success state -->
       <section v-else class="success">
-        <h3 v-if="registration?.status === 'WAITLISTED'">
-          Auf die Warteliste gesetzt
-        </h3>
-        <h3 v-else>
-          Du stehst auf der Liste!
-        </h3>
+        <h3>Du stehst auf der Liste!</h3>
 
-        <p v-if="registration?.status === 'WAITLISTED'">
-          Die Veranstaltung ist aktuell voll, aber du stehst auf der Warteliste.
-          Sobald ein Platz frei wird, rückst du automatisch nach und wirst benachrichtigt.
-        </p>
-        <p v-else>
+        <p>
           Deine Anmeldung für <strong>{{ event?.name }}</strong> ist eingegangen.
           Falls mehr Anmeldungen als Plätze eingehen, wird nach Anmeldeschluss per Los entschieden.
           Du wirst per E-Mail über das Ergebnis informiert.
@@ -138,9 +129,6 @@
           <p><strong>Name:</strong> {{ registration.name }}</p>
           <p><strong>E-Mail:</strong> <a :href="`mailto:${registration.email}`">{{ registration.email }}</a></p>
           <p><strong>Personen:</strong> {{ registration.group_size }}</p>
-          <p v-if="registration.status === 'WAITLISTED' && registration.waitlist_position">
-            <strong>Wartelistenplatz:</strong> #{{ registration.waitlist_position }}
-          </p>
         </div>
 
         <div class="info-box">

@@ -11,7 +11,24 @@
       <p>{{ error }}</p>
     </div>
 
-    <!-- Already participating -->
+    <!-- Confirmation success (just confirmed in this session) -->
+    <section v-else-if="confirmed" class="status-card" :class="confirmedYes ? 'success' : 'cancelled'">
+      <div class="status-icon">{{ confirmedYes ? '✓' : '✕' }}</div>
+      <h2 v-if="confirmedYes">Danke für deine Bestätigung!</h2>
+      <h2 v-else>Absage erfasst</h2>
+      <p v-if="confirmedYes">Deine Teilnahme ist bestätigt. Wir freuen uns auf dich!</p>
+      <p v-else>Deine Absage wurde erfasst. Schade, dass du nicht dabei sein kannst.</p>
+
+      <div class="registration-details">
+        <p><strong>Name:</strong> {{ registration.name }}</p>
+        <p><strong>E-Mail:</strong> <a :href="`mailto:${registration.email}`">{{ registration.email }}</a></p>
+        <p><strong>Personen:</strong> {{ registration.group_size }}</p>
+      </div>
+
+      <router-link to="/" class="button">Zur Startseite</router-link>
+    </section>
+
+    <!-- Already participating (revisit) -->
     <section v-else-if="registration?.status === 'PARTICIPATING'" class="status-card success">
       <div class="status-icon">✓</div>
       <h2>Du hast bereits zugesagt</h2>
@@ -26,7 +43,7 @@
       <router-link to="/" class="button">Zur Startseite</router-link>
     </section>
 
-    <!-- Already cancelled -->
+    <!-- Already cancelled (revisit) -->
     <section v-else-if="registration?.status === 'CANCELLED'" class="status-card cancelled">
       <div class="status-icon">✕</div>
       <h2>Anmeldung storniert</h2>
@@ -42,7 +59,7 @@
 
     <!-- Waitlisted (can't confirm yet) -->
     <section v-else-if="registration?.status === 'WAITLISTED'" class="status-card waitlist">
-      <div class="status-icon">#{{ registration.waitlist_position }}</div>
+      <div class="status-icon">⏳</div>
       <h2>Du stehst auf der Warteliste</h2>
       <p>
         Sobald ein Platz frei wird, rückst du automatisch nach und wirst benachrichtigt.
@@ -51,23 +68,6 @@
       <div class="registration-details">
         <p><strong>Name:</strong> {{ registration.name }}</p>
         <p><strong>E-Mail:</strong> <a :href="`mailto:${registration.email}`">{{ registration.email }}</a></p>
-        <p><strong>Wartelistenplatz:</strong> #{{ registration.waitlist_position }}</p>
-      </div>
-
-      <router-link to="/" class="button">Zur Startseite</router-link>
-    </section>
-
-    <!-- Confirmation success -->
-    <section v-else-if="confirmed" class="status-card" :class="confirmedYes ? 'success' : 'cancelled'">
-      <div class="status-icon">{{ confirmedYes ? '✓' : '✕' }}</div>
-      <h2 v-if="confirmedYes">Du bist dabei!</h2>
-      <h2 v-else>Schade, dass du nicht dabei sein kannst</h2>
-      <p>{{ confirmMessage }}</p>
-
-      <div class="registration-details">
-        <p><strong>Name:</strong> {{ registration.name }}</p>
-        <p><strong>E-Mail:</strong> <a :href="`mailto:${registration.email}`">{{ registration.email }}</a></p>
-        <p><strong>Personen:</strong> {{ registration.group_size }}</p>
       </div>
 
       <router-link to="/" class="button">Zur Startseite</router-link>
@@ -183,7 +183,7 @@ const pendingResponse = ref(null)
 function formatStatus(status) {
   const statusLabels = {
     'REGISTERED': 'Angemeldet',
-    'CONFIRMED': 'Wartet auf Bestätigung',
+    'CONFIRMED': 'Bestätigung ausstehend',
     'PARTICIPATING': 'Nimmt teil',
     'WAITLISTED': 'Warteliste',
     'CANCELLED': 'Storniert',

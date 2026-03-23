@@ -80,9 +80,8 @@ async def submit_registration(
 ) -> RegistrationSubmitResponse:
     """Submit a registration for an event.
 
-    The registration will be REGISTERED if capacity is available,
-    or WAITLISTED if the event is at capacity. After registration
-    closes, a lottery determines who gets confirmed.
+    All registrations start as REGISTERED. Capacity enforcement is
+    deferred to the lottery phase after registration closes.
 
     Returns 409 Conflict if email is already registered for this event.
     """
@@ -123,16 +122,13 @@ async def submit_registration(
         },
     )
 
-    # Send confirmation/waitlist email
+    # Send confirmation email
     try:
         event_service = get_event_service()
         event = await event_service.get_event_by_link_token(link_token)
         if event:
             email_service = get_email_service()
-            if registration.status.value == "REGISTERED":
-                await email_service.send_registration_confirmation(event, registration)
-            elif registration.status.value == "WAITLISTED":
-                await email_service.send_waitlist_notification(event, registration)
+            await email_service.send_registration_confirmation(event, registration)
         else:
             logger.warning(
                 "Could not send email: event not found by link token",
@@ -145,14 +141,7 @@ async def submit_registration(
             extra={"error": str(e), "registration_id": str(registration.id)},
         )
 
-    # Build response message based on status
-    if registration.status.value == "REGISTERED":
-        message = "Deine Anmeldung ist eingegangen! Du erhältst in Kürze eine Bestätigungsmail."
-    else:
-        message = (
-            f"Du stehst auf der Warteliste (Platz {registration.waitlist_position}). "
-            "Wir benachrichtigen dich, sobald ein Platz frei wird."
-        )
+    message = "Deine Anmeldung ist eingegangen! Du erhältst in Kürze eine Bestätigungsmail."
 
     return RegistrationSubmitResponse(
         registration=RegistrationResponse(
@@ -166,6 +155,7 @@ async def submit_registration(
             registration_token=registration.registration_token,
             registered_at=registration.registered_at,
             responded_at=registration.responded_at,
+            promoted=registration.promoted,
         ),
         message=message,
     )

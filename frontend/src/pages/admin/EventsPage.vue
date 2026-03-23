@@ -161,6 +161,7 @@
       :publishing="publishing === selectedEvent?.id"
       :closing-registration="closing === selectedEvent?.id"
       :completing="completing === selectedEvent?.id"
+      :toggling-id="togglingPromotedId"
       @close="selectedEvent = null"
       @edit="showEditModal"
       @publish="publishEvent"
@@ -174,6 +175,9 @@
       @export-csv="handleExportCsv"
       @send-message="showMessageComposer = true"
       @show-messages="showMessageLog = true"
+      @toggle-promoted="handleTogglePromoted"
+      @promote-waitlisted="handlePromoteWaitlisted"
+      @discard-unacknowledged="handleDiscardUnacknowledged"
     />
 
     <!-- Cancel Event Confirmation Modal -->
@@ -306,6 +310,13 @@ const deleteError = ref(null)
 // Messaging
 const showMessageComposer = ref(false)
 const showMessageLog = ref(false)
+
+// Promoted toggle
+const togglingPromotedId = ref(null)
+
+// Discard unacknowledged
+const discardPreview = ref(null)
+const discarding = ref(false)
 
 // Computed
 const IN_PROGRESS_STATUSES = ['REGISTRATION_CLOSED', 'LOTTERY_PENDING', 'CONFIRMED']
@@ -468,6 +479,7 @@ async function handleCancelEvent() {
 }
 
 function showEditModal(event) {
+  selectedEvent.value = null
   editEventData.value = event
   editError.value = null
 }
@@ -515,6 +527,63 @@ async function handleExportCsv(event) {
 
 function onMessageSent() {
   // Optionally refresh registrations after message sent
+}
+
+async function handleTogglePromoted({ registrationId, promoted }) {
+  if (!selectedEvent.value) return
+  togglingPromotedId.value = registrationId
+  try {
+    await adminApi.togglePromoted(selectedEvent.value.id, registrationId, promoted)
+    // Refresh registrations and event
+    const [regs, evt] = await Promise.all([
+      adminApi.listRegistrations(selectedEvent.value.id),
+      adminApi.getEvent(selectedEvent.value.id),
+    ])
+    registrations.value = regs.items
+    updateEventInList(evt)
+  } catch (err) {
+    alert(err.message || 'Bevorzugung konnte nicht geändert werden')
+  } finally {
+    togglingPromotedId.value = null
+  }
+}
+
+async function handlePromoteWaitlisted({ registrationId, targetStatus }) {
+  if (!selectedEvent.value) return
+  try {
+    await adminApi.promoteFromWaitlist(selectedEvent.value.id, registrationId, targetStatus)
+    // Refresh registrations and event
+    const [regs, evt] = await Promise.all([
+      adminApi.listRegistrations(selectedEvent.value.id),
+      adminApi.getEvent(selectedEvent.value.id),
+    ])
+    registrations.value = regs.items
+    updateEventInList(evt)
+  } catch (err) {
+    alert(err.message || 'Nachrücken fehlgeschlagen')
+  }
+}
+
+async function handleDiscardUnacknowledged(event) {
+  if (!confirm('Alle unbestätigten Anmeldungen verwerfen und benachrichtigen? Diese Aktion kann nicht rückgängig gemacht werden.')) {
+    return
+  }
+  discarding.value = true
+  try {
+    const result = await adminApi.discardUnacknowledged(event.id)
+    alert(`${result.discarded_count} Anmeldungen verworfen (${result.discarded_spots} Plätze).`)
+    // Refresh
+    const [regs, evt] = await Promise.all([
+      adminApi.listRegistrations(event.id),
+      adminApi.getEvent(event.id),
+    ])
+    registrations.value = regs.items
+    updateEventInList(evt)
+  } catch (err) {
+    alert(err.message || 'Verwerfen fehlgeschlagen')
+  } finally {
+    discarding.value = false
+  }
 }
 
 watch(statusFilter, loadEvents)

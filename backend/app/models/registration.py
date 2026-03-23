@@ -74,6 +74,7 @@ class Registration(BaseModel):
     registered_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     responded_at: datetime | None = None  # When they responded YES/NO
     promoted_from_waitlist: bool = False
+    promoted: bool = False  # Admin flag: guaranteed lottery placement
     ttl: int | None = None  # DynamoDB TTL timestamp
 
     def can_cancel(self) -> bool:
@@ -171,3 +172,4 @@ class RegistrationResponse(BaseModel):
     registration_token: str
     registered_at: datetime
     responded_at: datetime | None
+    promoted: bool = False

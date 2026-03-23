@@ -31,6 +31,7 @@ class EmailContext(BaseModel):
     event_name: str
     event_date: str
     event_location: str | None
+    registration_deadline: str | None = None
     attendee_name: str
     attendee_email: str
     group_size: int
@@ -87,6 +88,7 @@ Deine Anmeldung:
 - Datum: {ctx.event_date}
 - Ort: {ctx.event_location or 'Wird noch bekannt gegeben'}
 - Personen: {ctx.group_size} {persons}
+- Anmeldeschluss: {ctx.registration_deadline or 'Nicht festgelegt'}
 
 Falls du es dir anders überlegst, kannst du hier stornieren:
 {ctx.cancellation_url}
@@ -118,6 +120,7 @@ Deine Crew von der Schaluppe
         <li><strong>Datum:</strong> {ctx.event_date}</li>
         <li><strong>Ort:</strong> {ctx.event_location or 'Wird noch bekannt gegeben'}</li>
         <li><strong>Personen:</strong> {ctx.group_size} {persons}</li>
+        <li><strong>Anmeldeschluss:</strong> {ctx.registration_deadline or 'Nicht festgelegt'}</li>
     </ul>
 
     <p style="margin-top: 20px;">
@@ -137,18 +140,14 @@ Deine Crew von der Schaluppe
 
         Returns: (subject, text_body, html_body)
         """
-        subject = f"Warteliste #{ctx.waitlist_position}: {ctx.event_name}"
+        subject = f"Warteliste: {ctx.event_name}"
         persons = "Person" if ctx.group_size == 1 else "Personen"
 
         text_body = f"""Moin {ctx.attendee_name},
 
 Danke für deine Anmeldung zu "{ctx.event_name}".
 
-Leider ist die Veranstaltung schon voll. Du stehst jetzt auf der Warteliste.
-
-Dein Wartelistenplatz: #{ctx.waitlist_position}
-
-Sobald ein Platz frei wird, rückst du automatisch nach und wir benachrichtigen dich.
+Du stehst auf der Warteliste. Sobald ein Platz frei wird, rückst du automatisch nach und wir benachrichtigen dich.
 
 Details:
 - Datum: {ctx.event_date}
@@ -167,17 +166,11 @@ Deine Crew von der Schaluppe
 <html>
 <head><meta charset="utf-8"></head>
 <body style="font-family: sans-serif; line-height: 1.6; color: #333;">
-    <h2>Auf die Warteliste gesetzt</h2>
+    <h2>Du stehst auf der Warteliste</h2>
     <p>Moin {ctx.attendee_name},</p>
     <p>Danke für deine Anmeldung zu <strong>"{ctx.event_name}"</strong>.</p>
 
-    <p>Leider ist die Veranstaltung schon voll. Du stehst jetzt auf der Warteliste.</p>
-
-    <p style="font-size: 1.2em; background: #f5f5f5; padding: 15px; border-radius: 5px;">
-        Dein Wartelistenplatz: <strong>#{ctx.waitlist_position}</strong>
-    </p>
-
-    <p>Sobald ein Platz frei wird, rückst du automatisch nach und wir benachrichtigen dich.</p>
+    <p>Du stehst auf der Warteliste. Sobald ein Platz frei wird, rückst du automatisch nach und wir benachrichtigen dich.</p>
 
     <h3>Details</h3>
     <ul>
@@ -366,8 +359,6 @@ Deine Crew von der Schaluppe
 Danke für deine Anmeldung zu "{ctx.event_name}".
 
 Bei der Verlosung hast du leider keinen Platz bekommen, aber du stehst auf der Warteliste.
-Dein Wartelistenplatz: #{ctx.waitlist_position}
-
 Sobald ein Platz frei wird, benachrichtigen wir dich sofort.
 
 Details:
@@ -393,11 +384,8 @@ Deine Crew von der Schaluppe
     <p>Moin {ctx.attendee_name},</p>
     <p>Danke für deine Anmeldung zu <strong>"{ctx.event_name}"</strong>.</p>
 
-    <p>Bei der Verlosung hast du leider keinen Platz bekommen, aber du stehst auf der Warteliste.</p>
-
-    <p style="font-size: 1.2em; background: #f5f5f5; padding: 15px; border-radius: 5px;">
-        Dein Wartelistenplatz: <strong>#{ctx.waitlist_position}</strong>
-    </p>
+    <p>Bei der Verlosung hast du leider keinen Platz bekommen, aber du stehst auf der Warteliste.
+    Sobald ein Platz frei wird, benachrichtigen wir dich sofort.</p>
 
     <h3>Details</h3>
     <ul>
@@ -587,6 +575,90 @@ Deine Crew von der Schaluppe
 """
         return subject, text_body, html_body
 
+    @staticmethod
+    def attendance_response_confirmation(ctx: EmailContext, participating: bool) -> tuple[str, str, str]:
+        """Generate attendance response confirmation email.
+
+        Sent after a user responds YES or NO to confirm they have a record.
+
+        Args:
+            ctx: Email context.
+            participating: True if user said YES, False if NO.
+
+        Returns: (subject, text_body, html_body)
+        """
+        subject = f"Rückmeldung bestätigt: {ctx.event_name}"
+
+        if participating:
+            text_body = f"""Moin {ctx.attendee_name},
+
+Danke für deine Rückmeldung! Deine Teilnahme an "{ctx.event_name}" ist bestätigt.
+
+Details:
+- Datum: {ctx.event_date}
+- Ort: {ctx.event_location or 'Wird noch bekannt gegeben'}
+
+Wir freuen uns auf dich!
+
+Bis bald,
+Deine Crew von der Schaluppe
+"""
+            html_body = f"""
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: sans-serif; line-height: 1.6; color: #333;">
+    <h2 style="color: #16a34a;">Teilnahme bestätigt</h2>
+    <p>Moin {ctx.attendee_name},</p>
+    <p>Danke für deine Rückmeldung! Deine Teilnahme an <strong>"{ctx.event_name}"</strong> ist bestätigt.</p>
+
+    <h3>Details</h3>
+    <ul>
+        <li><strong>Datum:</strong> {ctx.event_date}</li>
+        <li><strong>Ort:</strong> {ctx.event_location or 'Wird noch bekannt gegeben'}</li>
+    </ul>
+
+    <p>Wir freuen uns auf dich!</p>
+    <p>Bis bald,<br>Deine Crew von der Schaluppe</p>
+</body>
+</html>
+"""
+        else:
+            text_body = f"""Moin {ctx.attendee_name},
+
+Deine Absage für "{ctx.event_name}" wurde erfasst. Schade, dass du nicht dabei sein kannst.
+
+Details:
+- Datum: {ctx.event_date}
+- Ort: {ctx.event_location or 'Wird noch bekannt gegeben'}
+
+Vielleicht beim nächsten Mal!
+
+Bis bald,
+Deine Crew von der Schaluppe
+"""
+            html_body = f"""
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: sans-serif; line-height: 1.6; color: #333;">
+    <h2>Absage bestätigt</h2>
+    <p>Moin {ctx.attendee_name},</p>
+    <p>Deine Absage für <strong>"{ctx.event_name}"</strong> wurde erfasst. Schade, dass du nicht dabei sein kannst.</p>
+
+    <h3>Details</h3>
+    <ul>
+        <li><strong>Datum:</strong> {ctx.event_date}</li>
+        <li><strong>Ort:</strong> {ctx.event_location or 'Wird noch bekannt gegeben'}</li>
+    </ul>
+
+    <p>Vielleicht beim nächsten Mal!</p>
+    <p>Bis bald,<br>Deine Crew von der Schaluppe</p>
+</body>
+</html>
+"""
+        return subject, text_body, html_body
+
 
 def _message_to_item(message: Message) -> dict:
     """Convert Message model to DynamoDB item."""
@@ -676,6 +748,7 @@ class EmailService:
             event_name=event.name,
             event_date=_format_date(event.start_at),
             event_location=event.location,
+            registration_deadline=_format_date(event.registration_deadline),
             attendee_name=registration.name,
             attendee_email=registration.email,
             group_size=registration.group_size,
@@ -991,6 +1064,48 @@ class EmailService:
         )
 
         subject, text_body, html_body = EmailTemplates.confirmation_request(ctx, days_until_event)
+
+        return await self._send_email(
+            event_id=event.id,
+            registration_id=registration.id,
+            to=registration.email,
+            subject=subject,
+            text_body=text_body,
+            html_body=html_body,
+            message_type=MessageType.CONFIRMATION_REQUEST,
+        )
+
+    async def send_attendance_response_confirmation(
+        self,
+        event: Event,
+        registration: Registration,
+        participating: bool,
+    ) -> bool:
+        """Send attendance response confirmation email.
+
+        Sent after a user responds YES or NO so they have an email record.
+
+        Args:
+            event: The event.
+            registration: The registration.
+            participating: True if user said YES, False if NO.
+
+        Returns:
+            True if email was sent successfully.
+        """
+        ctx = EmailContext(
+            event_name=event.name,
+            event_date=_format_date(event.start_at),
+            event_location=event.location,
+            attendee_name=registration.name,
+            attendee_email=registration.email,
+            group_size=registration.group_size,
+            registration_status=registration.status.value,
+        )
+
+        subject, text_body, html_body = EmailTemplates.attendance_response_confirmation(
+            ctx, participating,
+        )
 
         return await self._send_email(
             event_id=event.id,

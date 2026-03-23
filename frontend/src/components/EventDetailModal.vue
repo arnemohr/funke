@@ -29,6 +29,10 @@
           <span class="event-info-label">Warteliste:</span>
           <span>{{ event.waitlist_spots }} Personen ({{ event.waitlist_count }} Buchungen)</span>
         </div>
+        <div class="event-info-row" v-if="event.promoted_count > 0">
+          <span class="event-info-label">Bevorzugt:</span>
+          <span>{{ event.promoted_count }} Anmeldungen ({{ event.promoted_spots }} Plätze)</span>
+        </div>
         <div class="event-info-row">
           <span class="event-info-label">Erinnerungen:</span>
           <span>{{ formatReminderSchedule(event.reminder_schedule_days) }} Tage vorher</span>
@@ -40,6 +44,9 @@
         :event-status="event?.status"
         :loading="loading"
         :error="error"
+        :toggling-id="togglingId"
+        @toggle-promoted="$emit('toggle-promoted', $event)"
+        @promote-waitlisted="$emit('promote-waitlisted', $event)"
       />
 
       <footer>
@@ -93,6 +100,13 @@
             class="outline secondary"
           >
             Verlosung ansehen
+          </button>
+          <button
+            v-if="event?.status === 'CONFIRMED'"
+            @click="$emit('discard-unacknowledged', event)"
+            class="outline cancel-btn"
+          >
+            Unbestätigte verwerfen
           </button>
           <button
             v-if="event?.status === 'CONFIRMED'"
@@ -155,12 +169,14 @@ defineProps({
   publishing: { type: Boolean, default: false },
   closingRegistration: { type: Boolean, default: false },
   completing: { type: Boolean, default: false },
+  togglingId: { type: String, default: null },
 })
 
 defineEmits([
   'close', 'edit', 'publish', 'clone', 'cancel-event', 'delete',
   'close-registration', 'copy-link', 'go-to-lottery', 'complete-event',
   'export-csv', 'send-message', 'show-messages',
+  'toggle-promoted', 'promote-waitlisted', 'discard-unacknowledged',
 ])
 
 function formatDate(dateStr) {

@@ -51,6 +51,7 @@ def _registration_to_item(registration: Registration) -> dict:
         "registration_token": registration.registration_token,
         "registered_at": registration.registered_at.isoformat(),
         "promoted_from_waitlist": registration.promoted_from_waitlist,
+        "promoted": registration.promoted,
         "entity_type": "Registration",
         # GSI fields are already included: event_id, email, registration_token
     }
@@ -94,6 +95,7 @@ def _item_to_registration(item: dict) -> Registration:
             else None
         ),
         promoted_from_waitlist=item.get("promoted_from_waitlist", False),
+        promoted=item.get("promoted", False),
         ttl=item.get("ttl"),
     )
 
@@ -223,9 +225,8 @@ class RegistrationService:
     ) -> tuple[Registration | None, str | None]:
         """Create a new registration for an event.
 
-        All registrations start with REGISTERED status. Status changes to
-        CONFIRMED or WAITLISTED/CANCELLED after deadline passes (auto-confirm
-        if under capacity) or after lottery is run.
+        All registrations start with REGISTERED status regardless of capacity.
+        Capacity enforcement is deferred to the lottery phase.
 
         Args:
             link_token: Public registration link token.
@@ -258,18 +259,6 @@ class RegistrationService:
         if registration_data.group_size > 10:
             return None, "Group size cannot exceed 10"
 
-        # Check capacity to determine REGISTERED vs WAITLISTED
-        registered_spots = await self._get_active_spots_count(event.id)
-        remaining = event.capacity - registered_spots
-
-        if registration_data.group_size <= remaining:
-            initial_status = RegistrationStatus.REGISTERED
-            waitlist_position = None
-        else:
-            initial_status = RegistrationStatus.WAITLISTED
-            max_pos = await self._get_max_waitlist_position(event.id)
-            waitlist_position = max_pos + 1
-
         registration = Registration(
             id=uuid4(),
             event_id=event.id,
@@ -278,8 +267,7 @@ class RegistrationService:
             phone=registration_data.phone,
             notes=registration_data.notes,
             group_size=registration_data.group_size,
-            status=initial_status,
-            waitlist_position=waitlist_position,
+            status=RegistrationStatus.REGISTERED,
             registration_token=_generate_registration_token(),
             registered_at=datetime.now(timezone.utc),
         )
@@ -299,7 +287,7 @@ class RegistrationService:
                     "registration_id": str(registration.id),
                     "event_id": str(event.id),
                     "email": email,
-                    "status": initial_status.value,
+                    "status": RegistrationStatus.REGISTERED.value,
                     "group_size": registration_data.group_size,
                 },
             )
@@ -643,6 +631,8 @@ class RegistrationService:
         waitlist_spots = 0
         cancelled_count = 0
         checked_in_count = 0
+        promoted_count = 0
+        promoted_spots = 0
 
         for reg in registrations:
             if reg.status == RegistrationStatus.REGISTERED:
@@ -661,6 +651,11 @@ class RegistrationService:
                 cancelled_count += 1
             elif reg.status == RegistrationStatus.CHECKED_IN:
                 checked_in_count += 1
+
+            # Count promoted registrations (excluding cancelled)
+            if reg.promoted and reg.status != RegistrationStatus.CANCELLED:
+                promoted_count += 1
+                promoted_spots += reg.group_size
 
         # confirmed_spots includes CONFIRMED + PARTICIPATING + CHECKED_IN for capacity display
         total_confirmed_spots = confirmed_spots + participating_spots
@@ -683,6 +678,8 @@ class RegistrationService:
             "checked_in_count": checked_in_count,
             "total_registrations": total_registrations,
             "total_registration_spots": total_registration_spots,
+            "promoted_count": promoted_count,
+            "promoted_spots": promoted_spots,
         }
 
     async def set_attendance_response(
@@ -752,6 +749,24 @@ class RegistrationService:
                 },
             )
 
+            # Send attendance response confirmation email
+            try:
+                from .email_service import get_email_service
+                from .event_service import get_event_service
+
+                event_service = get_event_service()
+                event = await event_service.get_event_by_id(registration.event_id)
+                if event:
+                    email_service = get_email_service()
+                    await email_service.send_attendance_response_confirmation(
+                        event, updated_registration, participating,
+                    )
+            except Exception as e:
+                logger.error(
+                    "Failed to send attendance response confirmation email",
+                    extra={"error": str(e), "registration_id": str(registration_id)},
+                )
+
             # If declined (cancelled), trigger waitlist promotion
             if not participating:
                 await self._promote_from_waitlist(registration.event_id, group_size)
@@ -763,6 +778,238 @@ class RegistrationService:
                 return None, "Attendance response has already been recorded"
             logger.error("Failed to set attendance response", extra={"error": str(e)})
             return None, "Failed to record attendance response"
+
+    async def set_promoted(
+        self,
+        event_id: UUID,
+        registration_id: UUID,
+        promoted: bool,
+    ) -> Registration | None:
+        """Set the promoted flag on a registration.
+
+        Only allowed for registrations in REGISTERED status.
+
+        Args:
+            event_id: Event ID.
+            registration_id: Registration ID.
+            promoted: Whether the registration is promoted.
+
+        Returns:
+            Updated registration, or None on failure.
+        """
+        try:
+            response = self.registrations_table.update_item(
+                Key={
+                    "pk": f"EVENT#{event_id}",
+                    "sk": f"REG#{registration_id}",
+                },
+                UpdateExpression="SET promoted = :promoted",
+                ExpressionAttributeValues={
+                    ":promoted": promoted,
+                    ":registered": RegistrationStatus.REGISTERED.value,
+                },
+                ConditionExpression="#status = :registered",
+                ExpressionAttributeNames={"#status": "status"},
+                ReturnValues="ALL_NEW",
+            )
+
+            updated = _item_to_registration(response["Attributes"])
+            logger.info(
+                "Registration promoted flag updated",
+                extra={
+                    "registration_id": str(registration_id),
+                    "event_id": str(event_id),
+                    "promoted": promoted,
+                },
+            )
+            return updated
+
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                logger.warning(
+                    "Cannot set promoted: registration not in REGISTERED status",
+                    extra={"registration_id": str(registration_id)},
+                )
+                return None
+            logger.error("Failed to set promoted flag", extra={"error": str(e)})
+            return None
+
+    async def promote_single_from_waitlist(
+        self,
+        event_id: UUID,
+        registration_id: UUID,
+        target_status: RegistrationStatus = RegistrationStatus.CONFIRMED,
+    ) -> Registration | None:
+        """Manually promote a single registration from the waitlist.
+
+        Args:
+            event_id: Event ID.
+            registration_id: Registration ID.
+            target_status: CONFIRMED (user must acknowledge) or PARTICIPATING (direct).
+
+        Returns:
+            Updated registration, or None on failure.
+        """
+        from .email_service import get_email_service
+        from .event_service import get_event_service
+
+        registration = await self.get_registration(event_id, registration_id)
+        if not registration or registration.status != RegistrationStatus.WAITLISTED:
+            return None
+
+        update_expr = (
+            "SET #status = :new_status, "
+            "waitlist_position = :null, "
+            "promoted_from_waitlist = :true"
+        )
+        expr_values: dict = {
+            ":new_status": target_status.value,
+            ":null": None,
+            ":true": True,
+            ":waitlisted": RegistrationStatus.WAITLISTED.value,
+        }
+
+        if target_status == RegistrationStatus.PARTICIPATING:
+            update_expr += ", responded_at = :responded_at"
+            expr_values[":responded_at"] = datetime.now(timezone.utc).isoformat()
+
+        try:
+            response = self.registrations_table.update_item(
+                Key={
+                    "pk": f"EVENT#{event_id}",
+                    "sk": f"REG#{registration_id}",
+                },
+                UpdateExpression=update_expr,
+                ExpressionAttributeNames={"#status": "status"},
+                ExpressionAttributeValues=expr_values,
+                ConditionExpression="#status = :waitlisted",
+                ReturnValues="ALL_NEW",
+            )
+
+            promoted_reg = _item_to_registration(response["Attributes"])
+
+            logger.info(
+                "Registration manually promoted from waitlist",
+                extra={
+                    "registration_id": str(registration_id),
+                    "event_id": str(event_id),
+                    "target_status": target_status.value,
+                },
+            )
+
+            # Send notification email
+            try:
+                event_service = get_event_service()
+                event = await event_service.get_event_by_id(event_id)
+                if event:
+                    email_service = get_email_service()
+                    if target_status == RegistrationStatus.CONFIRMED:
+                        await email_service.send_promotion_notification(event, promoted_reg)
+                    else:
+                        # PARTICIPATING: send a simpler confirmation
+                        await email_service.send_attendance_response_confirmation(
+                            event, promoted_reg, participating=True,
+                        )
+            except Exception as e:
+                logger.error(
+                    "Failed to send manual promotion email",
+                    extra={"error": str(e), "registration_id": str(registration_id)},
+                )
+
+            # Recompute waitlist positions
+            await self._recompute_waitlist_positions(event_id)
+
+            return promoted_reg
+
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                return None
+            logger.error("Failed to promote from waitlist", extra={"error": str(e)})
+            return None
+
+    async def discard_unacknowledged(
+        self,
+        event_id: UUID,
+    ) -> tuple[int, int]:
+        """Discard all unacknowledged (CONFIRMED) registrations for an event.
+
+        Transitions CONFIRMED registrations to CANCELLED and sends notification emails.
+        Triggers waitlist promotion for freed spots.
+
+        Args:
+            event_id: Event ID.
+
+        Returns:
+            Tuple of (discarded_count, discarded_spots).
+        """
+        from .email_service import get_email_service
+        from .event_service import get_event_service
+
+        confirmed = await self.list_registrations(
+            event_id, status_filter=RegistrationStatus.CONFIRMED,
+        )
+
+        if not confirmed:
+            return 0, 0
+
+        event_service = get_event_service()
+        event = await event_service.get_event_by_id(event_id)
+
+        discarded_count = 0
+        discarded_spots = 0
+
+        for registration in confirmed:
+            try:
+                self.registrations_table.update_item(
+                    Key={
+                        "pk": f"EVENT#{event_id}",
+                        "sk": f"REG#{registration.id}",
+                    },
+                    UpdateExpression="SET #status = :cancelled",
+                    ExpressionAttributeNames={"#status": "status"},
+                    ExpressionAttributeValues={
+                        ":cancelled": RegistrationStatus.CANCELLED.value,
+                        ":confirmed": RegistrationStatus.CONFIRMED.value,
+                    },
+                    ConditionExpression="#status = :confirmed",
+                )
+                discarded_count += 1
+                discarded_spots += registration.group_size
+
+                # Send cancellation email
+                if event:
+                    try:
+                        email_service = get_email_service()
+                        cancelled_reg = registration.model_copy(
+                            update={"status": RegistrationStatus.CANCELLED},
+                        )
+                        await email_service.send_cancellation_confirmation(event, cancelled_reg)
+                    except Exception as e:
+                        logger.error(
+                            "Failed to send discard email",
+                            extra={"error": str(e), "registration_id": str(registration.id)},
+                        )
+
+            except ClientError as e:
+                logger.error(
+                    "Failed to discard registration",
+                    extra={"registration_id": str(registration.id), "error": str(e)},
+                )
+
+        # Trigger waitlist promotion for freed spots
+        if discarded_spots > 0:
+            await self._promote_from_waitlist(event_id, discarded_spots)
+
+        logger.info(
+            "Discarded unacknowledged registrations",
+            extra={
+                "event_id": str(event_id),
+                "discarded_count": discarded_count,
+                "discarded_spots": discarded_spots,
+            },
+        )
+
+        return discarded_count, discarded_spots
 
     async def cancel_all_registrations_for_event(self, event_id: UUID) -> int:
         """Cancel all non-cancelled registrations for an event.

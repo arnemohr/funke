@@ -107,7 +107,7 @@ class TestCreateRegistrationStatus:
         )
         assert r1.status == RegistrationStatus.REGISTERED
 
-        # Next registration should be waitlisted
+        # Next registration should also be REGISTERED (capacity enforcement deferred to lottery)
         reg2 = RegistrationCreate(
             name="Bob",
             email="bob@example.com",
@@ -119,8 +119,8 @@ class TestCreateRegistrationStatus:
 
         assert error is None
         assert r2 is not None
-        assert r2.status == RegistrationStatus.WAITLISTED
-        assert r2.waitlist_position == 1
+        assert r2.status == RegistrationStatus.REGISTERED
+        assert r2.waitlist_position is None
 
     @pytest.mark.asyncio
     async def test_registration_rejected_for_draft_event(self, sample_event):

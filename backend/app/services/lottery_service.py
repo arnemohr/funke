@@ -40,6 +40,7 @@ def _lottery_run_to_item(run: LotteryRun) -> dict:
         "shuffled_order": run.shuffled_order,
         "winners": run.winners,
         "waitlist": run.waitlist,
+        "promoted_ids": run.promoted_ids,
         "executed_at": run.executed_at.isoformat(),
         "entity_type": "LotteryRun",
     }
@@ -66,6 +67,7 @@ def _item_to_lottery_run(item: dict) -> LotteryRun:
         shuffled_order=item.get("shuffled_order", []),
         winners=item.get("winners", []),
         waitlist=item.get("waitlist", []),
+        promoted_ids=item.get("promoted_ids", []),
         executed_at=datetime.fromisoformat(item["executed_at"]),
         finalized_at=datetime.fromisoformat(item["finalized_at"]) if item.get("finalized_at") else None,
         finalization_by_admin_id=UUID(item["finalization_by_admin_id"])
@@ -89,6 +91,7 @@ def _serialize_registration(registration: Registration) -> dict:
         "responded_at": registration.responded_at.isoformat()
         if registration.responded_at
         else None,
+        "promoted": registration.promoted,
     }
 
 
@@ -148,35 +151,54 @@ class LotteryService:
         candidates = [
             r
             for r in registrations
-            if r.status in (
-                RegistrationStatus.REGISTERED,
-                RegistrationStatus.WAITLISTED,
-            )
+            if r.status == RegistrationStatus.REGISTERED
         ]
 
         if not candidates:
             raise ValueError("No eligible registrations available for lottery")
 
-        # Deterministic but high-entropy seed for reproducible shuffle
-        seed = secrets.token_hex(32)
-        rng = random.Random(seed)
+        # Validate promoted registrations don't exceed capacity
+        promoted_candidates = [r for r in candidates if r.promoted]
+        non_promoted_candidates = [r for r in candidates if not r.promoted]
+        promoted_spots = sum(r.group_size for r in promoted_candidates)
 
-        ordered = sorted(
-            candidates,
-            key=lambda r: (r.registered_at, str(r.id)),
-        )
-        rng.shuffle(ordered)
+        if promoted_spots > event.capacity:
+            raise ValueError(
+                f"Bevorzugte Anmeldungen ({promoted_spots} Plätze) übersteigen die "
+                f"Kapazität ({event.capacity}). Bitte Bevorzugungen anpassen."
+            )
 
-        winners: list[Registration] = []
-        waitlist: list[Registration] = []
-        remaining_capacity = event.capacity
+        total_spots = sum(r.group_size for r in candidates)
 
-        for registration in ordered:
-            if registration.group_size <= remaining_capacity:
-                winners.append(registration)
-                remaining_capacity -= registration.group_size
-            else:
-                waitlist.append(registration)
+        if total_spots <= event.capacity:
+            # Under capacity: all candidates become winners, no lottery needed
+            seed = "auto-confirm"
+            winners = list(candidates)
+            waitlist: list[Registration] = []
+            ordered = sorted(candidates, key=lambda r: (r.registered_at, str(r.id)))
+        else:
+            # Over capacity: promoted-first, then fair shuffle for rest
+            seed = secrets.token_hex(32)
+            rng = random.Random(seed)
+
+            winners = list(promoted_candidates)
+            remaining_capacity = event.capacity - promoted_spots
+
+            non_promoted_ordered = sorted(
+                non_promoted_candidates,
+                key=lambda r: (r.registered_at, str(r.id)),
+            )
+            rng.shuffle(non_promoted_ordered)
+
+            waitlist = []
+            for registration in non_promoted_ordered:
+                if registration.group_size <= remaining_capacity:
+                    winners.append(registration)
+                    remaining_capacity -= registration.group_size
+                else:
+                    waitlist.append(registration)
+
+            ordered = list(promoted_candidates) + non_promoted_ordered
 
         run = LotteryRun(
             id=uuid4(),
@@ -186,6 +208,7 @@ class LotteryService:
             shuffled_order=[str(r.id) for r in ordered],
             winners=[str(r.id) for r in winners],
             waitlist=[str(r.id) for r in waitlist],
+            promoted_ids=[str(r.id) for r in promoted_candidates],
             executed_at=datetime.now(timezone.utc),
         )
 
