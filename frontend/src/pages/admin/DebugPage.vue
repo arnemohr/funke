@@ -28,9 +28,7 @@
 
         <h4>Debug-Aktionen pro Anmeldung</h4>
         <table class="mini-table">
-          <tr><td class="action-link cancel">✕</td><td>Stornieren (öffnet Stornierungsseite)</td></tr>
-          <tr><td class="action-link confirm-yes">✓</td><td>Teilnahme bestätigen (nur bei CONFIRMED)</td></tr>
-          <tr><td class="action-link confirm-no">✗</td><td>Teilnahme absagen (nur bei CONFIRMED)</td></tr>
+          <tr><td class="action-link manage">🔗</td><td>Anmeldung verwalten (öffnet Management-Seite)</td></tr>
         </table>
 
         <p class="tip">
@@ -71,11 +69,12 @@
           <!-- Event-level actions -->
           <div class="event-actions">
             <span class="label">Registrierungslink:</span>
-            <template v-if="event.status === 'OPEN' && event.registration_link_token">
+            <template v-if="event.registration_link_token && !['DRAFT', 'COMPLETED', 'CANCELLED'].includes(event.status)">
               <a :href="getRegistrationUrl(event)" target="_blank" class="link">
                 {{ getRegistrationUrl(event) }}
               </a>
               <button @click="copyToClipboard(getRegistrationUrl(event))" class="tiny">📋</button>
+              <span v-if="event.status !== 'OPEN'" class="muted">(Warteliste)</span>
             </template>
             <span v-else class="muted">Nicht verfügbar (Status: {{ event.status }})</span>
           </div>
@@ -129,34 +128,15 @@
                 <td>{{ reg.promoted_from_waitlist ? '✓' : '-' }}</td>
                 <td class="notes-cell">{{ reg.notes || '-' }}</td>
                 <td class="actions-cell">
-                  <!-- Cancel link -->
+                  <!-- Management page link -->
                   <a
-                    v-if="reg.status !== 'CANCELLED'"
-                    :href="getCancelUrl(reg)"
+                    :href="getManageUrl(reg)"
                     target="_blank"
-                    class="action-link cancel"
-                    title="Stornieren"
-                  >✕</a>
+                    class="action-link manage"
+                    title="Anmeldung verwalten"
+                  >🔗</a>
 
-                  <!-- Confirm Yes -->
-                  <a
-                    v-if="reg.status === 'CONFIRMED'"
-                    :href="getConfirmUrl(reg, 'yes')"
-                    target="_blank"
-                    class="action-link confirm-yes"
-                    title="Teilnahme bestätigen"
-                  >✓</a>
-
-                  <!-- Confirm No -->
-                  <a
-                    v-if="reg.status === 'CONFIRMED'"
-                    :href="getConfirmUrl(reg, 'no')"
-                    target="_blank"
-                    class="action-link confirm-no"
-                    title="Teilnahme absagen"
-                  >✗</a>
-
-                  <span v-if="reg.status === 'CANCELLED'" class="muted">-</span>
+                  <span v-if="reg.status === 'CANCELLED'" class="muted">storniert</span>
                 </td>
               </tr>
             </tbody>
@@ -206,14 +186,9 @@ function getRegistrationUrl(event) {
   return `${window.location.origin}/register/${event.registration_link_token}`
 }
 
-// Get cancel URL for a registration
-function getCancelUrl(reg) {
-  return `${window.location.origin}/cancel/${reg.id}?token=${reg.registration_token}`
-}
-
-// Get confirm URL for a registration
-function getConfirmUrl(reg, response) {
-  return `${window.location.origin}/confirm/${reg.id}?token=${reg.registration_token}&response=${response}`
+// Get management page URL for a registration
+function getManageUrl(reg) {
+  return `${window.location.origin}/registration/${reg.id}?token=${reg.registration_token}`
 }
 
 // Get Telegram URL for a phone number
@@ -582,31 +557,13 @@ button.tiny {
   font-weight: bold;
 }
 
-.action-link.cancel {
-  background: #fee2e2;
-  color: #dc2626;
+.action-link.manage {
+  background: #dbeafe;
+  color: #2563eb;
 }
 
-.action-link.cancel:hover {
-  background: #fecaca;
-}
-
-.action-link.confirm-yes {
-  background: #dcfce7;
-  color: #16a34a;
-}
-
-.action-link.confirm-yes:hover {
-  background: #bbf7d0;
-}
-
-.action-link.confirm-no {
-  background: #fef3c7;
-  color: #d97706;
-}
-
-.action-link.confirm-no:hover {
-  background: #fde68a;
+.action-link.manage:hover {
+  background: #bfdbfe;
 }
 
 /* Status badges */

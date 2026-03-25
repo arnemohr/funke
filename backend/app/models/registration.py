@@ -68,6 +68,7 @@ class Registration(BaseModel):
     phone: str | None = None
     notes: str | None = None
     group_size: int = 1
+    group_members: list[str] | None = None  # Names of all group members (for passenger list)
     status: RegistrationStatus = RegistrationStatus.REGISTERED
     waitlist_position: int | None = None
     registration_token: str  # For cancellation/confirmation links
@@ -83,6 +84,7 @@ class Registration(BaseModel):
             RegistrationStatus.REGISTERED,
             RegistrationStatus.CONFIRMED,
             RegistrationStatus.WAITLISTED,
+            RegistrationStatus.PARTICIPATING,
         ]
 
     def cancel(self) -> "Registration":
@@ -170,6 +172,7 @@ class RegistrationResponse(BaseModel):
     status: RegistrationStatus
     waitlist_position: int | None
     registration_token: str
+    group_members: list[str] | None = None
     registered_at: datetime
     responded_at: datetime | None
     promoted: bool = False

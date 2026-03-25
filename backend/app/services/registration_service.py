@@ -69,6 +69,9 @@ def _registration_to_item(registration: Registration) -> dict:
     if registration.responded_at:
         item["responded_at"] = registration.responded_at.isoformat()
 
+    if registration.group_members is not None:
+        item["group_members"] = registration.group_members
+
     if registration.ttl:
         item["ttl"] = registration.ttl
 
@@ -85,6 +88,7 @@ def _item_to_registration(item: dict) -> Registration:
         phone=item.get("phone"),
         notes=item.get("notes"),
         group_size=item["group_size"],
+        group_members=item.get("group_members"),
         status=RegistrationStatus(item["status"]),
         waitlist_position=item.get("waitlist_position"),
         registration_token=item["registration_token"],
@@ -225,8 +229,9 @@ class RegistrationService:
     ) -> tuple[Registration | None, str | None]:
         """Create a new registration for an event.
 
-        All registrations start with REGISTERED status regardless of capacity.
-        Capacity enforcement is deferred to the lottery phase.
+        - During open registration: status = REGISTERED (lottery eligible)
+        - After lottery (CONFIRMED/LOTTERY_PENDING): status = WAITLISTED (late signup)
+        - COMPLETED/CANCELLED/DRAFT: rejected
 
         Args:
             link_token: Public registration link token.
@@ -240,13 +245,21 @@ class RegistrationService:
         if not event:
             return None, "Event not found"
 
-        # Check event status
-        if event.status != EventStatus.OPEN:
+        # Determine registration mode based on event status
+        accepting_statuses = {
+            EventStatus.OPEN,
+            EventStatus.REGISTRATION_CLOSED,
+            EventStatus.LOTTERY_PENDING,
+            EventStatus.CONFIRMED,
+        }
+        if event.status not in accepting_statuses:
             return None, "Registration is not open for this event"
 
-        # Check deadline
-        if datetime.now(timezone.utc) >= event.registration_deadline.replace(tzinfo=timezone.utc):
-            return None, "Registration deadline has passed"
+        # During open registration, check deadline
+        is_late_signup = event.status != EventStatus.OPEN
+        if not is_late_signup:
+            if datetime.now(timezone.utc) >= event.registration_deadline.replace(tzinfo=timezone.utc):
+                return None, "Registration deadline has passed"
 
         # Normalize email
         email = registration_data.email.lower().strip()
@@ -259,6 +272,15 @@ class RegistrationService:
         if registration_data.group_size > 10:
             return None, "Group size cannot exceed 10"
 
+        # Late signups go straight to waitlist
+        if is_late_signup:
+            max_pos = await self._get_max_waitlist_position(event.id)
+            initial_status = RegistrationStatus.WAITLISTED
+            waitlist_position = max_pos + 1
+        else:
+            initial_status = RegistrationStatus.REGISTERED
+            waitlist_position = None
+
         registration = Registration(
             id=uuid4(),
             event_id=event.id,
@@ -267,7 +289,8 @@ class RegistrationService:
             phone=registration_data.phone,
             notes=registration_data.notes,
             group_size=registration_data.group_size,
-            status=RegistrationStatus.REGISTERED,
+            status=initial_status,
+            waitlist_position=waitlist_position,
             registration_token=_generate_registration_token(),
             registered_at=datetime.now(timezone.utc),
         )
@@ -1062,6 +1085,280 @@ class RegistrationService:
         )
 
         return cancelled_count
+
+    async def confirm_with_names(
+        self,
+        registration_id: UUID,
+        token: str,
+        group_members: list[str],
+    ) -> tuple[Registration | None, str | None]:
+        """Confirm participation and store group member names.
+
+        Transitions CONFIRMED → PARTICIPATING. The group may be reduced
+        (fewer names than original group_size) but never increased.
+
+        Args:
+            registration_id: Registration ID.
+            token: Registration token for verification.
+            group_members: List of group member names (all non-empty).
+
+        Returns:
+            Tuple of (updated Registration, None) on success, or (None, error_message) on failure.
+        """
+        registration = await self.get_registration_by_token(token)
+        if not registration:
+            return None, "Registration not found"
+
+        if registration.id != registration_id:
+            return None, "Invalid token for this registration"
+
+        if registration.status != RegistrationStatus.CONFIRMED:
+            return None, f"Cannot confirm with status {registration.status.value}"
+
+        # Validate group_members
+        if not group_members or len(group_members) < 1:
+            return None, "At least one group member name is required"
+
+        if len(group_members) > registration.group_size:
+            return None, f"Cannot exceed original group size of {registration.group_size}"
+
+        # All names must be non-empty
+        stripped = [name.strip() for name in group_members]
+        if any(not name for name in stripped):
+            return None, "All group member names must be non-empty"
+
+        new_group_size = len(stripped)
+
+        try:
+            response_data = self.registrations_table.update_item(
+                Key={
+                    "pk": f"EVENT#{registration.event_id}",
+                    "sk": f"REG#{registration.id}",
+                },
+                UpdateExpression=(
+                    "SET #status = :new_status, "
+                    "responded_at = :responded_at, "
+                    "group_members = :group_members, "
+                    "group_size = :group_size"
+                ),
+                ExpressionAttributeNames={"#status": "status"},
+                ExpressionAttributeValues={
+                    ":new_status": RegistrationStatus.PARTICIPATING.value,
+                    ":responded_at": datetime.now(timezone.utc).isoformat(),
+                    ":group_members": stripped,
+                    ":group_size": new_group_size,
+                    ":confirmed": RegistrationStatus.CONFIRMED.value,
+                },
+                ConditionExpression="#status = :confirmed",
+                ReturnValues="ALL_NEW",
+            )
+            updated = _item_to_registration(response_data["Attributes"])
+
+            logger.info(
+                "Participation confirmed with group member names",
+                extra={
+                    "registration_id": str(registration_id),
+                    "event_id": str(registration.event_id),
+                    "group_size": new_group_size,
+                    "original_group_size": registration.group_size,
+                },
+            )
+
+            # Send attendance response confirmation email
+            try:
+                from .email_service import get_email_service
+                from .event_service import get_event_service
+
+                event_service = get_event_service()
+                event = await event_service.get_event_by_id(registration.event_id)
+                if event:
+                    email_service = get_email_service()
+                    await email_service.send_attendance_response_confirmation(
+                        event, updated, participating=True,
+                    )
+            except Exception as e:
+                logger.error(
+                    "Failed to send confirmation email",
+                    extra={"error": str(e), "registration_id": str(registration_id)},
+                )
+
+            return updated, None
+
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                return None, "Registration status has changed"
+            logger.error("Failed to confirm with names", extra={"error": str(e)})
+            return None, "Failed to confirm participation"
+
+    async def update_group_members(
+        self,
+        registration_id: UUID,
+        token: str,
+        group_members: list[str],
+    ) -> tuple[Registration | None, str | None]:
+        """Update group member names for a PARTICIPATING registration.
+
+        May also reduce group size if fewer names are provided.
+        Does NOT trigger immediate waitlist promotion (batch job handles it).
+
+        Args:
+            registration_id: Registration ID.
+            token: Registration token for verification.
+            group_members: Updated list of group member names.
+
+        Returns:
+            Tuple of (updated Registration, None) on success, or (None, error_message) on failure.
+        """
+        registration = await self.get_registration_by_token(token)
+        if not registration:
+            return None, "Registration not found"
+
+        if registration.id != registration_id:
+            return None, "Invalid token for this registration"
+
+        if registration.status != RegistrationStatus.PARTICIPATING:
+            return None, f"Cannot update group members with status {registration.status.value}"
+
+        # Validate
+        if not group_members or len(group_members) < 1:
+            return None, "At least one group member name is required"
+
+        if len(group_members) > registration.group_size:
+            return None, f"Cannot exceed current group size of {registration.group_size}"
+
+        stripped = [name.strip() for name in group_members]
+        if any(not name for name in stripped):
+            return None, "All group member names must be non-empty"
+
+        new_group_size = len(stripped)
+        spots_freed = registration.group_size - new_group_size
+
+        try:
+            response_data = self.registrations_table.update_item(
+                Key={
+                    "pk": f"EVENT#{registration.event_id}",
+                    "sk": f"REG#{registration.id}",
+                },
+                UpdateExpression=(
+                    "SET group_members = :group_members, "
+                    "group_size = :group_size"
+                ),
+                ExpressionAttributeValues={
+                    ":group_members": stripped,
+                    ":group_size": new_group_size,
+                    ":participating": RegistrationStatus.PARTICIPATING.value,
+                },
+                ConditionExpression="#status = :participating",
+                ExpressionAttributeNames={"#status": "status"},
+                ReturnValues="ALL_NEW",
+            )
+            updated = _item_to_registration(response_data["Attributes"])
+
+            if spots_freed > 0:
+                logger.info(
+                    "Group size reduced, spots freed for batch promotion",
+                    extra={
+                        "registration_id": str(registration_id),
+                        "event_id": str(registration.event_id),
+                        "spots_freed": spots_freed,
+                        "new_group_size": new_group_size,
+                    },
+                )
+                # Increment freed_spots on the event for batch promotion
+                await self._increment_freed_spots(registration.event_id, spots_freed)
+            else:
+                logger.info(
+                    "Group member names updated",
+                    extra={
+                        "registration_id": str(registration_id),
+                        "event_id": str(registration.event_id),
+                    },
+                )
+
+            return updated, None
+
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                return None, "Registration status has changed"
+            logger.error("Failed to update group members", extra={"error": str(e)})
+            return None, "Failed to update group members"
+
+    async def admin_update_group_members(
+        self,
+        event_id: UUID,
+        registration_id: UUID,
+        group_members: list[str],
+    ) -> Registration | None:
+        """Admin: update group member names for a registration.
+
+        Only edits names — does not change group_size.
+
+        Args:
+            event_id: Event ID.
+            registration_id: Registration ID.
+            group_members: Updated list of group member names.
+
+        Returns:
+            Updated registration, or None on failure.
+        """
+        registration = await self.get_registration(event_id, registration_id)
+        if not registration:
+            return None
+
+        if len(group_members) > registration.group_size:
+            return None
+
+        stripped = [name.strip() for name in group_members]
+        if any(not name for name in stripped):
+            return None
+
+        try:
+            response_data = self.registrations_table.update_item(
+                Key={
+                    "pk": f"EVENT#{event_id}",
+                    "sk": f"REG#{registration_id}",
+                },
+                UpdateExpression="SET group_members = :group_members",
+                ExpressionAttributeValues={
+                    ":group_members": stripped,
+                },
+                ReturnValues="ALL_NEW",
+            )
+            return _item_to_registration(response_data["Attributes"])
+
+        except ClientError as e:
+            logger.error(
+                "Failed to admin-update group members",
+                extra={"error": str(e), "registration_id": str(registration_id)},
+            )
+            return None
+
+    async def _increment_freed_spots(self, event_id: UUID, spots: int) -> None:
+        """Atomically increment freed_spots counter on the event.
+
+        Used by the daily batch promotion job to know how many spots
+        were freed by group size reductions.
+        """
+        try:
+            from .event_service import get_event_service
+            event_service = get_event_service()
+            event = await event_service.get_event_by_id(event_id)
+            if not event:
+                return
+
+            self.events_table.update_item(
+                Key={
+                    "pk": f"ORG#{event.org_id}",
+                    "sk": f"EVENT#{event_id}",
+                },
+                UpdateExpression="ADD freed_spots :spots",
+                ExpressionAttributeValues={":spots": spots},
+            )
+        except ClientError as e:
+            logger.error(
+                "Failed to increment freed_spots",
+                extra={"error": str(e), "event_id": str(event_id), "spots": spots},
+            )
 
 
 # Singleton instance

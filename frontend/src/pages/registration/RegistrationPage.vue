@@ -31,20 +31,19 @@
           <dt>Anmeldeschluss</dt>
           <dd :class="{ 'deadline-passed': deadlinePassed }">
             {{ formatDate(event.registration_deadline) }}
-            <span v-if="deadlinePassed"> (abgelaufen)</span>
+            <span v-if="deadlinePassed"> (Warteliste möglich)</span>
           </dd>
         </dl>
       </section>
 
-      <!-- Deadline passed notice -->
-      <section v-if="deadlinePassed && !submitted" class="deadline-notice">
-        <h3>Anmeldeschluss erreicht</h3>
-        <p>Der Anmeldeschluss für diese Veranstaltung war am <strong>{{ formatDate(event.registration_deadline) }}</strong>. Eine Anmeldung ist leider nicht mehr möglich.</p>
+      <!-- Late signup notice (after deadline) -->
+      <section v-if="isLateSignup && !submitted" class="late-signup-notice">
+        <p>Der Anmeldeschluss ist bereits vorbei. Du kannst dich aber noch auf die Warteliste setzen lassen — falls ein Platz frei wird, melden wir uns bei dir.</p>
       </section>
 
       <!-- Registration form -->
-      <section v-if="!deadlinePassed && !submitted">
-        <h3>Jetzt anmelden</h3>
+      <section v-if="!submitted">
+        <h3>{{ isLateSignup ? 'Auf die Warteliste setzen' : 'Jetzt anmelden' }}</h3>
         <form @submit.prevent="handleSubmit">
           <label for="name">
             Name *
@@ -110,16 +109,20 @@
           </div>
 
           <button type="submit" :disabled="submitting" :aria-busy="submitting">
-            {{ submitting ? 'Wird gesendet...' : 'Anmelden' }}
+            {{ submitting ? 'Wird gesendet...' : (isLateSignup ? 'Auf Warteliste setzen' : 'Anmelden') }}
           </button>
         </form>
       </section>
 
       <!-- Success state -->
-      <section v-else class="success">
-        <h3>Du stehst auf der Liste!</h3>
+      <section v-if="submitted" class="success">
+        <h3>{{ registration?.status === 'WAITLISTED' ? 'Du stehst auf der Warteliste!' : 'Du stehst auf der Liste!' }}</h3>
 
-        <p>
+        <p v-if="registration?.status === 'WAITLISTED'">
+          Die Anmeldephase für <strong>{{ event?.name }}</strong> ist bereits vorbei, aber du stehst auf der Warteliste.
+          Sobald ein Platz frei wird, melden wir uns bei dir.
+        </p>
+        <p v-else>
           Deine Anmeldung für <strong>{{ event?.name }}</strong> ist eingegangen.
           Falls mehr Anmeldungen als Plätze eingehen, wird nach Anmeldeschluss per Los entschieden.
           Du wirst per E-Mail über das Ergebnis informiert.
@@ -162,6 +165,11 @@ const successMessage = ref('')
 const deadlinePassed = computed(() => {
   if (!event.value?.registration_deadline) return false
   return new Date(event.value.registration_deadline) < new Date()
+})
+
+const isLateSignup = computed(() => {
+  if (!event.value) return false
+  return event.value.status !== 'OPEN' || deadlinePassed.value
 })
 
 const form = ref({
@@ -313,6 +321,16 @@ onMounted(loadEvent)
   border-radius: var(--pico-border-radius);
   border-left: 4px solid var(--pico-color-amber-500, #f59e0b);
   text-align: center;
+}
+
+.late-signup-notice {
+  padding: 1rem;
+  background: #eff6ff;
+  border-radius: var(--pico-border-radius);
+  border-left: 4px solid #3b82f6;
+  margin-bottom: 1rem;
+  font-size: 0.95em;
+  color: #1e40af;
 }
 
 dl {

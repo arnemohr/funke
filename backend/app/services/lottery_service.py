@@ -299,38 +299,32 @@ class LotteryService:
             except ClientError as e:
                 logger.error("Failed to update winner", extra={"registration_id": reg_id, "error": str(e)})
 
-        # Update losers -> WAITLISTED (if autopromote) or CANCELLED
-        loser_status = RegistrationStatus.WAITLISTED if event.autopromote_waitlist else RegistrationStatus.CANCELLED
-
+        # Update losers -> always WAITLISTED with position
+        # (autopromote_waitlist only controls whether promotion happens automatically on cancellation,
+        # not whether a waitlist exists — admins can always promote manually)
         for position, reg_id in enumerate(run.waitlist, start=1):
             reg = registrations_by_id.get(reg_id)
             if not reg or reg.status == RegistrationStatus.CANCELLED:
                 continue
 
             try:
-                update_expr = "SET #status = :status"
-                expr_values = {":status": loser_status.value}
-
-                # Only set waitlist_position if going to WAITLISTED
-                if loser_status == RegistrationStatus.WAITLISTED:
-                    update_expr += ", waitlist_position = :pos"
-                    expr_values[":pos"] = position
-
                 self.registration_service.registrations_table.update_item(
                     Key={
                         "pk": f"EVENT#{event_id}",
                         "sk": f"REG#{reg.id}",
                     },
-                    UpdateExpression=update_expr,
+                    UpdateExpression="SET #status = :status, waitlist_position = :pos",
                     ExpressionAttributeNames={"#status": "status"},
-                    ExpressionAttributeValues=expr_values,
+                    ExpressionAttributeValues={
+                        ":status": RegistrationStatus.WAITLISTED.value,
+                        ":pos": position,
+                    },
                 )
 
-                update_dict = {"status": loser_status}
-                if loser_status == RegistrationStatus.WAITLISTED:
-                    update_dict["waitlist_position"] = position
-
-                updated = reg.model_copy(update=update_dict)
+                updated = reg.model_copy(update={
+                    "status": RegistrationStatus.WAITLISTED,
+                    "waitlist_position": position,
+                })
                 registrations_by_id[reg_id] = updated
                 losers.append(updated)
             except ClientError as e:
@@ -378,22 +372,18 @@ class LotteryService:
                     extra={"registration_id": str(reg.id), "error": str(e)},
                 )
 
-        # Send appropriate email to losers based on their status
+        # Losers are always WAITLISTED (autopromote only controls automatic promotion, not waitlist existence)
         for reg in losers:
             try:
-                if reg.status == RegistrationStatus.WAITLISTED:
-                    await self.email_service.send_lottery_waitlist(event, reg)
-                else:
-                    # CANCELLED - send lottery rejection email
-                    await self.email_service.send_lottery_rejection(event, reg)
+                await self.email_service.send_lottery_waitlist(event, reg)
             except Exception as e:  # noqa: BLE001
                 logger.error(
-                    "Failed to send loser email",
-                    extra={"registration_id": str(reg.id), "status": reg.status.value, "error": str(e)},
+                    "Failed to send waitlist email",
+                    extra={"registration_id": str(reg.id), "error": str(e)},
                 )
 
-        # Send confirmation requests to all winners (they are in CONFIRMED status)
-        await self._send_confirmation_requests(event, winners)
+        # No separate confirmation request — the lottery winner email already
+        # contains the management link where users confirm their participation.
 
     async def _send_confirmation_requests(
         self,

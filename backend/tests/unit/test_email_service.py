@@ -44,6 +44,7 @@ class TestEmailTemplates:
             cancellation_url="https://example.com/cancel/123?token=abc",
             confirmation_yes_url="https://example.com/confirm/123?token=abc&response=yes",
             confirmation_no_url="https://example.com/confirm/123?token=abc&response=no",
+            management_url="https://example.com/registration/123?token=abc",
         )
 
     def test_registration_confirmed(self, ctx):
@@ -51,7 +52,7 @@ class TestEmailTemplates:
         assert "Sommerfest 2025" in subject
         assert "Max Müller" in text
         assert "Stadtpark" in text
-        assert "cancel" in text.lower() or "storniere" in text.lower()
+        assert "verwalten" in text.lower()
         assert "<html>" in html
 
     def test_registration_waitlisted(self, ctx):
@@ -76,8 +77,7 @@ class TestEmailTemplates:
     def test_confirmation_request(self, ctx):
         subject, text, html = EmailTemplates.confirmation_request(ctx, 3)
         assert "bald" in subject.lower()
-        assert ctx.confirmation_yes_url in text
-        assert ctx.confirmation_no_url in text
+        assert ctx.management_url in text
 
     def test_confirmation_request_tomorrow(self, ctx):
         subject, text, html = EmailTemplates.confirmation_request(ctx, 1)
@@ -85,7 +85,7 @@ class TestEmailTemplates:
 
     def test_lottery_winner(self, ctx):
         subject, text, html = EmailTemplates.lottery_winner(ctx)
-        assert "Verlosung" in subject
+        assert "bestätigen" in subject.lower()
         assert "ausgelost" in text.lower()
 
     def test_lottery_waitlisted(self, ctx):

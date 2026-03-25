@@ -239,10 +239,12 @@ class EventService:
             Event if found, None otherwise.
         """
         try:
+            # Scan for event by ID across all orgs.
+            # No Limit — DynamoDB Limit on scans caps items *evaluated* not *returned*,
+            # which can miss results when combined with FilterExpression.
             response = self.table.scan(
                 FilterExpression="id = :event_id",
                 ExpressionAttributeValues={":event_id": str(event_id)},
-                Limit=1,
             )
             items = response.get("Items", [])
             if not items:

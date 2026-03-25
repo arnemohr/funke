@@ -157,6 +157,33 @@ export const publicApi = {
       method: 'POST',
     })
   },
+
+  /**
+   * Get registration for management page.
+   */
+  async getRegistrationManage(registrationId, token) {
+    return request(`/api/public/registrations/${registrationId}/manage?token=${token}`)
+  },
+
+  /**
+   * Confirm participation with group member names.
+   */
+  async confirmWithNames(registrationId, token, groupMembers) {
+    return request(`/api/public/registrations/${registrationId}/confirm-with-names?token=${token}`, {
+      method: 'POST',
+      body: JSON.stringify({ group_members: groupMembers }),
+    })
+  },
+
+  /**
+   * Update group member names (may also reduce group size).
+   */
+  async updateGroupMembers(registrationId, token, groupMembers) {
+    return request(`/api/public/registrations/${registrationId}/group-members?token=${token}`, {
+      method: 'PUT',
+      body: JSON.stringify({ group_members: groupMembers }),
+    })
+  },
 }
 
 // Admin API (requires auth)
@@ -416,6 +443,16 @@ export const adminApi = {
     return request(`/api/admin/events/${eventId}/registrations/${registrationId}/promote-from-waitlist`, {
       method: 'POST',
       body: JSON.stringify({ target_status: targetStatus }),
+    }, true)
+  },
+
+  /**
+   * Admin: update group member names.
+   */
+  async updateGroupMembers(eventId, registrationId, groupMembers) {
+    return request(`/api/admin/events/${eventId}/registrations/${registrationId}/group-members`, {
+      method: 'PUT',
+      body: JSON.stringify({ group_members: groupMembers }),
     }, true)
   },
 }

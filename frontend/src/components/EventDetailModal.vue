@@ -67,11 +67,11 @@
             {{ publishing ? 'Wird veröffentlicht...' : 'Veröffentlichen' }}
           </button>
           <button
-            v-if="event?.status === 'OPEN'"
+            v-if="event?.registration_link_token && !['DRAFT', 'COMPLETED', 'CANCELLED'].includes(event?.status)"
             @click="$emit('copy-link', event)"
             class="outline"
           >
-            Link kopieren
+            {{ event?.status === 'OPEN' ? 'Link kopieren' : 'Link kopieren (Warteliste)' }}
           </button>
           <button
             v-if="event?.status === 'OPEN'"

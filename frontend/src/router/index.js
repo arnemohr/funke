@@ -26,18 +26,27 @@ const routes = [
     component: () => import('../pages/registration/RegistrationPage.vue'),
   },
 
-  // Public cancellation route
+  // Registration management page (replaces separate confirm/cancel pages)
   {
-    path: '/cancel/:registrationId',
-    name: 'cancel',
-    component: () => import('../pages/cancel/CancelPage.vue'),
+    path: '/registration/:registrationId',
+    name: 'registration-manage',
+    component: () => import('../pages/registration/RegistrationManagePage.vue'),
   },
 
-  // Public confirmation route (attendance confirmation)
+  // Legacy redirects — old email links still work
+  {
+    path: '/cancel/:registrationId',
+    redirect: to => ({
+      path: `/registration/${to.params.registrationId}`,
+      query: { token: to.query.token },
+    }),
+  },
   {
     path: '/confirm/:registrationId',
-    name: 'confirm',
-    component: () => import('../pages/confirm/ConfirmPage.vue'),
+    redirect: to => ({
+      path: `/registration/${to.params.registrationId}`,
+      query: { token: to.query.token },
+    }),
   },
 
   // Admin routes (protected)

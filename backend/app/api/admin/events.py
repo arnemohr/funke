@@ -462,6 +462,7 @@ class RegistrationResponse(BaseModel):
     phone: str | None
     notes: str | None
     group_size: int
+    group_members: list[str] | None = None
     status: RegistrationStatus
     waitlist_position: int | None
     registration_token: str
@@ -488,6 +489,7 @@ def _registration_to_response(registration: Registration) -> RegistrationRespons
         phone=registration.phone,
         notes=registration.notes,
         group_size=registration.group_size,
+        group_members=registration.group_members,
         status=registration.status,
         waitlist_position=registration.waitlist_position,
         registration_token=registration.registration_token,
@@ -729,6 +731,58 @@ async def toggle_promoted(
     return _registration_to_response(registration)
 
 
+class AdminUpdateGroupMembersRequest(BaseModel):
+    """Request body for admin group member name editing."""
+
+    group_members: list[str]
+
+
+@router.put(
+    "/{event_id}/registrations/{registration_id}/group-members",
+    response_model=RegistrationResponse,
+    dependencies=[Depends(require_role([AdminRole.OWNER, AdminRole.ADMIN]))],
+)
+async def admin_update_group_members(
+    event_id: UUID,
+    registration_id: UUID,
+    body: AdminUpdateGroupMembersRequest,
+    user: CurrentUser,
+) -> RegistrationResponse:
+    """Admin: edit group member names for a registration.
+
+    Only edits names — does not change group_size.
+    """
+    org_id = _get_org_id(user)
+
+    event_service = get_event_service()
+    event = await event_service.get_event(org_id, event_id)
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found",
+        )
+
+    registration_service = get_registration_service()
+    registration = await registration_service.admin_update_group_members(
+        event_id, registration_id, body.group_members,
+    )
+
+    if not registration:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Registration not found or invalid group member names",
+        )
+
+    log_admin_action(
+        "registration.update_group_members",
+        user.email,
+        str(event_id),
+        {"registration_id": str(registration_id)},
+    )
+
+    return _registration_to_response(registration)
+
+
 @router.get(
     "/{event_id}/registrations/export",
     dependencies=[Depends(require_role([AdminRole.OWNER, AdminRole.ADMIN]))],
@@ -752,27 +806,47 @@ async def export_registrations_csv(
     registrations = await registration_service.list_registrations(event_id)
 
     # Build CSV with BOM for Excel compatibility
+    # Guest list format: one row per person (not per registration) for legal/signature purposes
     output = io.StringIO()
     output.write("\ufeff")  # UTF-8 BOM
     writer = csv.writer(output, delimiter=";")
     writer.writerow([
-        "Name", "E-Mail", "Telefon", "Gruppengröße", "Status",
-        "Wartelistenplatz", "Bevorzugt", "Angemeldet am", "Bestätigt am", "Notizen",
+        "Gast-Name", "Registriert von", "E-Mail", "Telefon",
+        "Gruppengröße", "Namen eingetragen", "Status",
+        "Wartelistenplatz", "Bevorzugt", "Angemeldet am", "Bestätigt am",
+        "Notizen", "Unterschrift",
     ])
 
     for reg in registrations:
-        writer.writerow([
-            reg.name,
-            reg.email,
-            reg.phone or "",
-            reg.group_size,
-            reg.status.value,
-            reg.waitlist_position or "",
-            "Ja" if reg.promoted else "Nein",
-            reg.registered_at.isoformat() if reg.registered_at else "",
-            reg.responded_at.isoformat() if reg.responded_at else "",
-            reg.notes or "",
-        ])
+        # Derive the full list of people in this registration
+        if reg.group_members and len(reg.group_members) > 0:
+            members = reg.group_members
+            names_status = f"{len(reg.group_members)}/{reg.group_size}"
+        elif reg.group_size == 1:
+            members = [reg.name]
+            names_status = "1/1"
+        else:
+            # Group without names yet: registrant + placeholders
+            members = [reg.name] + [f"(Name {i+2} ausstehend)" for i in range(reg.group_size - 1)]
+            names_status = f"1/{reg.group_size}"
+
+        # Write one row per person
+        for i, member_name in enumerate(members):
+            writer.writerow([
+                member_name,
+                reg.name if i > 0 else "",  # "Registriert von" only for additional members
+                reg.email if i == 0 else "",  # Contact email only on first row
+                reg.phone or "" if i == 0 else "",
+                reg.group_size if i == 0 else "",
+                names_status if i == 0 else "",
+                reg.status.value if i == 0 else "",
+                reg.waitlist_position or "" if i == 0 else "",
+                ("Ja" if reg.promoted else "Nein") if i == 0 else "",
+                reg.registered_at.isoformat() if reg.registered_at and i == 0 else "",
+                reg.responded_at.isoformat() if reg.responded_at and i == 0 else "",
+                reg.notes or "" if i == 0 else "",
+                "",  # Signature column (empty, to be signed on paper)
+            ])
 
     log_admin_action("registrations.export", user.email, str(event_id))
 

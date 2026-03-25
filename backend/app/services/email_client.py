@@ -186,6 +186,7 @@ class SmtpClient:
             )
 
 
+
 # Singleton instance
 _smtp_client: SmtpClient | None = None
 

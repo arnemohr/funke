@@ -37,9 +37,10 @@ class EmailContext(BaseModel):
     group_size: int
     registration_status: str
     waitlist_position: int | None = None
-    cancellation_url: str | None = None
-    confirmation_yes_url: str | None = None
-    confirmation_no_url: str | None = None
+    cancellation_url: str | None = None  # Deprecated: kept for backward compat
+    confirmation_yes_url: str | None = None  # Deprecated: kept for backward compat
+    confirmation_no_url: str | None = None  # Deprecated: kept for backward compat
+    management_url: str | None = None
 
 
 def _format_date(dt: datetime) -> str:
@@ -52,15 +53,21 @@ def _format_date(dt: datetime) -> str:
 
 
 def _build_cancellation_url(registration_id: UUID, token: str) -> str:
-    """Build the cancellation URL for a registration."""
+    """Build the cancellation URL for a registration (deprecated, kept for old links)."""
     settings = get_settings()
     return f"{settings.base_url}/cancel/{registration_id}?token={token}"
 
 
 def _build_confirmation_url(registration_id: UUID, token: str, response: str) -> str:
-    """Build a confirmation response URL."""
+    """Build a confirmation response URL (deprecated, kept for old links)."""
     settings = get_settings()
     return f"{settings.base_url}/confirm/{registration_id}?token={token}&response={response}"
+
+
+def _build_management_url(registration_id: UUID, token: str) -> str:
+    """Build the registration management URL."""
+    settings = get_settings()
+    return f"{settings.base_url}/registration/{registration_id}?token={token}"
 
 
 class EmailTemplates:
@@ -90,8 +97,8 @@ Deine Anmeldung:
 - Personen: {ctx.group_size} {persons}
 - Anmeldeschluss: {ctx.registration_deadline or 'Nicht festgelegt'}
 
-Falls du es dir anders überlegst, kannst du hier stornieren:
-{ctx.cancellation_url}
+Deine Anmeldung verwalten:
+{ctx.management_url}
 
 Bei Fragen, einfach melden!
 
@@ -124,7 +131,7 @@ Deine Crew von der Schaluppe
     </ul>
 
     <p style="margin-top: 20px;">
-        <a href="{ctx.cancellation_url}" style="color: #666;">Falls du es dir anders überlegst, kannst du hier stornieren</a>
+        <a href="{ctx.management_url}" style="display: inline-block; padding: 10px 20px; background: #2563eb; color: white; text-decoration: none; border-radius: 6px;">Anmeldung verwalten</a>
     </p>
 
     <p>Bei Fragen, einfach melden!</p>
@@ -154,8 +161,8 @@ Details:
 - Ort: {ctx.event_location or 'Wird noch bekannt gegeben'}
 - Personen: {ctx.group_size} {persons}
 
-Falls du doch nicht willst, storniere hier:
-{ctx.cancellation_url}
+Deine Anmeldung verwalten:
+{ctx.management_url}
 
 Bis bald,
 Deine Crew von der Schaluppe
@@ -180,7 +187,7 @@ Deine Crew von der Schaluppe
     </ul>
 
     <p style="margin-top: 20px;">
-        <a href="{ctx.cancellation_url}" style="color: #666;">Falls du doch nicht willst, storniere hier</a>
+        <a href="{ctx.management_url}" style="display: inline-block; padding: 10px 20px; background: #2563eb; color: white; text-decoration: none; border-radius: 6px;">Anmeldung verwalten</a>
     </p>
 
     <p>Bis bald,<br>Deine Crew von der Schaluppe</p>
@@ -240,17 +247,16 @@ Deine Crew von der Schaluppe
 
         Returns: (subject, text_body, html_body)
         """
-        subject = f"Platz frei geworden: {ctx.event_name}"
+        subject = f"Bitte bestätigen: Platz frei für {ctx.event_name}!"
         persons = "Person" if ctx.group_size == 1 else "Personen"
 
         text_body = f"""Moin {ctx.attendee_name},
 
 gute Nachrichten! Ein Platz ist frei geworden und du bist von der Warteliste nachgerückt für "{ctx.event_name}".
 
-Bitte bestätige kurz, ob du dabei sein kannst:
+Bitte bestätige deine Teilnahme über folgenden Link:
 
-Ja, ich bin dabei: {ctx.confirmation_yes_url}
-Nein, ich kann nicht: {ctx.confirmation_no_url}
+{ctx.management_url}
 
 Details:
 - Datum: {ctx.event_date}
@@ -274,11 +280,10 @@ Deine Crew von der Schaluppe
     <p>Moin {ctx.attendee_name},</p>
     <p>Gute Nachrichten! Ein Platz ist frei geworden und du bist von der Warteliste nachgerückt für <strong>"{ctx.event_name}"</strong>.</p>
 
-    <p><strong>Bitte bestätige kurz, ob du dabei sein kannst:</strong></p>
+    <p><strong>Bitte bestätige deine Teilnahme:</strong></p>
 
     <p style="margin: 20px 0;">
-        <a href="{ctx.confirmation_yes_url}" style="display: inline-block; padding: 12px 24px; background: #16a34a; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; margin-right: 10px;">Ja, ich bin dabei!</a>
-        <a href="{ctx.confirmation_no_url}" style="display: inline-block; padding: 12px 24px; background: #dc2626; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">Nein, ich kann nicht</a>
+        <a href="{ctx.management_url}" style="display: inline-block; padding: 12px 24px; background: #16a34a; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">Anmeldung verwalten</a>
     </p>
 
     <h3>Details</h3>
@@ -300,7 +305,7 @@ Deine Crew von der Schaluppe
     @staticmethod
     def lottery_winner(ctx: EmailContext) -> tuple[str, str, str]:
         """Generate lottery winner notification email."""
-        subject = f"Verlosung: Du bist dabei bei {ctx.event_name}!"
+        subject = f"Bitte bestätigen: Du bist dabei bei {ctx.event_name}!"
         persons = "Person" if ctx.group_size == 1 else "Personen"
 
         text_body = f"""Moin {ctx.attendee_name},
@@ -312,8 +317,8 @@ Details:
 - Ort: {ctx.event_location or 'Wird noch bekannt gegeben'}
 - Personen: {ctx.group_size} {persons}
 
-Falls du doch nicht kannst, storniere hier:
-{ctx.cancellation_url}
+Bitte bestätige deine Teilnahme über folgenden Link:
+{ctx.management_url}
 
 Wir freuen uns auf dich!
 
@@ -338,7 +343,7 @@ Deine Crew von der Schaluppe
     </ul>
 
     <p style="margin-top: 20px;">
-        <a href="{ctx.cancellation_url}" style="color: #666;">Falls du doch nicht kannst, storniere hier</a>
+        <a href="{ctx.management_url}" style="display: inline-block; padding: 12px 24px; background: #16a34a; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">Teilnahme bestätigen</a>
     </p>
 
     <p>Wir freuen uns auf dich!</p>
@@ -366,8 +371,8 @@ Details:
 - Ort: {ctx.event_location or 'Wird noch bekannt gegeben'}
 - Personen: {ctx.group_size} {persons}
 
-Falls du doch nicht willst, storniere hier:
-{ctx.cancellation_url}
+Deine Anmeldung verwalten:
+{ctx.management_url}
 
 Drück die Daumen!
 
@@ -395,7 +400,7 @@ Deine Crew von der Schaluppe
     </ul>
 
     <p style="margin-top: 20px;">
-        <a href="{ctx.cancellation_url}" style="color: #666;">Falls du doch nicht willst, storniere hier</a>
+        <a href="{ctx.management_url}" style="display: inline-block; padding: 10px 20px; background: #2563eb; color: white; text-decoration: none; border-radius: 6px;">Anmeldung verwalten</a>
     </p>
 
     <p>Drück die Daumen!</p>
@@ -526,11 +531,9 @@ Details:
 - Ort: {ctx.event_location or 'Wird noch bekannt gegeben'}
 - Personen: {ctx.group_size}
 
-Bitte bestätige deine Teilnahme:
+Bitte bestätige deine Teilnahme über folgenden Link:
 
-✅ JA, ich bin dabei: {ctx.confirmation_yes_url}
-
-❌ NEIN, ich kann nicht: {ctx.confirmation_no_url}
+{ctx.management_url}
 
 Falls du nicht teilnehmen kannst, sag bitte so früh wie möglich Bescheid, damit wir deinen Platz an jemanden von der Warteliste vergeben können.
 
@@ -554,15 +557,8 @@ Deine Crew von der Schaluppe
         <li><strong>Personen:</strong> {ctx.group_size}</li>
     </ul>
 
-    <p><strong>Bitte bestätige deine Teilnahme:</strong></p>
-
     <div style="margin: 20px 0;">
-        <a href="{ctx.confirmation_yes_url}" style="display: inline-block; padding: 12px 24px; background: #16a34a; color: white; text-decoration: none; border-radius: 6px; margin-right: 10px;">
-            Ja, ich bin dabei!
-        </a>
-        <a href="{ctx.confirmation_no_url}" style="display: inline-block; padding: 12px 24px; background: #dc2626; color: white; text-decoration: none; border-radius: 6px;">
-            Nein, ich kann nicht
-        </a>
+        <a href="{ctx.management_url}" style="display: inline-block; padding: 12px 24px; background: #16a34a; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">Anmeldung verwalten</a>
     </div>
 
     <p style="color: #666; font-size: 0.9em;">
@@ -753,7 +749,7 @@ class EmailService:
             attendee_email=registration.email,
             group_size=registration.group_size,
             registration_status=registration.status.value,
-            cancellation_url=_build_cancellation_url(
+            management_url=_build_management_url(
                 registration.id,
                 registration.registration_token,
             ),
@@ -794,7 +790,7 @@ class EmailService:
             group_size=registration.group_size,
             registration_status=registration.status.value,
             waitlist_position=registration.waitlist_position,
-            cancellation_url=_build_cancellation_url(
+            management_url=_build_management_url(
                 registration.id,
                 registration.registration_token,
             ),
@@ -870,19 +866,9 @@ class EmailService:
             attendee_email=registration.email,
             group_size=registration.group_size,
             registration_status=registration.status.value,
-            cancellation_url=_build_cancellation_url(
+            management_url=_build_management_url(
                 registration.id,
                 registration.registration_token,
-            ),
-            confirmation_yes_url=_build_confirmation_url(
-                registration.id,
-                registration.registration_token,
-                "yes",
-            ),
-            confirmation_no_url=_build_confirmation_url(
-                registration.id,
-                registration.registration_token,
-                "no",
             ),
         )
 
@@ -912,7 +898,7 @@ class EmailService:
             attendee_email=registration.email,
             group_size=registration.group_size,
             registration_status=registration.status.value,
-            cancellation_url=_build_cancellation_url(
+            management_url=_build_management_url(
                 registration.id,
                 registration.registration_token,
             ),
@@ -945,7 +931,7 @@ class EmailService:
             group_size=registration.group_size,
             registration_status=registration.status.value,
             waitlist_position=registration.waitlist_position,
-            cancellation_url=_build_cancellation_url(
+            management_url=_build_management_url(
                 registration.id,
                 registration.registration_token,
             ),
@@ -1051,15 +1037,9 @@ class EmailService:
             attendee_email=registration.email,
             group_size=registration.group_size,
             registration_status=registration.status.value,
-            confirmation_yes_url=_build_confirmation_url(
+            management_url=_build_management_url(
                 registration.id,
                 registration.registration_token,
-                "yes",
-            ),
-            confirmation_no_url=_build_confirmation_url(
-                registration.id,
-                registration.registration_token,
-                "no",
             ),
         )
 
@@ -1142,24 +1122,19 @@ class EmailService:
         html_links = ""
 
         if include_links:
-            confirm_yes_url = _build_confirmation_url(
-                registration.id, registration.registration_token, "yes",
-            )
-            confirm_no_url = _build_confirmation_url(
-                registration.id, registration.registration_token, "no",
+            manage_url = _build_management_url(
+                registration.id, registration.registration_token,
             )
 
             text_links = f"""
 
 ---
-Ja, ich bin dabei: {confirm_yes_url}
-Nein, ich kann nicht: {confirm_no_url}"""
+Anmeldung verwalten: {manage_url}"""
 
             html_links = f"""
     <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;">
     <p style="margin: 10px 0;">
-        <a href="{confirm_yes_url}" style="display: inline-block; padding: 10px 20px; background: #16a34a; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; margin-right: 8px;">Ja, ich bin dabei!</a>
-        <a href="{confirm_no_url}" style="display: inline-block; padding: 10px 20px; background: #dc2626; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">Nein, ich kann nicht</a>
+        <a href="{manage_url}" style="display: inline-block; padding: 10px 20px; background: #2563eb; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">Anmeldung verwalten</a>
     </p>"""
 
         html_body = f"""
