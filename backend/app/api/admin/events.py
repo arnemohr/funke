@@ -653,6 +653,22 @@ async def promote_from_waitlist(
         )
 
     registration_service = get_registration_service()
+
+    # Check capacity before promoting
+    reg = await registration_service.get_registration(event_id, registration_id)
+    if not reg or reg.status != RegistrationStatus.WAITLISTED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Registration not found or not in WAITLISTED status",
+        )
+    stats = await registration_service.get_registration_stats(event_id)
+    remaining = event.capacity - stats["confirmed_spots"]
+    if reg.group_size > remaining:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Nicht genügend Plätze: {remaining} frei, {reg.group_size} benötigt",
+        )
+
     registration = await registration_service.promote_single_from_waitlist(
         event_id, registration_id, target,
     )

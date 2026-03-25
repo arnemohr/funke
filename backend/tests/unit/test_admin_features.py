@@ -102,25 +102,22 @@ class TestCustomMessage:
         event = sample_event()
         registration = sample_registration(event_id=event.id)
 
-        mock_result = MagicMock(success=True, message_id="gmail-456", error=None)
-        mock_gmail = AsyncMock()
-        mock_gmail.send_email = AsyncMock(return_value=mock_result)
-
-        with patch("app.services.email_client.get_gmail_client", return_value=mock_gmail):
-            result = await email_service.send_custom_message(
-                event=event,
-                registration=registration,
-                subject="Wichtige Info",
-                body="Bitte beachtet die neue Uhrzeit.",
-            )
+        result = await email_service.send_custom_message(
+            event=event,
+            registration=registration,
+            subject="Wichtige Info",
+            body="Bitte beachtet die neue Uhrzeit.",
+        )
 
         assert result is True
-        mock_gmail.send_email.assert_called_once()
 
-        # Verify the email content
-        call_args = mock_gmail.send_email.call_args[0][0]
-        assert call_args.subject == "Wichtige Info"
-        assert "neue Uhrzeit" in call_args.body_text
+        # Verify the message was queued in DynamoDB
+        email_service._messages_table.put_item.assert_called_once()
+        stored_item = email_service._messages_table.put_item.call_args[1]["Item"]
+        assert stored_item["subject"] == "Wichtige Info"
+        assert "neue Uhrzeit" in stored_item["body"]
+        assert stored_item["status"] == "queued"
+        assert stored_item["recipient_email"] == registration.email
 
 
 class TestMessagesLog:

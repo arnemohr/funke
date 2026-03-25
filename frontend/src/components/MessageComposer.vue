@@ -70,7 +70,7 @@
             v-model="includeLinks"
             :disabled="sending"
           />
-          Bestätigungs- und Stornierungslinks einfügen
+          Verwaltungslink einfügen
         </label>
 
         <div v-if="error" role="alert" class="error">

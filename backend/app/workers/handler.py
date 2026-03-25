@@ -129,6 +129,275 @@ async def send_confirmation_reminders() -> dict:
     return result
 
 
+async def process_email_queue() -> dict:
+    """Process queued emails with pacing to protect deliverability.
+
+    Sends one email at a time with a random 4-10 second delay between sends.
+    This keeps us well under typical SMTP provider limits (~30 emails/min).
+
+    Uses claim-before-send: each message is atomically transitioned from
+    QUEUED → SENDING before the SMTP call. This prevents duplicate sends
+    if two worker invocations overlap.
+
+    Processes a fixed batch per invocation (max 20) to stay within Lambda
+    timeout limits. The scheduler should run every 1-2 minutes to drain
+    the queue steadily.
+    """
+    import asyncio
+    import random
+
+    logger.info("Starting email queue processing")
+
+    from ..models import MessageStatus
+    from ..services.config import get_messages_table
+    from ..services.email_client import EmailMessage as SmtpEmailMessage
+    from ..services.email_client import get_gmail_client
+
+    MAX_BATCH = 20  # Stay well within Lambda timeout (~3-4 min at 10s spacing)
+    sent = 0
+    failed = 0
+    skipped = 0
+    smtp_not_configured = False
+
+    try:
+        messages_table = get_messages_table()
+
+        # Check SMTP availability once upfront
+        smtp_client = get_gmail_client()
+        try:
+            # send_email raises ValueError if credentials are missing,
+            # so validate by checking settings directly
+            from ..services.email_client import get_email_settings
+
+            settings = get_email_settings()
+            if not all([settings.smtp_username, settings.smtp_password, settings.smtp_sender_email]):
+                raise ValueError("SMTP credentials not configured")
+        except ValueError:
+            smtp_not_configured = True
+            smtp_client = None
+            logger.info("SMTP not configured — will mark emails as sent (dev mode)")
+
+        # Scan for QUEUED messages
+        scan_kwargs = {
+            "FilterExpression": "#status = :queued",
+            "ExpressionAttributeNames": {"#status": "status"},
+            "ExpressionAttributeValues": {":queued": MessageStatus.QUEUED.value},
+        }
+
+        response = messages_table.scan(**scan_kwargs)
+        items = response.get("Items", [])
+
+        while "LastEvaluatedKey" in response:
+            scan_kwargs["ExclusiveStartKey"] = response["LastEvaluatedKey"]
+            response = messages_table.scan(**scan_kwargs)
+            items.extend(response.get("Items", []))
+
+        if not items:
+            logger.info("No queued emails to process")
+            return {"task": "process_email_queue", "status": "completed", "sent": 0, "failed": 0, "skipped": 0}
+
+        # Sort by created_at to send in FIFO order, take only MAX_BATCH
+        items.sort(key=lambda x: x.get("created_at", ""))
+        items = items[:MAX_BATCH]
+
+        logger.info(f"Processing {len(items)} queued emails")
+
+        now = datetime.now(timezone.utc)
+
+        for i, item in enumerate(items):
+            recipient = item.get("recipient_email")
+            subject = item.get("subject", "")
+            body_text = item.get("body", "")
+            body_html = item.get("body_html")
+
+            if not recipient:
+                skipped += 1
+                continue
+
+            # Claim: atomically transition QUEUED → SENDING to prevent duplicates
+            try:
+                messages_table.update_item(
+                    Key={"pk": item["pk"], "sk": item["sk"]},
+                    UpdateExpression="SET #status = :sending",
+                    ExpressionAttributeNames={"#status": "status"},
+                    ExpressionAttributeValues={
+                        ":sending": "sending",
+                        ":queued": MessageStatus.QUEUED.value,
+                    },
+                    ConditionExpression="#status = :queued",
+                )
+            except Exception:
+                # Another worker already claimed this message
+                skipped += 1
+                continue
+
+            if smtp_not_configured:
+                # Dev mode: mark as sent without sending
+                logger.info(f"[LOG-ONLY] queued email to {recipient} (SMTP not configured)")
+                messages_table.update_item(
+                    Key={"pk": item["pk"], "sk": item["sk"]},
+                    UpdateExpression="SET #status = :sent, sent_at = :now",
+                    ExpressionAttributeNames={"#status": "status"},
+                    ExpressionAttributeValues={
+                        ":sent": MessageStatus.SENT.value,
+                        ":now": now.isoformat(),
+                    },
+                )
+                sent += 1
+                continue
+
+            try:
+                email_msg = SmtpEmailMessage(
+                    to=recipient,
+                    subject=subject,
+                    body_text=body_text,
+                    body_html=body_html,
+                )
+                result = await smtp_client.send_email(email_msg)
+
+                send_time = datetime.now(timezone.utc)
+
+                if result.success:
+                    messages_table.update_item(
+                        Key={"pk": item["pk"], "sk": item["sk"]},
+                        UpdateExpression="SET #status = :sent, sent_at = :now, email_message_id = :mid",
+                        ExpressionAttributeNames={"#status": "status"},
+                        ExpressionAttributeValues={
+                            ":sent": MessageStatus.SENT.value,
+                            ":now": send_time.isoformat(),
+                            ":mid": result.message_id,
+                        },
+                    )
+                    sent += 1
+                    logger.info(
+                        "Queued email sent",
+                        extra={"to": recipient, "subject": subject, "index": i, "total": len(items)},
+                    )
+                else:
+                    error_str = result.error or "send_failed"
+                    is_throttled = "4." in error_str or "try again" in error_str.lower()
+
+                    messages_table.update_item(
+                        Key={"pk": item["pk"], "sk": item["sk"]},
+                        UpdateExpression="SET #status = :failed, error_code = :err, retry_count = :rc",
+                        ExpressionAttributeNames={"#status": "status"},
+                        ExpressionAttributeValues={
+                            ":failed": MessageStatus.FAILED.value,
+                            ":err": error_str,
+                            ":rc": item.get("retry_count", 0) + 1,
+                        },
+                    )
+                    failed += 1
+
+                    if is_throttled:
+                        logger.warning(
+                            "SMTP throttling detected, stopping batch — remaining emails will be picked up next run",
+                            extra={"error": error_str, "to": recipient},
+                        )
+                        break  # Stop this batch, let the next invocation continue
+
+            except Exception as e:
+                # Unexpected error: mark as FAILED so retry worker can pick it up
+                logger.error("Failed to process queued email", extra={"error": str(e), "to": recipient})
+                try:
+                    messages_table.update_item(
+                        Key={"pk": item["pk"], "sk": item["sk"]},
+                        UpdateExpression="SET #status = :failed, error_code = :err, retry_count = :rc",
+                        ExpressionAttributeNames={"#status": "status"},
+                        ExpressionAttributeValues={
+                            ":failed": MessageStatus.FAILED.value,
+                            ":err": str(e)[:200],
+                            ":rc": item.get("retry_count", 0) + 1,
+                        },
+                    )
+                except Exception:
+                    pass  # Best effort
+                failed += 1
+
+            # Pace: random 4-10 second delay between sends (skip after last)
+            if i < len(items) - 1:
+                delay = random.uniform(4.0, 10.0)
+                await asyncio.sleep(delay)
+
+    except Exception as e:
+        logger.error("Email queue processing failed", extra={"error": str(e)})
+
+    result = {
+        "task": "process_email_queue",
+        "status": "completed",
+        "sent": sent,
+        "failed": failed,
+        "skipped": skipped,
+    }
+    logger.info("Email queue processing completed", extra=result)
+    return result
+
+
+async def recover_stale_sending() -> dict:
+    """Recover messages stuck in 'sending' status.
+
+    If a worker dies mid-send, messages stay in 'sending' forever.
+    This task resets them to QUEUED so the queue worker picks them up again.
+    Only resets messages that have been in 'sending' for more than 5 minutes.
+    """
+    logger.info("Starting stale sending recovery")
+
+    from ..models import MessageStatus
+    from ..services.config import get_messages_table
+
+    recovered = 0
+
+    try:
+        messages_table = get_messages_table()
+
+        response = messages_table.scan(
+            FilterExpression="#status = :sending",
+            ExpressionAttributeNames={"#status": "status"},
+            ExpressionAttributeValues={":sending": "sending"},
+        )
+        items = response.get("Items", [])
+
+        while "LastEvaluatedKey" in response:
+            response = messages_table.scan(
+                FilterExpression="#status = :sending",
+                ExpressionAttributeNames={"#status": "status"},
+                ExpressionAttributeValues={":sending": "sending"},
+                ExclusiveStartKey=response["LastEvaluatedKey"],
+            )
+            items.extend(response.get("Items", []))
+
+        now = datetime.now(timezone.utc)
+        stale_threshold = timedelta(minutes=5)
+
+        for item in items:
+            created_at_str = item.get("created_at")
+            if created_at_str:
+                created_at = datetime.fromisoformat(created_at_str)
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+                if (now - created_at) < stale_threshold:
+                    continue  # Not stale yet, worker may still be processing
+
+            try:
+                messages_table.update_item(
+                    Key={"pk": item["pk"], "sk": item["sk"]},
+                    UpdateExpression="SET #status = :queued",
+                    ExpressionAttributeNames={"#status": "status"},
+                    ExpressionAttributeValues={":queued": MessageStatus.QUEUED.value},
+                    ConditionExpression="#status = :sending",
+                )
+                recovered += 1
+            except Exception:
+                pass
+
+    except Exception as e:
+        logger.error("Stale sending recovery failed", extra={"error": str(e)})
+
+    result = {"task": "recover_stale_sending", "status": "completed", "recovered": recovered}
+    logger.info("Stale sending recovery completed", extra=result)
+    return result
+
+
 async def retry_failed_emails() -> dict:
     """Retry failed email deliveries.
 
@@ -357,6 +626,8 @@ def handler(event: dict[str, Any], context: Any) -> dict:
 
     # Task dispatch
     tasks = {
+        "process_email_queue": process_email_queue,
+        "recover_stale_sending": recover_stale_sending,
         "send_confirmation_reminders": send_confirmation_reminders,
         "retry_failed_emails": retry_failed_emails,
         "cleanup_expired_data": cleanup_expired_data,

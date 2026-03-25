@@ -246,6 +246,25 @@
       :event-id="selectedEvent?.id"
       @close="showMessageLog = false"
     />
+
+    <!-- Capacity Warning Popup -->
+    <dialog :open="!!capacityWarning">
+      <article v-if="capacityWarning">
+        <header>
+          <button aria-label="Schließen" rel="prev" @click="capacityWarning = null"></button>
+          <h3>Kapazität überschritten</h3>
+        </header>
+        <p>
+          <strong>{{ capacityWarning.name }}</strong> benötigt {{ capacityWarning.needed }}
+          {{ capacityWarning.needed === 1 ? 'Platz' : 'Plätze' }}, aber nur
+          {{ capacityWarning.remaining <= 0 ? 'keine' : capacityWarning.remaining }}
+          {{ capacityWarning.remaining === 1 ? 'Platz ist' : 'Plätze sind' }} frei.
+        </p>
+        <footer>
+          <button @click="capacityWarning = null">Verstanden</button>
+        </footer>
+      </article>
+    </dialog>
   </article>
 </template>
 
@@ -317,6 +336,9 @@ const togglingPromotedId = ref(null)
 // Discard unacknowledged
 const discardPreview = ref(null)
 const discarding = ref(false)
+
+// Capacity warning popup
+const capacityWarning = ref(null)
 
 // Computed
 const IN_PROGRESS_STATUSES = ['REGISTRATION_CLOSED', 'LOTTERY_PENDING', 'CONFIRMED']
@@ -550,6 +572,24 @@ async function handleTogglePromoted({ registrationId, promoted }) {
 
 async function handlePromoteWaitlisted({ registrationId, targetStatus }) {
   if (!selectedEvent.value) return
+
+  // Check capacity before promoting
+  const reg = registrations.value.find(r => r.id === registrationId)
+  if (reg) {
+    const confirmedSpots = registrations.value
+      .filter(r => ['CONFIRMED', 'PARTICIPATING'].includes(r.status))
+      .reduce((sum, r) => sum + r.group_size, 0)
+    const remaining = selectedEvent.value.capacity - confirmedSpots
+    if (reg.group_size > remaining) {
+      capacityWarning.value = {
+        needed: reg.group_size,
+        remaining,
+        name: reg.name,
+      }
+      return
+    }
+  }
+
   try {
     await adminApi.promoteFromWaitlist(selectedEvent.value.id, registrationId, targetStatus)
     // Refresh registrations and event

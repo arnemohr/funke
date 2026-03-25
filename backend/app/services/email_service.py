@@ -672,6 +672,9 @@ def _message_to_item(message: Message) -> dict:
         "entity_type": "Message",
     }
 
+    if message.body_html:
+        item["body_html"] = message.body_html
+
     if message.registration_id:
         item["registration_id"] = str(message.registration_id)
         # GSI uses registration_id directly
@@ -690,6 +693,9 @@ def _message_to_item(message: Message) -> dict:
 
     if message.recipient_email:
         item["recipient_email"] = message.recipient_email
+
+    if message.created_at:
+        item["created_at"] = message.created_at.isoformat()
 
     if message.error_code:
         item["error_code"] = message.error_code
@@ -1216,7 +1222,11 @@ Anmeldung verwalten: {manage_url}"""
         html_body: str,
         message_type: MessageType,
     ) -> bool:
-        """Send an email and record it.
+        """Queue an email for delivery.
+
+        Stores the message in DynamoDB with QUEUED status. The queue worker
+        (process_email_queue) picks it up and sends it with proper pacing
+        to avoid triggering SMTP rate limits.
 
         Args:
             event_id: Event ID.
@@ -1228,9 +1238,8 @@ Anmeldung verwalten: {manage_url}"""
             message_type: Type of message.
 
         Returns:
-            True if email was sent successfully.
+            True if email was queued successfully.
         """
-        # Create message record
         message = Message(
             id=uuid4(),
             event_id=event_id,
@@ -1239,70 +1248,28 @@ Anmeldung verwalten: {manage_url}"""
             direction=MessageDirection.OUTBOUND,
             subject=subject,
             body=text_body,
+            body_html=html_body,
             status=MessageStatus.QUEUED,
             retry_count=0,
+            recipient_email=to,
         )
 
         try:
-            # Try to send via Gmail API
-            from .email_client import EmailMessage as GmailEmailMessage
-            from .email_client import get_gmail_client
-
-            try:
-                gmail_client = get_gmail_client()
-                gmail_message = GmailEmailMessage(
-                    to=to,
-                    subject=subject,
-                    body_text=text_body,
-                    body_html=html_body,
-                )
-                result = await gmail_client.send_email(gmail_message)
-
-                if result.success:
-                    message = message.model_copy(
-                        update={
-                            "status": MessageStatus.SENT,
-                            "email_message_id": result.message_id,
-                            "sent_at": datetime.now(timezone.utc),
-                            "recipient_email": to,
-                        },
-                    )
-                else:
-                    message = message.model_copy(
-                        update={
-                            "status": MessageStatus.FAILED,
-                            "error_code": result.error or "send_failed",
-                            "retry_count": 1,
-                            "recipient_email": to,
-                        },
-                    )
-            except ValueError:
-                # Gmail credentials not configured — log-only fallback for local dev
-                logger.info(
-                    f"[LOG-ONLY] email {message_type.value} to {to} (Gmail not configured)",
-                )
-                message = message.model_copy(
-                    update={
-                        "status": MessageStatus.SENT,
-                        "sent_at": datetime.now(timezone.utc),
-                        "recipient_email": to,
-                    },
-                )
-
-            # Store message (best effort - don't fail if DynamoDB unavailable)
-            try:
-                await self._store_message(message)
-            except Exception as store_error:
-                logger.warning(
-                    "Failed to store message record (non-fatal)",
-                    extra={"error": str(store_error)},
-                )
-
-            return message.status == MessageStatus.SENT
+            await self._store_message(message)
+            logger.info(
+                "Email queued for delivery",
+                extra={
+                    "message_id": str(message.id),
+                    "to": to,
+                    "type": message_type.value,
+                    "subject": subject,
+                },
+            )
+            return True
 
         except Exception as e:
             logger.error(
-                "Exception sending email",
+                "Failed to queue email",
                 extra={
                     "to": to,
                     "error": str(e),

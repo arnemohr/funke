@@ -88,3 +88,44 @@ class SchedulerStack(Stack):
                 retry_attempts=2,
             )
         )
+
+        # Email queue processor - runs every 2 minutes
+        # Picks up QUEUED messages and sends them with pacing
+        # Max 20 emails per invocation to stay within Lambda timeout
+        self.email_queue_rule = events.Rule(
+            self,
+            "EmailQueueRule",
+            rule_name=f"funke-{env_name}-process-email-queue",
+            schedule=events.Schedule.rate(Duration.minutes(1)),
+            enabled=True,
+        )
+
+        self.email_queue_rule.add_target(
+            targets.LambdaFunction(
+                api_stack.worker_function,
+                event=events.RuleTargetInput.from_object({
+                    "task": "process_email_queue",
+                }),
+                retry_attempts=2,
+            )
+        )
+
+        # Stale sending recovery - runs every 5 minutes
+        # Resets messages stuck in sending status (>5 min) back to QUEUED
+        self.stale_sending_rule = events.Rule(
+            self,
+            "StaleSendingRule",
+            rule_name=f"funke-{env_name}-recover-stale-sending",
+            schedule=events.Schedule.rate(Duration.minutes(5)),
+            enabled=True,
+        )
+
+        self.stale_sending_rule.add_target(
+            targets.LambdaFunction(
+                api_stack.worker_function,
+                event=events.RuleTargetInput.from_object({
+                    "task": "recover_stale_sending",
+                }),
+                retry_attempts=2,
+            )
+        )

@@ -63,6 +63,7 @@ class Message(BaseModel):
     direction: MessageDirection = MessageDirection.OUTBOUND
     subject: str
     body: str
+    body_html: str | None = None  # HTML version for queued sending
     email_message_id: str | None = None  # RFC 822 Message-ID
     in_reply_to: str | None = None  # Parent Message-ID
     status: MessageStatus = MessageStatus.QUEUED

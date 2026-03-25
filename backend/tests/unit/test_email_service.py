@@ -200,7 +200,7 @@ class TestMessageToItem:
 
 
 class TestSendEmail:
-    """T3.1: _send_email with GmailClient integration."""
+    """_send_email now queues messages for the queue worker to deliver."""
 
     @pytest.fixture
     def email_service(self):
@@ -209,95 +209,43 @@ class TestSendEmail:
         return service
 
     @pytest.mark.asyncio
-    async def test_send_email_success(self, email_service):
-        """Successful send via Gmail."""
-        mock_result = MagicMock(success=True, message_id="gmail-123", error=None)
-        mock_gmail = AsyncMock()
-        mock_gmail.send_email = AsyncMock(return_value=mock_result)
-
-        with patch("app.services.email_client.get_gmail_client", return_value=mock_gmail):
-            result = await email_service._send_email(
-                event_id=uuid4(),
-                registration_id=uuid4(),
-                to="test@example.com",
-                subject="Test",
-                text_body="Hello",
-                html_body="<p>Hello</p>",
-                message_type=MessageType.REGISTRATION_CONFIRMATION,
-            )
+    async def test_send_email_queues_message(self, email_service):
+        """_send_email stores message as QUEUED in DynamoDB."""
+        result = await email_service._send_email(
+            event_id=uuid4(),
+            registration_id=uuid4(),
+            to="test@example.com",
+            subject="Test",
+            text_body="Hello",
+            html_body="<p>Hello</p>",
+            message_type=MessageType.REGISTRATION_CONFIRMATION,
+        )
 
         assert result is True
-        mock_gmail.send_email.assert_called_once()
         email_service._messages_table.put_item.assert_called_once()
 
-        # Check stored message has SENT status
         stored_item = email_service._messages_table.put_item.call_args[1]["Item"]
-        assert stored_item["status"] == "sent"
+        assert stored_item["status"] == "queued"
         assert stored_item["recipient_email"] == "test@example.com"
+        assert stored_item["subject"] == "Test"
+        assert stored_item["body"] == "Hello"
+        assert stored_item["body_html"] == "<p>Hello</p>"
 
     @pytest.mark.asyncio
-    async def test_send_email_failure(self, email_service):
-        """Failed send via Gmail stores FAILED status."""
-        mock_result = MagicMock(success=False, message_id=None, error="auth_error")
-        mock_gmail = AsyncMock()
-        mock_gmail.send_email = AsyncMock(return_value=mock_result)
+    async def test_send_email_queue_failure(self):
+        """If DynamoDB write fails, returns False."""
+        service = EmailService()
+        service._messages_table = MagicMock()
+        service._messages_table.put_item.side_effect = Exception("DynamoDB unavailable")
 
-        with patch("app.services.email_client.get_gmail_client", return_value=mock_gmail):
-            result = await email_service._send_email(
-                event_id=uuid4(),
-                registration_id=uuid4(),
-                to="test@example.com",
-                subject="Test",
-                text_body="Hello",
-                html_body="<p>Hello</p>",
-                message_type=MessageType.REGISTRATION_CONFIRMATION,
-            )
+        result = await service._send_email(
+            event_id=uuid4(),
+            registration_id=uuid4(),
+            to="test@example.com",
+            subject="Test",
+            text_body="Hello",
+            html_body="<p>Hello</p>",
+            message_type=MessageType.REGISTRATION_CONFIRMATION,
+        )
 
         assert result is False
-        stored_item = email_service._messages_table.put_item.call_args[1]["Item"]
-        assert stored_item["status"] == "failed"
-        assert stored_item["error_code"] == "auth_error"
-
-    @pytest.mark.asyncio
-    async def test_send_email_gmail_not_configured(self, email_service):
-        """Gmail not configured falls back to log-only."""
-        with patch(
-            "app.services.email_client.get_gmail_client",
-            side_effect=ValueError("Gmail not configured"),
-        ):
-            result = await email_service._send_email(
-                event_id=uuid4(),
-                registration_id=uuid4(),
-                to="test@example.com",
-                subject="Test",
-                text_body="Hello",
-                html_body="<p>Hello</p>",
-                message_type=MessageType.REGISTRATION_CONFIRMATION,
-            )
-
-        # Log-only still returns True (SENT status)
-        assert result is True
-        stored_item = email_service._messages_table.put_item.call_args[1]["Item"]
-        assert stored_item["status"] == "sent"
-
-    @pytest.mark.asyncio
-    async def test_send_email_dynamodb_failure_non_fatal(self, email_service):
-        """DynamoDB storage failure is non-fatal."""
-        mock_result = MagicMock(success=True, message_id="gmail-123", error=None)
-        mock_gmail = AsyncMock()
-        mock_gmail.send_email = AsyncMock(return_value=mock_result)
-        email_service._messages_table.put_item.side_effect = Exception("DynamoDB error")
-
-        with patch("app.services.email_client.get_gmail_client", return_value=mock_gmail):
-            result = await email_service._send_email(
-                event_id=uuid4(),
-                registration_id=uuid4(),
-                to="test@example.com",
-                subject="Test",
-                text_body="Hello",
-                html_body="<p>Hello</p>",
-                message_type=MessageType.REGISTRATION_CONFIRMATION,
-            )
-
-        # Email still sent even though DynamoDB failed
-        assert result is True
