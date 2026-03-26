@@ -93,6 +93,13 @@
                   </button>
                 </div>
               </template>
+              <button
+                v-if="reg.status !== 'CANCELLED'"
+                class="small-button delete-btn"
+                @click="$emit('delete-registration', { registrationId: reg.id, name: reg.name })"
+              >
+                Löschen
+              </button>
             </td>
           </tr>
         </tbody>
@@ -134,7 +141,7 @@ const props = defineProps({
   togglingId: { type: String, default: null },
 })
 
-defineEmits(['toggle-promoted', 'promote-waitlisted'])
+defineEmits(['toggle-promoted', 'promote-waitlisted', 'delete-registration'])
 
 const searchTerm = ref('')
 const statusFilter = ref('')
@@ -148,8 +155,9 @@ const isPromotedEditable = computed(() => {
 })
 
 const showActions = computed(() => {
-  return props.eventStatus === 'CONFIRMED'
-    && props.registrations.some(r => r.status === 'WAITLISTED')
+  return props.registrations.some(r => r.status !== 'CANCELLED')
+    || (props.eventStatus === 'CONFIRMED'
+      && props.registrations.some(r => r.status === 'WAITLISTED'))
 })
 
 const filteredRegistrations = computed(() => {
@@ -177,6 +185,7 @@ function formatDate(dateStr) {
   if (!dateStr) return 'Noch offen'
   const date = new Date(dateStr)
   return date.toLocaleDateString('de-DE', {
+    timeZone: 'Europe/Berlin',
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -254,6 +263,17 @@ function formatStatus(status) {
   padding: 0.25rem 0.5rem;
   margin: 0;
   white-space: nowrap;
+}
+
+.small-button.delete-btn {
+  background: transparent;
+  border: 1px solid #dc2626;
+  color: #dc2626;
+}
+
+.small-button.delete-btn:hover {
+  background: #dc2626;
+  color: white;
 }
 
 .small-button.secondary {

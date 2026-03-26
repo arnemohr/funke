@@ -9,9 +9,9 @@ Provides:
 - Cancel event
 """
 
-import csv
 import io
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Annotated
 from uuid import UUID
 
@@ -452,6 +452,44 @@ async def delete_event(
     log_admin_action("event.delete", user.email, str(event_id))
 
 
+@router.delete(
+    "/{event_id}/registrations/{registration_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_role([AdminRole.OWNER, AdminRole.ADMIN]))],
+)
+async def delete_registration(
+    event_id: UUID,
+    registration_id: UUID,
+    user: CurrentUser,
+) -> None:
+    """Delete a registration permanently."""
+    org_id = _get_org_id(user)
+
+    event_service = get_event_service()
+    event = await event_service.get_event(org_id, event_id)
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found",
+        )
+
+    registration_service = get_registration_service()
+    deleted = await registration_service.delete_registration(event_id, registration_id)
+
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Registration not found",
+        )
+
+    log_admin_action(
+        "registration.delete",
+        user.email,
+        str(event_id),
+        {"registration_id": str(registration_id), "name": deleted.name},
+    )
+
+
 class RegistrationResponse(BaseModel):
     """Registration response for admin view."""
 
@@ -803,11 +841,13 @@ async def admin_update_group_members(
     "/{event_id}/registrations/export",
     dependencies=[Depends(require_role([AdminRole.OWNER, AdminRole.ADMIN]))],
 )
-async def export_registrations_csv(
+async def export_registrations_pdf(
     event_id: UUID,
     user: CurrentUser,
 ) -> StreamingResponse:
-    """Export registrations as CSV with BOM for Excel/German umlaut compatibility."""
+    """Export boarding list as PDF with guest names and signature column."""
+    from fpdf import FPDF
+
     org_id = _get_org_id(user)
 
     event_service = get_event_service()
@@ -821,56 +861,76 @@ async def export_registrations_csv(
     registration_service = get_registration_service()
     registrations = await registration_service.list_registrations(event_id)
 
-    # Build CSV with BOM for Excel compatibility
-    # Guest list format: one row per person (not per registration) for legal/signature purposes
-    output = io.StringIO()
-    output.write("\ufeff")  # UTF-8 BOM
-    writer = csv.writer(output, delimiter=";")
-    writer.writerow([
-        "Gast-Name", "Registriert von", "E-Mail", "Telefon",
-        "Gruppengröße", "Namen eingetragen", "Status",
-        "Wartelistenplatz", "Bevorzugt", "Angemeldet am", "Bestätigt am",
-        "Notizen", "Unterschrift",
-    ])
-
+    # Collect all guest names (one per person, not per registration)
+    guests: list[str] = []
     for reg in registrations:
-        # Derive the full list of people in this registration
+        if reg.status.value != "PARTICIPATING":
+            continue
         if reg.group_members and len(reg.group_members) > 0:
-            members = reg.group_members
-            names_status = f"{len(reg.group_members)}/{reg.group_size}"
+            guests.extend(reg.group_members)
         elif reg.group_size == 1:
-            members = [reg.name]
-            names_status = "1/1"
+            guests.append(reg.name)
         else:
-            # Group without names yet: registrant + placeholders
-            members = [reg.name] + [f"(Name {i+2} ausstehend)" for i in range(reg.group_size - 1)]
-            names_status = f"1/{reg.group_size}"
+            guests.append(reg.name)
+            guests.extend(f"(Gast {i + 2} von {reg.name})" for i in range(reg.group_size - 1))
 
-        # Write one row per person
-        for i, member_name in enumerate(members):
-            writer.writerow([
-                member_name,
-                reg.name if i > 0 else "",  # "Registriert von" only for additional members
-                reg.email if i == 0 else "",  # Contact email only on first row
-                reg.phone or "" if i == 0 else "",
-                reg.group_size if i == 0 else "",
-                names_status if i == 0 else "",
-                reg.status.value if i == 0 else "",
-                reg.waitlist_position or "" if i == 0 else "",
-                ("Ja" if reg.promoted else "Nein") if i == 0 else "",
-                reg.registered_at.isoformat() if reg.registered_at and i == 0 else "",
-                reg.responded_at.isoformat() if reg.responded_at and i == 0 else "",
-                reg.notes or "" if i == 0 else "",
-                "",  # Signature column (empty, to be signed on paper)
-            ])
+    # Build PDF
+    pdf = FPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.add_page()
+
+    # Title
+    pdf.set_font("Helvetica", "B", 18)
+    pdf.cell(0, 10, "Boardingzettel", new_x="LMARGIN", new_y="NEXT", align="C")
+    pdf.set_font("Helvetica", "", 12)
+    pdf.cell(0, 8, event.name, new_x="LMARGIN", new_y="NEXT", align="C")
+    event_date = event.start_at.astimezone(ZoneInfo("Europe/Berlin")).strftime("%d.%m.%Y %H:%M")
+    location = event.location or ""
+    subtitle = f"{event_date}  {location}".strip() if location else event_date
+    pdf.cell(0, 7, subtitle, new_x="LMARGIN", new_y="NEXT", align="C")
+    pdf.cell(0, 4, f"{len(guests)} Passagiere", new_x="LMARGIN", new_y="NEXT", align="C")
+    pdf.ln(6)
+
+    # Table header
+    col_nr = 12
+    col_name = 108
+    col_sig = 50
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_fill_color(230, 230, 230)
+    pdf.cell(col_nr, 8, "#", border=1, fill=True, align="C")
+    pdf.cell(col_name, 8, "Name", border=1, fill=True)
+    pdf.cell(col_sig, 8, "Unterschrift", border=1, fill=True)
+    pdf.ln()
+
+    # Table rows
+    pdf.set_font("Helvetica", "", 10)
+    row_height = 10
+    for i, name in enumerate(guests, 1):
+        # Check if we need a new page
+        if pdf.get_y() + row_height > pdf.h - 20:
+            pdf.add_page()
+            pdf.set_font("Helvetica", "B", 10)
+            pdf.set_fill_color(230, 230, 230)
+            pdf.cell(col_nr, 8, "#", border=1, fill=True, align="C")
+            pdf.cell(col_name, 8, "Name", border=1, fill=True)
+            pdf.cell(col_sig, 8, "Unterschrift", border=1, fill=True)
+            pdf.ln()
+            pdf.set_font("Helvetica", "", 10)
+
+        pdf.cell(col_nr, row_height, str(i), border=1, align="C")
+        pdf.cell(col_name, row_height, name, border=1)
+        pdf.cell(col_sig, row_height, "", border=1)
+        pdf.ln()
 
     log_admin_action("registrations.export", user.email, str(event_id))
 
-    output.seek(0)
-    filename = f"anmeldungen_{event.name.replace(' ', '_')}_{event_id}.csv"
+    pdf_bytes = pdf.output()
+    umlaut_map = str.maketrans({'ä': 'ae', 'ö': 'oe', 'ü': 'ue', 'Ä': 'Ae', 'Ö': 'Oe', 'Ü': 'Ue', 'ß': 'ss'})
+    safe_name = event.name.translate(umlaut_map).replace(' ', '_').encode('ascii', 'replace').decode('ascii')
+    filename = f"boardingzettel_{safe_name}.pdf"
     return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="text/csv; charset=utf-8",
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 

@@ -129,7 +129,28 @@ const prefix = computed(() => props.event ? 'edit' : 'create')
 
 function formatDateTimeLocal(dateStr) {
   if (!dateStr) return ''
-  return new Date(dateStr).toISOString().slice(0, 16)
+  const date = new Date(dateStr)
+  const parts = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Europe/Berlin',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(date)
+  const get = (type) => parts.find(p => p.type === type).value
+  return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`
+}
+
+function berlinToUTCISO(localDateStr) {
+  // Interpret a datetime-local value (e.g. "2026-03-26T12:30") as Europe/Berlin time
+  if (!localDateStr) return null
+  // Parse as if UTC to get a reference point
+  const asUTC = new Date(localDateStr + 'Z')
+  // Find what Berlin's wall-clock time is at this UTC instant
+  const berlinStr = asUTC.toLocaleString('sv-SE', { timeZone: 'Europe/Berlin', hourCycle: 'h23' })
+  const berlinMs = new Date(berlinStr + 'Z').getTime()
+  // The difference is Berlin's UTC offset at this time
+  const offsetMs = berlinMs - asUTC.getTime()
+  // Input represents Berlin wall-clock time, so subtract offset to get UTC
+  return new Date(asUTC.getTime() - offsetMs).toISOString()
 }
 
 function formatReminderSchedule(days) {
@@ -188,9 +209,9 @@ const formData = computed(() => ({
   name: form.name.trim(),
   description: form.description?.trim() || null,
   location: form.location?.trim() || null,
-  start_at: form.startAt ? new Date(form.startAt).toISOString() : null,
+  start_at: berlinToUTCISO(form.startAt),
   capacity: form.capacity,
-  registration_deadline: form.registrationDeadline ? new Date(form.registrationDeadline).toISOString() : null,
+  registration_deadline: berlinToUTCISO(form.registrationDeadline),
   autopromote_waitlist: form.autopromoteWaitlist,
   reminder_schedule_days: parseReminderSchedule(form.reminderSchedule),
 }))

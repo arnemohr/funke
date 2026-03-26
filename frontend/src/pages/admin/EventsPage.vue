@@ -178,6 +178,7 @@
       @toggle-promoted="handleTogglePromoted"
       @promote-waitlisted="handlePromoteWaitlisted"
       @discard-unacknowledged="handleDiscardUnacknowledged"
+      @delete-registration="handleDeleteRegistration"
     />
 
     <!-- Cancel Event Confirmation Modal -->
@@ -355,8 +356,18 @@ const filteredEvents = computed(() => {
 function formatDate(dateStr) {
   if (!dateStr) return 'Noch offen'
   return new Date(dateStr).toLocaleDateString('de-DE', {
+    timeZone: 'Europe/Berlin',
     year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
   })
+}
+
+function berlinToUTCISO(localDateStr) {
+  if (!localDateStr) return null
+  const asUTC = new Date(localDateStr + 'Z')
+  const berlinStr = asUTC.toLocaleString('sv-SE', { timeZone: 'Europe/Berlin', hourCycle: 'h23' })
+  const berlinMs = new Date(berlinStr + 'Z').getTime()
+  const offsetMs = berlinMs - asUTC.getTime()
+  return new Date(asUTC.getTime() - offsetMs).toISOString()
 }
 
 function logout() {
@@ -443,7 +454,7 @@ async function handleClone() {
   cloning.value = true
   cloneError.value = null
   try {
-    events.value.unshift(await adminApi.cloneEvent(cloneEvent.value.id, new Date(cloneStartAt.value).toISOString()))
+    events.value.unshift(await adminApi.cloneEvent(cloneEvent.value.id, berlinToUTCISO(cloneStartAt.value)))
     cloneEvent.value = null
   } catch (err) {
     cloneError.value = err.message || 'Duplizieren fehlgeschlagen'
@@ -541,9 +552,9 @@ async function handleDelete() {
 
 async function handleExportCsv(event) {
   try {
-    await adminApi.exportRegistrationsCsv(event.id)
+    await adminApi.exportBoardingPdf(event.id)
   } catch (err) {
-    alert(err.message || 'CSV Export fehlgeschlagen')
+    alert(err.message || 'Boardingzettel konnte nicht erstellt werden')
   }
 }
 
@@ -623,6 +634,23 @@ async function handleDiscardUnacknowledged(event) {
     alert(err.message || 'Verwerfen fehlgeschlagen')
   } finally {
     discarding.value = false
+  }
+}
+
+async function handleDeleteRegistration({ registrationId, name }) {
+  if (!selectedEvent.value) return
+  if (!confirm(`Anmeldung von "${name}" unwiderruflich löschen?`)) return
+
+  try {
+    await adminApi.deleteRegistration(selectedEvent.value.id, registrationId)
+    const [regs, evt] = await Promise.all([
+      adminApi.listRegistrations(selectedEvent.value.id),
+      adminApi.getEvent(selectedEvent.value.id),
+    ])
+    registrations.value = regs.items
+    updateEventInList(evt)
+  } catch (err) {
+    alert(err.message || 'Löschen fehlgeschlagen')
   }
 }
 

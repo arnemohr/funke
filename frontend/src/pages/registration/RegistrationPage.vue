@@ -185,6 +185,7 @@ function formatDate(dateStr) {
   if (!dateStr) return 'Wird noch bekannt gegeben'
   const date = new Date(dateStr)
   return date.toLocaleDateString('de-DE', {
+    timeZone: 'Europe/Berlin',
     weekday: 'long',
     year: 'numeric',
     month: 'long',

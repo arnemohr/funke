@@ -47,24 +47,50 @@
         :toggling-id="togglingId"
         @toggle-promoted="$emit('toggle-promoted', $event)"
         @promote-waitlisted="$emit('promote-waitlisted', $event)"
+        @delete-registration="$emit('delete-registration', $event)"
       />
 
       <footer>
-        <div class="modal-actions">
+        <!-- Tier 1: Primary workflow action -->
+        <div class="tier-primary" v-if="!['COMPLETED', 'CANCELLED'].includes(event?.status)">
+          <button
+            v-if="event?.status === 'DRAFT'"
+            @click="$emit('publish', event)"
+            :disabled="publishing"
+          >
+            {{ publishing ? 'Wird veröffentlicht...' : 'Veröffentlichen' }}
+          </button>
+          <button
+            v-if="event?.status === 'OPEN'"
+            @click="$emit('close-registration', event)"
+            :disabled="closingRegistration"
+          >
+            {{ closingRegistration ? 'Wird geschlossen...' : 'Anmeldung schließen' }}
+          </button>
+          <button
+            v-if="['REGISTRATION_CLOSED', 'LOTTERY_PENDING'].includes(event?.status)"
+            @click="$emit('go-to-lottery', event)"
+          >
+            Verlosung
+          </button>
+          <button
+            v-if="event?.status === 'CONFIRMED'"
+            @click="$emit('complete-event', event)"
+            :disabled="completing"
+            :aria-busy="completing"
+          >
+            {{ completing ? 'Wird abgeschlossen...' : 'Abschließen' }}
+          </button>
+        </div>
+
+        <!-- Tier 2: Common utility actions -->
+        <div class="tier-utility">
           <button
             v-if="['DRAFT', 'OPEN'].includes(event?.status)"
             @click="$emit('edit', event)"
             class="outline"
           >
             Bearbeiten
-          </button>
-          <button
-            v-if="event?.status === 'DRAFT'"
-            @click="$emit('publish', event)"
-            class="secondary"
-            :disabled="publishing"
-          >
-            {{ publishing ? 'Wird veröffentlicht...' : 'Veröffentlichen' }}
           </button>
           <button
             v-if="event?.registration_link_token && !['DRAFT', 'COMPLETED', 'CANCELLED'].includes(event?.status)"
@@ -74,25 +100,10 @@
             {{ event?.status === 'OPEN' ? 'Link kopieren' : 'Link kopieren (Warteliste)' }}
           </button>
           <button
-            v-if="event?.status === 'OPEN'"
-            @click="$emit('close-registration', event)"
-            class="secondary"
-            :disabled="closingRegistration"
-          >
-            {{ closingRegistration ? 'Wird geschlossen...' : 'Anmeldung schließen' }}
-          </button>
-          <button
             @click="$emit('clone', event)"
             class="outline secondary"
           >
             Duplizieren
-          </button>
-          <button
-            v-if="['REGISTRATION_CLOSED', 'LOTTERY_PENDING'].includes(event?.status)"
-            @click="$emit('go-to-lottery', event)"
-            class="outline"
-          >
-            Verlosung
           </button>
           <button
             v-if="event?.status === 'CONFIRMED'"
@@ -102,27 +113,11 @@
             Verlosung ansehen
           </button>
           <button
-            v-if="event?.status === 'CONFIRMED'"
-            @click="$emit('discard-unacknowledged', event)"
-            class="outline cancel-btn"
-          >
-            Unbestätigte verwerfen
-          </button>
-          <button
-            v-if="event?.status === 'CONFIRMED'"
-            @click="$emit('complete-event', event)"
-            class="outline"
-            :disabled="completing"
-            :aria-busy="completing"
-          >
-            {{ completing ? 'Wird abgeschlossen...' : 'Abschließen' }}
-          </button>
-          <button
             @click="$emit('export-csv', event)"
             class="outline"
             :disabled="registrations.length === 0"
           >
-            CSV Export
+            Boardingzettel
           </button>
           <button
             @click="$emit('send-message', event)"
@@ -137,22 +132,40 @@
           >
             Nachrichten
           </button>
-          <button
-            v-if="!['COMPLETED', 'CANCELLED'].includes(event?.status)"
-            @click="$emit('cancel-event', event)"
-            class="outline cancel-btn"
-          >
-            Absagen
-          </button>
-          <button
-            v-if="event?.status === 'CANCELLED'"
-            @click="$emit('delete', event)"
-            class="outline delete-btn"
-          >
-            Löschen
-          </button>
         </div>
-        <button @click="$emit('close')">Schließen</button>
+
+        <!-- Tier 3: Destructive/rare actions -->
+        <details
+          v-if="event?.status !== 'COMPLETED'"
+          class="tier-destructive"
+        >
+          <summary>Weitere Aktionen</summary>
+          <div class="tier-destructive-actions">
+            <button
+              v-if="event?.status === 'CONFIRMED'"
+              @click="$emit('discard-unacknowledged', event)"
+              class="outline cancel-btn"
+            >
+              Unbestätigte verwerfen
+            </button>
+            <button
+              v-if="!['COMPLETED', 'CANCELLED'].includes(event?.status)"
+              @click="$emit('cancel-event', event)"
+              class="outline cancel-btn"
+            >
+              Absagen
+            </button>
+            <button
+              v-if="event?.status === 'CANCELLED'"
+              @click="$emit('delete', event)"
+              class="outline delete-btn"
+            >
+              Löschen
+            </button>
+          </div>
+        </details>
+
+        <button @click="$emit('close')" class="close-btn">Schließen</button>
       </footer>
     </article>
   </dialog>
@@ -176,13 +189,14 @@ defineEmits([
   'close', 'edit', 'publish', 'clone', 'cancel-event', 'delete',
   'close-registration', 'copy-link', 'go-to-lottery', 'complete-event',
   'export-csv', 'send-message', 'show-messages',
-  'toggle-promoted', 'promote-waitlisted', 'discard-unacknowledged',
+  'toggle-promoted', 'promote-waitlisted', 'discard-unacknowledged', 'delete-registration',
 ])
 
 function formatDate(dateStr) {
   if (!dateStr) return 'Noch offen'
   const date = new Date(dateStr)
   return date.toLocaleDateString('de-DE', {
+    timeZone: 'Europe/Berlin',
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -198,14 +212,56 @@ function formatReminderSchedule(days) {
 </script>
 
 <style scoped>
-.modal-actions {
+footer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.tier-primary {
+  display: flex;
+}
+
+.tier-primary button {
+  margin: 0;
+  width: 100%;
+}
+
+.tier-utility {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
 }
 
-.modal-actions button {
+.tier-utility button {
   margin: 0;
+}
+
+.tier-destructive {
+  margin-bottom: 0;
+}
+
+.tier-destructive summary {
+  cursor: pointer;
+  color: #64748b;
+  font-size: 0.875rem;
+}
+
+.tier-destructive-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.tier-destructive-actions button {
+  margin: 0;
+}
+
+.close-btn {
+  margin: 0;
+  align-self: flex-end;
 }
 
 .cancel-btn {
@@ -253,14 +309,5 @@ function formatReminderSchedule(days) {
   font-weight: 600;
   color: #64748b;
   min-width: 120px;
-}
-
-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
-  margin-top: 1rem;
-  flex-wrap: wrap;
 }
 </style>

@@ -355,6 +355,47 @@ class RegistrationService:
             )
             return None
 
+    async def delete_registration(
+        self,
+        event_id: UUID,
+        registration_id: UUID,
+    ) -> Registration | None:
+        """Delete a registration permanently.
+
+        Args:
+            event_id: Event ID.
+            registration_id: Registration ID.
+
+        Returns:
+            The deleted Registration if found, None otherwise.
+        """
+        registration = await self.get_registration(event_id, registration_id)
+        if not registration:
+            return None
+
+        try:
+            self.registrations_table.delete_item(
+                Key={
+                    "pk": f"EVENT#{event_id}",
+                    "sk": f"REG#{registration_id}",
+                },
+            )
+            logger.info(
+                "Registration deleted",
+                extra={
+                    "event_id": str(event_id),
+                    "registration_id": str(registration_id),
+                    "name": registration.name,
+                },
+            )
+            return registration
+        except ClientError as e:
+            logger.error(
+                "Failed to delete registration",
+                extra={"error": str(e), "registration_id": str(registration_id)},
+            )
+            return None
+
     async def get_registration_by_token(self, token: str) -> Registration | None:
         """Get a registration by its cancellation/confirmation token.
 

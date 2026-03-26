@@ -9,6 +9,7 @@ Provides:
 """
 
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
@@ -45,6 +46,8 @@ class EmailContext(BaseModel):
 
 def _format_date(dt: datetime) -> str:
     """Format datetime for display in emails (German locale)."""
+    berlin_tz = ZoneInfo("Europe/Berlin")
+    dt = dt.astimezone(berlin_tz)
     weekdays = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
     months = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"]
     weekday = weekdays[dt.weekday()]

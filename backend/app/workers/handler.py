@@ -47,6 +47,9 @@ async def send_confirmation_reminders() -> dict:
     total_sent = 0
     total_failed = 0
     events_processed = 0
+    logger.info(
+        "Processing confirmation reminders"
+    )
 
     for event in events:
         # Calculate days until event

@@ -15,6 +15,14 @@
         <!-- Recipient selection -->
         <fieldset>
           <legend>Empfänger</legend>
+          <select v-model="statusFilter" :disabled="sending" class="status-filter">
+            <option value="">Alle Status</option>
+            <option value="REGISTERED">Angemeldet</option>
+            <option value="CONFIRMED">Bestätigung ausstehend</option>
+            <option value="PARTICIPATING">Nimmt teil</option>
+            <option value="WAITLISTED">Warteliste</option>
+            <option value="CHECKED_IN">Eingecheckt</option>
+          </select>
           <label class="select-all-label">
             <input
               type="checkbox"
@@ -22,10 +30,10 @@
               @change="toggleAll"
               :disabled="sending"
             />
-            Alle auswählen ({{ activeRegistrations.length }})
+            Alle auswählen ({{ filteredRegistrations.length }})
           </label>
           <div class="recipient-list">
-            <label v-for="reg in activeRegistrations" :key="reg.id" class="recipient-item">
+            <label v-for="reg in filteredRegistrations" :key="reg.id" class="recipient-item">
               <input
                 type="checkbox"
                 :value="reg.id"
@@ -105,7 +113,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { adminApi } from '../services/api'
 
 const props = defineProps({
@@ -123,22 +131,37 @@ const includeLinks = ref(false)
 const sending = ref(false)
 const error = ref(null)
 const result = ref(null)
+const statusFilter = ref('')
 
 const activeRegistrations = computed(() =>
   props.registrations.filter(r => r.status !== 'CANCELLED'),
 )
 
-const allSelected = computed(() =>
-  activeRegistrations.value.length > 0 && selectedIds.value.length === activeRegistrations.value.length,
-)
+const filteredRegistrations = computed(() => {
+  if (!statusFilter.value) return activeRegistrations.value
+  return activeRegistrations.value.filter(r => r.status === statusFilter.value)
+})
+
+const allSelected = computed(() => {
+  const visible = filteredRegistrations.value
+  return visible.length > 0 && visible.every(r => selectedIds.value.includes(r.id))
+})
 
 function toggleAll(e) {
+  const visibleIds = filteredRegistrations.value.map(r => r.id)
   if (e.target.checked) {
-    selectedIds.value = activeRegistrations.value.map(r => r.id)
+    const existing = selectedIds.value.filter(id => !visibleIds.includes(id))
+    selectedIds.value = [...existing, ...visibleIds]
   } else {
-    selectedIds.value = []
+    selectedIds.value = selectedIds.value.filter(id => !visibleIds.includes(id))
   }
 }
+
+watch(() => props.open, (isOpen) => {
+  if (isOpen) {
+    statusFilter.value = ''
+  }
+})
 
 async function handleSend() {
   if (!props.eventId || selectedIds.value.length === 0) return
@@ -183,6 +206,12 @@ fieldset {
 legend {
   font-weight: 600;
   padding: 0 0.5rem;
+}
+
+.status-filter {
+  margin-bottom: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.875rem;
 }
 
 .select-all-label {

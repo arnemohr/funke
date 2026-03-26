@@ -347,11 +347,11 @@ export const adminApi = {
   },
 
   /**
-   * Export registrations as CSV.
+   * Export boarding list as PDF.
    * @param {string} eventId - Event ID
    * @returns {Promise<void>} Triggers file download
    */
-  async exportRegistrationsCsv(eventId) {
+  async exportBoardingPdf(eventId) {
     const token = await getAccessToken()
     const url = `${API_BASE_URL}/api/admin/events/${eventId}/registrations/export`
     const response = await fetch(url, {
@@ -366,10 +366,9 @@ export const adminApi = {
     const downloadUrl = window.URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = downloadUrl
-    // Extract filename from Content-Disposition header or use default
     const disposition = response.headers.get('Content-Disposition')
     const match = disposition && disposition.match(/filename="?([^"]+)"?/)
-    a.download = match ? match[1] : `registrations_${eventId}.csv`
+    a.download = match ? match[1] : `boardingzettel_${eventId}.pdf`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -449,6 +448,12 @@ export const adminApi = {
   /**
    * Admin: update group member names.
    */
+  async deleteRegistration(eventId, registrationId) {
+    return request(`/api/admin/events/${eventId}/registrations/${registrationId}`, {
+      method: 'DELETE',
+    }, true)
+  },
+
   async updateGroupMembers(eventId, registrationId, groupMembers) {
     return request(`/api/admin/events/${eventId}/registrations/${registrationId}/group-members`, {
       method: 'PUT',
