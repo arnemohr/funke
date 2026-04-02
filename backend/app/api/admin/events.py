@@ -506,6 +506,7 @@ class RegistrationResponse(BaseModel):
     registration_token: str
     registered_at: datetime
     responded_at: datetime | None
+    page_viewed_at: datetime | None = None
     promoted_from_waitlist: bool
     promoted: bool
 
@@ -533,6 +534,7 @@ def _registration_to_response(registration: Registration) -> RegistrationRespons
         registration_token=registration.registration_token,
         registered_at=registration.registered_at,
         responded_at=registration.responded_at,
+        page_viewed_at=registration.page_viewed_at,
         promoted_from_waitlist=registration.promoted_from_waitlist,
         promoted=registration.promoted,
     )
@@ -606,6 +608,14 @@ async def list_unacknowledged(
     )
 
 
+class DiscardRequest(BaseModel):
+    """Request body for discarding unacknowledged registrations."""
+
+    registration_ids: list[UUID] | None = None
+    reason: str | None = None
+    subject: str | None = None
+
+
 class DiscardResponse(BaseModel):
     """Response for discard unacknowledged endpoint."""
 
@@ -621,10 +631,11 @@ class DiscardResponse(BaseModel):
 async def discard_unacknowledged(
     event_id: UUID,
     user: CurrentUser,
+    body: DiscardRequest = DiscardRequest(),
 ) -> DiscardResponse:
-    """Discard all unacknowledged (CONFIRMED) registrations.
+    """Discard unacknowledged (CONFIRMED) registrations.
 
-    Cancels registrations and sends notification emails.
+    Cancels selected (or all) registrations and sends notification emails.
     """
     org_id = _get_org_id(user)
 
@@ -637,7 +648,9 @@ async def discard_unacknowledged(
         )
 
     registration_service = get_registration_service()
-    discarded_count, discarded_spots = await registration_service.discard_unacknowledged(event_id)
+    discarded_count, discarded_spots = await registration_service.discard_unacknowledged(
+        event_id, body.registration_ids, body.reason, body.subject,
+    )
 
     log_admin_action(
         "registrations.discard_unacknowledged",

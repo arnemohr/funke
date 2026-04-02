@@ -1,7 +1,7 @@
 <template>
   <dialog :open="open">
-    <article>
-      <header>
+    <article style="position: relative;">
+      <header class="modal-header">
         <a
           href="#"
           aria-label="Schließen"
@@ -9,7 +9,15 @@
           @click.prevent="$emit('close')"
         />
         <h3>Nachricht senden</h3>
+        <HelpButton @click="help.toggle('message-composer')" />
       </header>
+
+      <HelpPanel
+        :help-key="help.helpKey.value"
+        :open="help.isOpen.value"
+        ref="helpPanelRef"
+        @close="help.close()"
+      />
 
       <form @submit.prevent="handleSend">
         <!-- Recipient selection -->
@@ -115,6 +123,13 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { adminApi } from '../services/api'
+import HelpButton from './help/HelpButton.vue'
+import HelpPanel from './help/HelpPanel.vue'
+import { useHelp } from './help/useHelp.js'
+
+const help = useHelp()
+const helpPanelRef = ref(null)
+watch(helpPanelRef, (el) => { help.panelRef.value = el?.$el || el })
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -196,6 +211,17 @@ async function handleSend() {
 </script>
 
 <style scoped>
+.modal-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.modal-header h3 {
+  flex: 1;
+  margin: 0;
+}
+
 fieldset {
   border: 1px solid #e2e8f0;
   border-radius: var(--pico-border-radius);

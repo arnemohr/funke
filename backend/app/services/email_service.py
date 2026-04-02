@@ -42,6 +42,7 @@ class EmailContext(BaseModel):
     confirmation_yes_url: str | None = None  # Deprecated: kept for backward compat
     confirmation_no_url: str | None = None  # Deprecated: kept for backward compat
     management_url: str | None = None
+    custom_message: str | None = None
 
 
 def _format_date(dt: datetime) -> str:
@@ -203,42 +204,42 @@ Deine Crew von der Schaluppe
     def registration_cancelled(ctx: EmailContext) -> tuple[str, str, str]:
         """Generate cancellation confirmation email.
 
+        Uses custom_message from admin if provided, otherwise falls back to default text.
+        The template wraps the message body with greeting and signature.
+
         Returns: (subject, text_body, html_body)
         """
-        subject = f"Anmeldung storniert: {ctx.event_name}"
+        subject = f"Dein Platz an Bord: {ctx.event_name}"
+
+        default_message = (
+            "Leider haben wir innerhalb der Frist keine Rückmeldung von dir erhalten, "
+            "ob du wirklich mit an Bord kommst. Daher mussten wir deinen Platz an einen "
+            "anderen Fisch aus unserem Schwarm weitergeben.\n\n"
+            "Falls du beim nächsten Mal wieder anheuern möchtest, freuen wir uns sehr auf dich!"
+        )
+        message_body = ctx.custom_message if ctx.custom_message else default_message
 
         text_body = f"""Moin {ctx.attendee_name},
 
-Deine Anmeldung für "{ctx.event_name}" wurde storniert.
+{message_body}
 
-Details:
-- Datum: {ctx.event_date}
-- Ort: {ctx.event_location or 'Wird noch bekannt gegeben'}
-
-Falls du es dir anders überlegst, kannst du dich gerne erneut anmelden.
-
-Bis bald,
+Herzliche Grüße,
 Deine Crew von der Schaluppe
 """
+
+        # Convert newlines in message body to <br> for HTML
+        html_message = message_body.replace("\n", "<br>")
 
         html_body = f"""
 <!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
 <body style="font-family: sans-serif; line-height: 1.6; color: #333;">
-    <h2>Anmeldung storniert</h2>
+    <h2 style="color: #555;">Info zu deiner Anmeldung</h2>
     <p>Moin {ctx.attendee_name},</p>
-    <p>Deine Anmeldung für <strong>"{ctx.event_name}"</strong> wurde storniert.</p>
+    <p>{html_message}</p>
 
-    <h3>Details</h3>
-    <ul>
-        <li><strong>Datum:</strong> {ctx.event_date}</li>
-        <li><strong>Ort:</strong> {ctx.event_location or 'Wird noch bekannt gegeben'}</li>
-    </ul>
-
-    <p>Falls du es dir anders überlegst, kannst du dich gerne erneut anmelden.</p>
-
-    <p>Bis bald,<br>Deine Crew von der Schaluppe</p>
+    <p>Herzliche Grüße,<br>Deine Crew von der Schaluppe</p>
 </body>
 </html>
 """
@@ -250,27 +251,26 @@ Deine Crew von der Schaluppe
 
         Returns: (subject, text_body, html_body)
         """
-        subject = f"Bitte bestätigen: Platz frei für {ctx.event_name}!"
+        subject = f"Platz frei! {ctx.event_name}"
         persons = "Person" if ctx.group_size == 1 else "Personen"
 
         text_body = f"""Moin {ctx.attendee_name},
 
-gute Nachrichten! Ein Platz ist frei geworden und du bist von der Warteliste nachgerückt für "{ctx.event_name}".
+ein Fisch ist abgesprungen und du rückst nach! Du hast jetzt einen Platz an Bord der Schaluppe für "{ctx.event_name}".
 
-Bitte bestätige deine Teilnahme über folgenden Link:
-
-{ctx.management_url}
-
-Details:
 - Datum: {ctx.event_date}
 - Ort: {ctx.event_location or 'Wird noch bekannt gegeben'}
 - Personen: {ctx.group_size} {persons}
 
-Falls du nicht antwortest, wird dein Platz an die nächste Person auf der Warteliste vergeben.
+Bitte bestätige innerhalb von 24 Stunden, ob du wirklich dabei bist:
 
-Bei Fragen, einfach melden!
+{ctx.management_url}
 
-Bis bald,
+Falls dir doch etwas dazwischen kommt, sag bitte umgehend Bescheid, damit sich ein anderer Fisch unserem Schwarm anschließen kann. Nichterscheinen schafft unseren ehrenamtlichen Vereinsprojekten außerdem finanzielle Probleme.
+
+Wir freuen uns auf dich!
+
+Liebste Grüße,
 Deine Crew von der Schaluppe
 """
 
@@ -279,27 +279,28 @@ Deine Crew von der Schaluppe
 <html>
 <head><meta charset="utf-8"></head>
 <body style="font-family: sans-serif; line-height: 1.6; color: #333;">
-    <h2>Platz frei geworden!</h2>
+    <h2 style="color: #16a34a;">Platz frei!</h2>
     <p>Moin {ctx.attendee_name},</p>
-    <p>Gute Nachrichten! Ein Platz ist frei geworden und du bist von der Warteliste nachgerückt für <strong>"{ctx.event_name}"</strong>.</p>
+    <p>Ein Fisch ist abgesprungen und du rückst nach! Du hast jetzt einen Platz an Bord der Schaluppe für <strong>"{ctx.event_name}"</strong>.</p>
 
-    <p><strong>Bitte bestätige deine Teilnahme:</strong></p>
-
-    <p style="margin: 20px 0;">
-        <a href="{ctx.management_url}" style="display: inline-block; padding: 12px 24px; background: #16a34a; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">Anmeldung verwalten</a>
-    </p>
-
-    <h3>Details</h3>
     <ul>
         <li><strong>Datum:</strong> {ctx.event_date}</li>
         <li><strong>Ort:</strong> {ctx.event_location or 'Wird noch bekannt gegeben'}</li>
         <li><strong>Personen:</strong> {ctx.group_size} {persons}</li>
     </ul>
 
-    <p style="color: #666; font-size: 0.9em;">Falls du nicht antwortest, wird dein Platz an die nächste Person auf der Warteliste vergeben.</p>
+    <p><strong>Bitte bestätige innerhalb von 24 Stunden, ob du wirklich dabei bist:</strong></p>
 
-    <p>Bei Fragen, einfach melden!</p>
-    <p>Bis bald,<br>Deine Crew von der Schaluppe</p>
+    <p style="margin: 20px 0;">
+        <a href="{ctx.management_url}" style="display: inline-block; padding: 12px 24px; background: #2563eb; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">Anmeldung verwalten</a>
+    </p>
+
+    <p style="color: #666; font-size: 0.9em;">
+        Falls dir doch etwas dazwischen kommt, sag bitte umgehend Bescheid, damit sich ein anderer Fisch unserem Schwarm anschließen kann. Nichterscheinen schafft unseren ehrenamtlichen Vereinsprojekten außerdem finanzielle Probleme.
+    </p>
+
+    <p>Wir freuen uns auf dich!</p>
+    <p>Liebste Grüße,<br>Deine Crew von der Schaluppe</p>
 </body>
 </html>
 """
@@ -308,24 +309,26 @@ Deine Crew von der Schaluppe
     @staticmethod
     def lottery_winner(ctx: EmailContext) -> tuple[str, str, str]:
         """Generate lottery winner notification email."""
-        subject = f"Bitte bestätigen: Du bist dabei bei {ctx.event_name}!"
+        subject = f"Platz reserviert — bitte bestätigen: {ctx.event_name}"
         persons = "Person" if ctx.group_size == 1 else "Personen"
 
         text_body = f"""Moin {ctx.attendee_name},
 
-Glückwunsch! Du wurdest für "{ctx.event_name}" ausgelost!
+gute Nachrichten: Du wurdest für "{ctx.event_name}" ausgelost und dein Platz ist reserviert!
 
-Details:
 - Datum: {ctx.event_date}
 - Ort: {ctx.event_location or 'Wird noch bekannt gegeben'}
 - Personen: {ctx.group_size} {persons}
 
-Bitte bestätige deine Teilnahme über folgenden Link:
+Damit der Platz nicht verfällt, bestätige bitte innerhalb von 24 Stunden:
+
 {ctx.management_url}
+
+Falls dir doch etwas dazwischen kommt, sag bitte umgehend Bescheid, damit sich ein anderer Fisch unserem Schwarm anschließen kann. Nichterscheinen schafft unseren ehrenamtlichen Vereinsprojekten außerdem finanzielle Probleme.
 
 Wir freuen uns auf dich!
 
-Bis bald,
+Liebste Grüße,
 Deine Crew von der Schaluppe
 """
 
@@ -334,23 +337,30 @@ Deine Crew von der Schaluppe
 <html>
 <head><meta charset="utf-8"></head>
 <body style="font-family: sans-serif; line-height: 1.6; color: #333;">
-    <h2>Du bist dabei!</h2>
+    <h2 style="color: #b45309;">🎉 Platz reserviert — bitte bestätigen</h2>
     <p>Moin {ctx.attendee_name},</p>
-    <p>Glückwunsch! Du wurdest für <strong>"{ctx.event_name}"</strong> ausgelost!</p>
+    <p>Gute Nachrichten: Du wurdest für <strong>"{ctx.event_name}"</strong> ausgelost und dein Platz ist reserviert!</p>
 
-    <h3>Details</h3>
     <ul>
         <li><strong>Datum:</strong> {ctx.event_date}</li>
         <li><strong>Ort:</strong> {ctx.event_location or 'Wird noch bekannt gegeben'}</li>
         <li><strong>Personen:</strong> {ctx.group_size} {persons}</li>
     </ul>
 
-    <p style="margin-top: 20px;">
-        <a href="{ctx.management_url}" style="display: inline-block; padding: 12px 24px; background: #16a34a; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">Teilnahme bestätigen</a>
+    <p style="background: #fffbeb; border: 1px solid #f59e0b; border-radius: 6px; padding: 12px; color: #92400e;">
+        <strong>Damit der Platz nicht verfällt, bestätige bitte innerhalb von 24 Stunden:</strong>
+    </p>
+
+    <p style="margin: 20px 0;">
+        <a href="{ctx.management_url}" style="display: inline-block; padding: 12px 24px; background: #16a34a; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">Jetzt bestätigen</a>
+    </p>
+
+    <p style="color: #666; font-size: 0.9em;">
+        Falls dir doch etwas dazwischen kommt, sag bitte umgehend Bescheid, damit sich ein anderer Fisch unserem Schwarm anschließen kann. Nichterscheinen schafft unseren ehrenamtlichen Vereinsprojekten außerdem finanzielle Probleme.
     </p>
 
     <p>Wir freuen uns auf dich!</p>
-    <p>Bis bald,<br>Deine Crew von der Schaluppe</p>
+    <p>Liebste Grüße,<br>Deine Crew von der Schaluppe</p>
 </body>
 </html>
 """
@@ -529,18 +539,17 @@ Deine Crew von der Schaluppe
 
 "{ctx.event_name}" steht {urgency} an!
 
-Details:
 - Datum: {ctx.event_date}
 - Ort: {ctx.event_location or 'Wird noch bekannt gegeben'}
 - Personen: {ctx.group_size}
 
-Bitte bestätige deine Teilnahme über folgenden Link:
+Bitte bestätige innerhalb von 24 Stunden, ob du wirklich dabei bist:
 
 {ctx.management_url}
 
-Falls du nicht teilnehmen kannst, sag bitte so früh wie möglich Bescheid, damit wir deinen Platz an jemanden von der Warteliste vergeben können.
+Falls dir doch etwas dazwischen kommt, sag bitte umgehend Bescheid, damit sich ein anderer Fisch unserem Schwarm anschließen kann. Nichterscheinen schafft unseren ehrenamtlichen Vereinsprojekten außerdem finanzielle Probleme.
 
-Bis bald!
+Liebste Grüße,
 Deine Crew von der Schaluppe
 """
 
@@ -553,22 +562,23 @@ Deine Crew von der Schaluppe
     <p>Moin {ctx.attendee_name},</p>
     <p><strong>"{ctx.event_name}"</strong> steht {urgency} an!</p>
 
-    <h3>Details</h3>
     <ul>
         <li><strong>Datum:</strong> {ctx.event_date}</li>
         <li><strong>Ort:</strong> {ctx.event_location or 'Wird noch bekannt gegeben'}</li>
         <li><strong>Personen:</strong> {ctx.group_size}</li>
     </ul>
 
+    <p><strong>Bitte bestätige innerhalb von 24 Stunden, ob du wirklich dabei bist:</strong></p>
+
     <div style="margin: 20px 0;">
-        <a href="{ctx.management_url}" style="display: inline-block; padding: 12px 24px; background: #16a34a; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">Anmeldung verwalten</a>
+        <a href="{ctx.management_url}" style="display: inline-block; padding: 12px 24px; background: #2563eb; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">Anmeldung verwalten</a>
     </div>
 
     <p style="color: #666; font-size: 0.9em;">
-        Falls du nicht teilnehmen kannst, sag bitte so früh wie möglich Bescheid, damit wir deinen Platz an jemanden von der Warteliste vergeben können.
+        Falls dir doch etwas dazwischen kommt, sag bitte umgehend Bescheid, damit sich ein anderer Fisch unserem Schwarm anschließen kann. Nichterscheinen schafft unseren ehrenamtlichen Vereinsprojekten außerdem finanzielle Probleme.
     </p>
 
-    <p>Bis bald!<br>Deine Crew von der Schaluppe</p>
+    <p>Liebste Grüße,<br>Deine Crew von der Schaluppe</p>
 </body>
 </html>
 """
@@ -821,12 +831,16 @@ class EmailService:
         self,
         event: Event,
         registration: Registration,
+        reason: str | None = None,
+        subject_override: str | None = None,
     ) -> bool:
         """Send cancellation confirmation email.
 
         Args:
             event: The event.
             registration: The cancelled registration.
+            reason: Optional custom message from admin.
+            subject_override: Optional custom email subject line.
 
         Returns:
             True if email was sent successfully.
@@ -839,9 +853,13 @@ class EmailService:
             attendee_email=registration.email,
             group_size=registration.group_size,
             registration_status=registration.status.value,
+            custom_message=reason,
         )
 
         subject, text_body, html_body = EmailTemplates.registration_cancelled(ctx)
+
+        if subject_override:
+            subject = subject_override
 
         return await self._send_email(
             event_id=event.id,

@@ -63,8 +63,14 @@ class TestEmailTemplates:
 
     def test_registration_cancelled(self, ctx):
         subject, text, html = EmailTemplates.registration_cancelled(ctx)
-        assert "storniert" in subject.lower()
+        assert "info" in subject.lower()
         assert "Max Müller" in text
+
+    def test_registration_cancelled_with_custom_message(self, ctx):
+        ctx_with_msg = ctx.model_copy(update={"custom_message": "Leider kein Platz mehr."})
+        subject, text, html = EmailTemplates.registration_cancelled(ctx_with_msg)
+        assert "Leider kein Platz mehr." in text
+        assert "Leider kein Platz mehr." in html
 
     def test_promoted_from_waitlist(self, ctx):
         subject, text, html = EmailTemplates.promoted_from_waitlist(ctx)

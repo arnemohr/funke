@@ -38,17 +38,25 @@
           <tr>
             <th>Name</th>
             <th>E-Mail</th>
+            <th>Telefon</th>
             <th>Personen</th>
             <th>Status</th>
             <th v-if="showPromotedColumn">Bevorzugt</th>
             <th>Angemeldet am</th>
-            <th v-if="showActions">Aktionen</th>
+            <th v-if="showActions"></th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="reg in filteredRegistrations" :key="reg.id">
             <td>{{ reg.name }}</td>
             <td><a :href="`mailto:${reg.email}`">{{ reg.email }}</a></td>
+            <td>
+              <a
+                v-if="reg.phone"
+                :href="smsLink(reg)"
+              >{{ reg.phone }}</a>
+              <span v-else>&ndash;</span>
+            </td>
             <td>{{ reg.group_size }}</td>
             <td>
               <span :class="['status-badge', `status-${reg.status.toLowerCase()}`]">
@@ -56,6 +64,13 @@
                 <template v-if="reg.status === 'WAITLISTED' && reg.waitlist_position">
                   (#{{ reg.waitlist_position }})
                 </template>
+              </span>
+              <span
+                v-if="reg.status === 'CONFIRMED' && reg.page_viewed_at"
+                class="viewed-badge"
+                :title="`Seite zuletzt geöffnet: ${formatDate(reg.page_viewed_at)}`"
+              >
+                Gesehen
               </span>
             </td>
             <td v-if="showPromotedColumn">
@@ -75,63 +90,74 @@
               </template>
             </td>
             <td>{{ formatDate(reg.registered_at) }}</td>
-            <td v-if="showActions">
-              <template v-if="reg.status === 'WAITLISTED' && eventStatus === 'CONFIRMED'">
-                <div class="promote-actions">
+            <td v-if="showActions" class="context-menu-cell">
+              <template v-if="hasActions(reg)">
+                <button
+                  class="context-menu-trigger"
+                  @click.stop="toggleMenu(reg.id)"
+                  aria-label="Aktionen"
+                >
+                  &hellip;
+                </button>
+                <div v-if="openMenuId === reg.id" class="context-menu" @click.stop>
+                  <template v-if="reg.status === 'WAITLISTED' && eventStatus === 'CONFIRMED'">
+                    <button
+                      class="context-menu-item"
+                      @click="doAction(() => $emit('promote-waitlisted', { registrationId: reg.id, targetStatus: 'CONFIRMED' }))"
+                    >
+                      Nachrücken
+                    </button>
+                    <button
+                      class="context-menu-item"
+                      @click="doAction(() => $emit('promote-waitlisted', { registrationId: reg.id, targetStatus: 'PARTICIPATING' }))"
+                    >
+                      Direkt bestätigen
+                    </button>
+                    <hr class="context-menu-divider" />
+                  </template>
                   <button
-                    class="small-button"
-                    @click="$emit('promote-waitlisted', { registrationId: reg.id, targetStatus: 'CONFIRMED' })"
+                    v-if="reg.status !== 'CANCELLED'"
+                    class="context-menu-item destructive"
+                    @click="doAction(() => $emit('delete-registration', { registrationId: reg.id, name: reg.name }))"
                   >
-                    Nachrücken
-                  </button>
-                  <button
-                    class="small-button secondary"
-                    @click="$emit('promote-waitlisted', { registrationId: reg.id, targetStatus: 'PARTICIPATING' })"
-                    title="Direkt als teilnehmend markieren"
-                  >
-                    Direkt
+                    Löschen
                   </button>
                 </div>
               </template>
-              <button
-                v-if="reg.status !== 'CANCELLED'"
-                class="small-button delete-btn"
-                @click="$emit('delete-registration', { registrationId: reg.id, name: reg.name })"
-              >
-                Löschen
-              </button>
             </td>
           </tr>
         </tbody>
       </table>
 
       <p class="total-info">
-        Gesamt: {{ filteredRegistrations.length }} Anmeldung(en),
-        {{ filteredRegistrations.reduce((sum, r) => sum + r.group_size, 0) }} Platz/Plätze
-        <template v-if="filteredRegistrations.length !== registrations.length">
-          ({{ registrations.length }} insgesamt)
+        {{ filteredRegistrations.length }} Buchungen,
+        {{ spotsBy(filteredRegistrations) }} Personen
+        <template v-if="filteredRegistrations.length !== activeRegistrations.length">
+          ({{ activeRegistrations.length }} Buchungen gesamt)
         </template>
       </p>
     </template>
 
     <!-- Attendance summary for CONFIRMED events -->
     <div v-if="['CONFIRMED', 'COMPLETED'].includes(eventStatus)" class="confirmation-summary">
-      <strong>Teilnahmestatus:</strong>
       <span class="confirmation-stat yes">
-        {{ registrations.filter(r => r.status === 'PARTICIPATING').length }} bestätigt
-      </span>
-      <span class="confirmation-stat no">
-        {{ registrations.filter(r => r.status === 'CANCELLED').length }} abgesagt
+        {{ spotsByStatus('PARTICIPATING') }} Nimmt teil
       </span>
       <span class="confirmation-stat pending">
-        {{ registrations.filter(r => r.status === 'CONFIRMED').length }} ausstehend
+        {{ spotsByStatus('CONFIRMED') }} Ausstehend
+      </span>
+      <span v-if="spotsByStatus('WAITLISTED') > 0" class="confirmation-stat waitlisted">
+        {{ spotsByStatus('WAITLISTED') }} Warteliste
+      </span>
+      <span v-if="spotsByStatus('CANCELLED') > 0" class="confirmation-stat no">
+        {{ spotsByStatus('CANCELLED') }} Abgesagt
       </span>
     </div>
   </template>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 
 const props = defineProps({
   registrations: { type: Array, required: true },
@@ -145,6 +171,28 @@ defineEmits(['toggle-promoted', 'promote-waitlisted', 'delete-registration'])
 
 const searchTerm = ref('')
 const statusFilter = ref('')
+const openMenuId = ref(null)
+
+function hasActions(reg) {
+  return reg.status !== 'CANCELLED'
+    || (reg.status === 'WAITLISTED' && props.eventStatus === 'CONFIRMED')
+}
+
+function toggleMenu(id) {
+  openMenuId.value = openMenuId.value === id ? null : id
+}
+
+function doAction(fn) {
+  openMenuId.value = null
+  fn()
+}
+
+function closeMenu() {
+  openMenuId.value = null
+}
+
+onMounted(() => document.addEventListener('click', closeMenu))
+onUnmounted(() => document.removeEventListener('click', closeMenu))
 
 const showPromotedColumn = computed(() => {
   return ['OPEN', 'REGISTRATION_CLOSED', 'LOTTERY_PENDING', 'CONFIRMED', 'COMPLETED'].includes(props.eventStatus)
@@ -158,6 +206,10 @@ const showActions = computed(() => {
   return props.registrations.some(r => r.status !== 'CANCELLED')
     || (props.eventStatus === 'CONFIRMED'
       && props.registrations.some(r => r.status === 'WAITLISTED'))
+})
+
+const activeRegistrations = computed(() => {
+  return props.registrations.filter(r => r.status !== 'CANCELLED')
 })
 
 const filteredRegistrations = computed(() => {
@@ -192,6 +244,20 @@ function formatDate(dateStr) {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+function spotsBy(regs) {
+  return regs.reduce((sum, r) => sum + r.group_size, 0)
+}
+
+function spotsByStatus(status) {
+  return spotsBy(props.registrations.filter(r => r.status === status))
+}
+
+function smsLink(reg) {
+  const url = `${window.location.origin}/registration/${reg.id}?token=${reg.registration_token}`
+  const body = `Moin, Schaluppe hier! Kurze Erinnerung: Bitte bestätige noch deinen Platz an Bord oder sage bitte ab. :)\n${url}`
+  return `sms:${reg.phone}?body=${encodeURIComponent(body)}`
 }
 
 function formatStatus(status) {
@@ -248,38 +314,85 @@ function formatStatus(status) {
   margin: 0;
 }
 
+.viewed-badge {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: var(--pico-border-radius);
+  font-size: 0.65rem;
+  font-weight: 500;
+  background: #e0e7ff;
+  color: #4f46e5;
+  cursor: help;
+}
+
 .promoted-badge {
   color: #d97706;
   font-size: 1.2rem;
 }
 
-.promote-actions {
-  display: flex;
-  gap: 0.25rem;
+.context-menu-cell {
+  position: relative;
+  width: 2.5rem;
+  text-align: center;
 }
 
-.small-button {
-  font-size: 0.75rem;
+.context-menu-trigger {
+  all: unset;
+  cursor: pointer;
+  font-size: 1.25rem;
+  line-height: 1;
   padding: 0.25rem 0.5rem;
-  margin: 0;
-  white-space: nowrap;
+  border-radius: var(--pico-border-radius);
+  color: var(--pico-muted-color);
+  letter-spacing: 1px;
 }
 
-.small-button.delete-btn {
-  background: transparent;
-  border: 1px solid #dc2626;
+.context-menu-trigger:hover {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.context-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 10;
+  min-width: 160px;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--pico-border-radius);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  padding: 0.25rem 0;
+}
+
+.context-menu-item {
+  all: unset;
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  color: #334155;
+}
+
+.context-menu-item:hover {
+  background: #f1f5f9;
+}
+
+.context-menu-item.destructive {
   color: #dc2626;
 }
 
-.small-button.delete-btn:hover {
-  background: #dc2626;
-  color: white;
+.context-menu-item.destructive:hover {
+  background: #fef2f2;
 }
 
-.small-button.secondary {
-  background: transparent;
-  border: 1px solid var(--pico-muted-border-color);
-  color: var(--pico-muted-color);
+.context-menu-divider {
+  margin: 0.25rem 0;
+  border: none;
+  border-top: 1px solid #e2e8f0;
 }
 
 .total-info {
@@ -311,6 +424,7 @@ function formatStatus(status) {
 .confirmation-stat.yes { background: #dcfce7; color: #16a34a; }
 .confirmation-stat.no { background: #fee2e2; color: #dc2626; }
 .confirmation-stat.pending { background: #fef3c7; color: #d97706; }
+.confirmation-stat.waitlisted { background: #e5e7eb; color: #6b7280; }
 
 .error {
   color: var(--pico-color-red-500, #dc3545);

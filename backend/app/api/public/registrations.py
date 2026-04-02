@@ -226,6 +226,12 @@ async def get_registration_manage(
             detail="Registration not found or invalid token",
         )
 
+    # Record page view (fire-and-forget, never breaks page load)
+    try:
+        await registration_service.record_page_view(registration.event_id, registration.id)
+    except Exception:
+        pass
+
     # Fetch event details for display
     event_info = None
     try:

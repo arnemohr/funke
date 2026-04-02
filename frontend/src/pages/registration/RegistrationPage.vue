@@ -1,5 +1,5 @@
 <template>
-  <article>
+  <article style="position: relative;">
     <!-- Loading state -->
     <div v-if="loading" aria-busy="true">
       Veranstaltung wird geladen...
@@ -14,10 +14,20 @@
 
     <!-- Event info and registration form -->
     <template v-else-if="event">
-      <header>
-        <h2>{{ event.name }}</h2>
-        <p v-if="event.description">{{ event.description }}</p>
+      <header class="page-header">
+        <div>
+          <h2>{{ event.name }}</h2>
+          <p v-if="event.description">{{ event.description }}</p>
+        </div>
+        <HelpButton @click="help.toggle('registration-page')" />
       </header>
+
+      <HelpPanel
+        :help-key="help.helpKey.value"
+        :open="help.isOpen.value"
+        ref="helpPanelRef"
+        @close="help.close()"
+      />
 
       <section>
         <h3>Details</h3>
@@ -146,11 +156,17 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { publicApi } from '../../services/api'
+import HelpButton from '../../components/help/HelpButton.vue'
+import HelpPanel from '../../components/help/HelpPanel.vue'
+import { useHelp } from '../../components/help/useHelp.js'
 
 const route = useRoute()
+const help = useHelp()
+const helpPanelRef = ref(null)
+watch(helpPanelRef, (el) => { help.panelRef.value = el?.$el || el })
 
 const loading = ref(true)
 const error = ref(null)
@@ -332,6 +348,13 @@ onMounted(loadEvent)
   margin-bottom: 1rem;
   font-size: 0.95em;
   color: #1e40af;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
 }
 
 dl {

@@ -1,7 +1,7 @@
 <template>
   <dialog :open="!!event">
-    <article style="max-width: 900px;">
-      <header>
+    <article style="max-width: 1100px; position: relative;">
+      <header class="modal-header">
         <a
           href="#"
           aria-label="Schließen"
@@ -9,7 +9,15 @@
           @click.prevent="$emit('close')"
         />
         <h3>Anmeldungen: {{ event?.name }}</h3>
+        <HelpButton @click="help.toggle('event-detail')" />
       </header>
+
+      <HelpPanel
+        :help-key="help.helpKey.value"
+        :open="help.isOpen.value"
+        ref="helpPanelRef"
+        @close="help.close()"
+      />
 
       <!-- Event Info Summary -->
       <div class="event-info-summary" v-if="event">
@@ -18,12 +26,8 @@
           <span>{{ formatDate(event.start_at) }}</span>
         </div>
         <div class="event-info-row">
-          <span class="event-info-label">Anmeldungen:</span>
-          <span>{{ event.registration_spots }} Personen ({{ event.registration_count }} Buchungen)</span>
-        </div>
-        <div class="event-info-row">
-          <span class="event-info-label">Bestätigt:</span>
-          <span>{{ event.confirmed_spots }} / {{ event.capacity }} Plätze</span>
+          <span class="event-info-label">Kapazität:</span>
+          <span>{{ participatingSpots }} / {{ event.capacity }} bestätigt<template v-if="pendingSpots > 0">, {{ pendingSpots }} ausstehend</template></span>
         </div>
         <div class="event-info-row" v-if="event.waitlist_count > 0">
           <span class="event-info-label">Warteliste:</span>
@@ -100,6 +104,13 @@
             {{ event?.status === 'OPEN' ? 'Link kopieren' : 'Link kopieren (Warteliste)' }}
           </button>
           <button
+            v-if="event?.registration_link_token && !['DRAFT', 'COMPLETED', 'CANCELLED'].includes(event?.status)"
+            @click="$emit('copy-invite', event)"
+            class="outline"
+          >
+            Einladungstext
+          </button>
+          <button
             @click="$emit('clone', event)"
             class="outline secondary"
           >
@@ -172,9 +183,17 @@
 </template>
 
 <script setup>
+import { computed, ref, watch } from 'vue'
 import RegistrationTable from './RegistrationTable.vue'
+import HelpButton from './help/HelpButton.vue'
+import HelpPanel from './help/HelpPanel.vue'
+import { useHelp } from './help/useHelp.js'
 
-defineProps({
+const help = useHelp()
+const helpPanelRef = ref(null)
+watch(helpPanelRef, (el) => { help.panelRef.value = el?.$el || el })
+
+const props = defineProps({
   event: { type: Object, default: null },
   registrations: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
@@ -187,10 +206,19 @@ defineProps({
 
 defineEmits([
   'close', 'edit', 'publish', 'clone', 'cancel-event', 'delete',
-  'close-registration', 'copy-link', 'go-to-lottery', 'complete-event',
+  'close-registration', 'copy-link', 'copy-invite', 'go-to-lottery', 'complete-event',
   'export-csv', 'send-message', 'show-messages',
   'toggle-promoted', 'promote-waitlisted', 'discard-unacknowledged', 'delete-registration',
 ])
+
+function spotsBy(status) {
+  return props.registrations
+    .filter(r => r.status === status)
+    .reduce((sum, r) => sum + r.group_size, 0)
+}
+
+const participatingSpots = computed(() => spotsBy('PARTICIPATING'))
+const pendingSpots = computed(() => spotsBy('CONFIRMED'))
 
 function formatDate(dateStr) {
   if (!dateStr) return 'Noch offen'
@@ -212,6 +240,17 @@ function formatReminderSchedule(days) {
 </script>
 
 <style scoped>
+.modal-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.modal-header h3 {
+  flex: 1;
+  margin: 0;
+}
+
 footer {
   display: flex;
   flex-direction: column;

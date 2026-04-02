@@ -68,9 +68,21 @@ async function request(endpoint, options = {}, requiresAuth = false) {
   const response = await fetch(url, config)
 
   if (!response.ok) {
+    // If auth failed, clear token cache so next request gets a fresh token
+    if (requiresAuth && (response.status === 401 || response.status === 403)) {
+      cachedToken = null
+      tokenExpiry = null
+    }
+
     let errorMessage = `Request failed with status ${response.status}`
     try {
-      const errorData = await response.json()
+      const errorText = await response.text()
+      // Guard against HTML responses (e.g. from a redirect or misconfigured proxy)
+      if (errorText.trimStart().startsWith('<')) {
+        console.error('API returned HTML instead of JSON:', errorText.substring(0, 200))
+        throw new Error(errorMessage)
+      }
+      const errorData = JSON.parse(errorText)
       // Handle FastAPI validation errors (detail is array) and regular errors (detail is string)
       if (Array.isArray(errorData.detail)) {
         errorMessage = errorData.detail.map(e => `${e.loc?.join('.')}: ${e.msg}`).join(', ')
@@ -78,7 +90,8 @@ async function request(endpoint, options = {}, requiresAuth = false) {
         errorMessage = errorData.detail || errorMessage
       }
       console.error('API Error:', errorData)
-    } catch {
+    } catch (parseErr) {
+      if (parseErr.message === errorMessage) throw parseErr
       // Ignore JSON parse errors
     }
     throw new Error(errorMessage)
@@ -86,7 +99,13 @@ async function request(endpoint, options = {}, requiresAuth = false) {
 
   // Handle empty responses
   const text = await response.text()
-  return text ? JSON.parse(text) : null
+  if (!text) return null
+  // Guard against HTML responses on success (e.g. SPA fallback serving index.html)
+  if (text.trimStart().startsWith('<')) {
+    console.error('API returned HTML instead of JSON:', text.substring(0, 200))
+    throw new Error('Unerwartete Antwort vom Server. Bitte lade die Seite neu.')
+  }
+  return JSON.parse(text)
 }
 
 // Public API (no auth required)
@@ -421,13 +440,16 @@ export const adminApi = {
   },
 
   /**
-   * Discard all unacknowledged registrations.
+   * Discard selected unacknowledged registrations.
    * @param {string} eventId - Event ID
+   * @param {string[]} registrationIds - Registration IDs to discard
+   * @param {string} [reason] - Optional custom cancellation message
    * @returns {Promise<object>} { discarded_count, discarded_spots }
    */
-  async discardUnacknowledged(eventId) {
+  async discardUnacknowledged(eventId, registrationIds, reason, subject) {
     return request(`/api/admin/events/${eventId}/registrations/discard-unacknowledged`, {
       method: 'POST',
+      body: JSON.stringify({ registration_ids: registrationIds, reason, subject }),
     }, true)
   },
 

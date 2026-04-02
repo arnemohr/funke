@@ -80,17 +80,31 @@ async def send_confirmation_reminders() -> dict:
         # Get all confirmed registrations with pending confirmation
         registrations = await registration_service.list_registrations(event.id)
 
+        today = now.date()
+
         for registration in registrations:
             # Only send to CONFIRMED registrations (not yet responded)
             # PARTICIPATING or CANCELLED means they already responded
             if registration.status != RegistrationStatus.CONFIRMED:
                 continue
 
+            # Skip if already reminded today
+            if registration.last_reminder_sent_at:
+                reminded_date = registration.last_reminder_sent_at
+                if reminded_date.tzinfo is None:
+                    reminded_date = reminded_date.replace(tzinfo=timezone.utc)
+                if reminded_date.date() >= today:
+                    continue
+
             try:
                 success = await email_service.send_confirmation_request(
                     event, registration, days_until_event
                 )
                 if success:
+                    # Stamp last_reminder_sent_at to prevent duplicate sends
+                    await registration_service.update_reminder_sent(
+                        registration.event_id, registration.id, now
+                    )
                     total_sent += 1
                     logger.info(
                         "Confirmation request sent",

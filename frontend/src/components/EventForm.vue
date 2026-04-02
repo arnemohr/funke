@@ -181,9 +181,9 @@ const form = reactive(
         description: '',
         location: '',
         startAt: '',
-        capacity: 100,
+        capacity: 80,
         registrationDeadline: '',
-        autopromoteWaitlist: true,
+        autopromoteWaitlist: false,
         reminderSchedule: '7, 3, 1',
       },
 )

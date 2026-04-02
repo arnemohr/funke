@@ -1,5 +1,5 @@
 <template>
-  <article>
+  <article style="position: relative;">
     <header class="page-header">
       <div>
         <p class="back-link">
@@ -8,13 +8,23 @@
         <h2>Verlosung</h2>
         <p class="muted">Verlosung durchführen und abschließen</p>
       </div>
-      <div class="status-chip" v-if="event">
-        <span class="label">Status</span>
-        <span :class="['status-badge', `status-${event.status.toLowerCase()}`]">
-          {{ event.status }}
-        </span>
+      <div class="header-right">
+        <HelpButton @click="help.toggle('lottery')" />
+        <div class="status-chip" v-if="event">
+          <span class="label">Status</span>
+          <span :class="['status-badge', `status-${event.status.toLowerCase()}`]">
+            {{ event.status }}
+          </span>
+        </div>
       </div>
     </header>
+
+    <HelpPanel
+      :help-key="help.helpKey.value"
+      :open="help.isOpen.value"
+      ref="helpPanelRef"
+      @close="help.close()"
+    />
 
     <div v-if="loading" aria-busy="true">
       Verlosung wird geladen...
@@ -195,13 +205,20 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { adminApi } from '../../../../services/api'
+import HelpButton from '../../../../components/help/HelpButton.vue'
+import HelpPanel from '../../../../components/help/HelpPanel.vue'
+import { useHelp } from '../../../../components/help/useHelp.js'
 
 const route = useRoute()
 const router = useRouter()
 const eventId = route.params.eventId
+
+const help = useHelp()
+const helpPanelRef = ref(null)
+watch(helpPanelRef, (el) => { help.panelRef.value = el?.$el || el })
 
 const event = ref(null)
 const lottery = ref(null)
@@ -294,6 +311,12 @@ onMounted(loadData)
 .muted {
   color: var(--pico-muted-color);
   margin: 0.25rem 0 0;
+}
+
+.header-right {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
 }
 
 .status-chip {

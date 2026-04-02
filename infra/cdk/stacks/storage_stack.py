@@ -57,6 +57,28 @@ class StorageStack(Stack):
             self.frontend_bucket,
         )
 
+        # CloudFront Function for SPA routing:
+        # Rewrites paths without file extensions to /index.html so Vue Router works.
+        # This replaces error_responses which applied globally (breaking API 403/404).
+        spa_rewrite_function = cloudfront.Function(
+            self,
+            "SpaRewriteFunction",
+            function_name=f"funke-{env_name}-spa-rewrite",
+            code=cloudfront.FunctionCode.from_inline(
+                "function handler(event) {\n"
+                "  var request = event.request;\n"
+                "  var uri = request.uri;\n"
+                "  // If the URI has a file extension, serve as-is (JS, CSS, images, etc.)\n"
+                "  if (uri.includes('.')) {\n"
+                "    return request;\n"
+                "  }\n"
+                "  // Otherwise rewrite to /index.html for SPA client-side routing\n"
+                "  request.uri = '/index.html';\n"
+                "  return request;\n"
+                "}"
+            ),
+        )
+
         # Build additional behaviors for API routing
         additional_behaviors: dict[str, cloudfront.BehaviorOptions] = {}
 
@@ -96,24 +118,15 @@ class StorageStack(Stack):
                 viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                 cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
                 allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
+                function_associations=[
+                    cloudfront.FunctionAssociation(
+                        function=spa_rewrite_function,
+                        event_type=cloudfront.FunctionEventType.VIEWER_REQUEST,
+                    ),
+                ],
             ),
             additional_behaviors=additional_behaviors if additional_behaviors else None,
             default_root_object="index.html",
-            error_responses=[
-                # SPA routing - return index.html for 404s (only for non-API routes)
-                cloudfront.ErrorResponse(
-                    http_status=404,
-                    response_http_status=200,
-                    response_page_path="/index.html",
-                    ttl=Duration.minutes(5),
-                ),
-                cloudfront.ErrorResponse(
-                    http_status=403,
-                    response_http_status=200,
-                    response_page_path="/index.html",
-                    ttl=Duration.minutes(5),
-                ),
-            ],
             price_class=cloudfront.PriceClass.PRICE_CLASS_100,
             domain_names=domain_names,
             certificate=certificate,

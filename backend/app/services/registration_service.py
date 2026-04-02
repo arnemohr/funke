@@ -69,6 +69,12 @@ def _registration_to_item(registration: Registration) -> dict:
     if registration.responded_at:
         item["responded_at"] = registration.responded_at.isoformat()
 
+    if registration.page_viewed_at:
+        item["page_viewed_at"] = registration.page_viewed_at.isoformat()
+
+    if registration.last_reminder_sent_at:
+        item["last_reminder_sent_at"] = registration.last_reminder_sent_at.isoformat()
+
     if registration.group_members is not None:
         item["group_members"] = registration.group_members
 
@@ -98,6 +104,16 @@ def _item_to_registration(item: dict) -> Registration:
             if item.get("responded_at")
             else None
         ),
+        page_viewed_at=(
+            datetime.fromisoformat(item["page_viewed_at"])
+            if item.get("page_viewed_at")
+            else None
+        ),
+        last_reminder_sent_at=(
+            datetime.fromisoformat(item["last_reminder_sent_at"])
+            if item.get("last_reminder_sent_at")
+            else None
+        ),
         promoted_from_waitlist=item.get("promoted_from_waitlist", False),
         promoted=item.get("promoted", False),
         ttl=item.get("ttl"),
@@ -124,6 +140,43 @@ class RegistrationService:
         if self._events_table is None:
             self._events_table = get_events_table()
         return self._events_table
+
+    async def record_page_view(self, event_id: UUID, registration_id: UUID) -> None:
+        """Record that the registrant opened their manage page."""
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            self.registrations_table.update_item(
+                Key={
+                    "pk": f"EVENT#{event_id}",
+                    "sk": f"REG#{registration_id}",
+                },
+                UpdateExpression="SET page_viewed_at = :ts",
+                ExpressionAttributeValues={":ts": now},
+            )
+        except ClientError as e:
+            logger.error(
+                "Failed to record page view",
+                extra={"registration_id": str(registration_id), "error": str(e)},
+            )
+
+    async def update_reminder_sent(
+        self, event_id: UUID, registration_id: UUID, sent_at: datetime
+    ) -> None:
+        """Record that a reminder was sent to prevent duplicate sends."""
+        try:
+            self.registrations_table.update_item(
+                Key={
+                    "pk": f"EVENT#{event_id}",
+                    "sk": f"REG#{registration_id}",
+                },
+                UpdateExpression="SET last_reminder_sent_at = :ts",
+                ExpressionAttributeValues={":ts": sent_at.isoformat()},
+            )
+        except ClientError as e:
+            logger.error(
+                "Failed to update reminder sent timestamp",
+                extra={"registration_id": str(registration_id), "error": str(e)},
+            )
 
     async def _get_event_by_link_token(self, link_token: str) -> Event | None:
         """Get event by public link token."""
@@ -994,14 +1047,21 @@ class RegistrationService:
     async def discard_unacknowledged(
         self,
         event_id: UUID,
+        registration_ids: list[UUID] | None = None,
+        reason: str | None = None,
+        subject: str | None = None,
     ) -> tuple[int, int]:
-        """Discard all unacknowledged (CONFIRMED) registrations for an event.
+        """Discard unacknowledged (CONFIRMED) registrations for an event.
 
         Transitions CONFIRMED registrations to CANCELLED and sends notification emails.
         Triggers waitlist promotion for freed spots.
 
         Args:
             event_id: Event ID.
+            registration_ids: Optional list of specific registration IDs to discard.
+                If None, all CONFIRMED registrations are discarded.
+            reason: Optional custom message from admin for the cancellation email.
+            subject: Optional custom email subject line.
 
         Returns:
             Tuple of (discarded_count, discarded_spots).
@@ -1012,6 +1072,14 @@ class RegistrationService:
         confirmed = await self.list_registrations(
             event_id, status_filter=RegistrationStatus.CONFIRMED,
         )
+
+        if not confirmed:
+            return 0, 0
+
+        # Filter to specific IDs if provided
+        if registration_ids is not None:
+            id_set = set(registration_ids)
+            confirmed = [r for r in confirmed if r.id in id_set]
 
         if not confirmed:
             return 0, 0
@@ -1047,7 +1115,7 @@ class RegistrationService:
                         cancelled_reg = registration.model_copy(
                             update={"status": RegistrationStatus.CANCELLED},
                         )
-                        await email_service.send_cancellation_confirmation(event, cancelled_reg)
+                        await email_service.send_cancellation_confirmation(event, cancelled_reg, reason, subject)
                     except Exception as e:
                         logger.error(
                             "Failed to send discard email",

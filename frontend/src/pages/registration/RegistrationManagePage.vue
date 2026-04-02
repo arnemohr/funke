@@ -1,5 +1,5 @@
 <template>
-  <article>
+  <article style="position: relative;">
     <!-- Loading -->
     <div v-if="loading" aria-busy="true">
       Anmeldung wird geladen...
@@ -14,9 +14,19 @@
     <template v-else>
       <!-- Event info bar (shown on all states) -->
       <div v-if="eventInfo" class="event-info-bar">
-        <strong>{{ eventInfo.name }}</strong>
-        <span class="event-meta">{{ eventInfo.start_at }}<template v-if="eventInfo.location"> · {{ eventInfo.location }}</template></span>
+        <div class="event-info-text">
+          <strong>{{ eventInfo.name }}</strong>
+          <span class="event-meta">{{ eventInfo.start_at }}<template v-if="eventInfo.location"> · {{ eventInfo.location }}</template></span>
+        </div>
+        <HelpButton @click="help.toggle(currentHelpKey)" />
       </div>
+
+      <HelpPanel
+        :help-key="help.helpKey.value"
+        :open="help.isOpen.value"
+        ref="helpPanelRef"
+        @close="help.close()"
+      />
 
       <!-- CANCELLED -->
       <template v-if="registration?.status === 'CANCELLED'">
@@ -90,13 +100,14 @@
 
       <!-- CONFIRMED (lottery winner, needs to confirm + enter names) -->
       <template v-else-if="registration?.status === 'CONFIRMED'">
-        <section class="status-banner success">
-          <h2>Du hast einen Platz bekommen!</h2>
+        <section class="status-banner action-needed">
+          <div class="status-icon">🎉</div>
+          <h2>Platz reserviert — bitte bestätigen</h2>
           <p v-if="originalGroupSize > 1">
-            Bitte bestätige, dass du dabei bist und trag die Namen aller Mitfahrenden ein.
+            Du hast bei der Verlosung einen Platz bekommen! Bestätige jetzt, dass du dabei bist, und trag die Namen aller Mitfahrenden ein.
           </p>
           <p v-else>
-            Bitte bestätige kurz, dass du dabei bist.
+            Du hast bei der Verlosung einen Platz bekommen! Bestätige jetzt, dass du dabei bist.
           </p>
         </section>
 
@@ -263,11 +274,22 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { publicApi } from '../../services/api'
+import HelpButton from '../../components/help/HelpButton.vue'
+import HelpPanel from '../../components/help/HelpPanel.vue'
+import { useHelp } from '../../components/help/useHelp.js'
 
 const route = useRoute()
+const help = useHelp()
+const helpPanelRef = ref(null)
+watch(helpPanelRef, (el) => { help.panelRef.value = el?.$el || el })
+
+const currentHelpKey = computed(() => {
+  if (!registration.value?.status) return 'manage-registered'
+  return `manage-${registration.value.status.toLowerCase()}`
+})
 
 // State
 const loading = ref(true)
@@ -455,6 +477,13 @@ onMounted(loadRegistration)
   padding: 0.75rem 1rem;
   margin-bottom: 1.5rem;
   display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.event-info-text {
+  display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
   align-items: baseline;
@@ -477,6 +506,17 @@ onMounted(loadRegistration)
 }
 .status-banner.success h2 {
   color: var(--pico-color-green-600, #2f855a);
+}
+
+.status-banner.action-needed {
+  background: #fffbeb;
+  border: 2px solid #f59e0b;
+}
+.status-banner.action-needed h2 {
+  color: #92400e;
+}
+.status-banner.action-needed p {
+  color: #78350f;
 }
 
 .status-banner.cancelled {

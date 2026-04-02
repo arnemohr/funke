@@ -74,6 +74,8 @@ class Registration(BaseModel):
     registration_token: str  # For cancellation/confirmation links
     registered_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     responded_at: datetime | None = None  # When they responded YES/NO
+    page_viewed_at: datetime | None = None  # When they last opened the manage page
+    last_reminder_sent_at: datetime | None = None  # Dedup: skip if already reminded today
     promoted_from_waitlist: bool = False
     promoted: bool = False  # Admin flag: guaranteed lottery placement
     ttl: int | None = None  # DynamoDB TTL timestamp

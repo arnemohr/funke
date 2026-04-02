@@ -1,12 +1,22 @@
 <template>
-  <article>
+  <article style="position: relative;">
     <header>
       <hgroup>
         <h2>Veranstaltungen</h2>
         <p>Verwalte deine Veranstaltungen</p>
       </hgroup>
-      <button v-if="!accessDenied" @click="showCreateModal = true">Neue Veranstaltung</button>
+      <div class="header-actions">
+        <HelpButton @click="help.toggle(activeHelpKey)" />
+        <button v-if="!accessDenied" @click="showCreateModal = true">Neue Veranstaltung</button>
+      </div>
     </header>
+
+    <HelpPanel
+      :help-key="help.helpKey.value"
+      :open="help.isOpen.value"
+      ref="helpPanelRef"
+      @close="help.close()"
+    />
 
     <!-- Loading state -->
     <div v-if="loading" aria-busy="true">
@@ -170,6 +180,7 @@
       @delete="showDeleteModal"
       @close-registration="closeRegistration"
       @copy-link="copyRegistrationLink"
+      @copy-invite="copyInviteText"
       @go-to-lottery="goToLottery"
       @complete-event="completeEvent"
       @export-csv="handleExportCsv"
@@ -248,6 +259,65 @@
       @close="showMessageLog = false"
     />
 
+    <!-- Discard Unacknowledged Modal -->
+    <dialog :open="showDiscardModal">
+      <article>
+        <header>
+          <a href="#" aria-label="Schließen" class="close" @click.prevent="showDiscardModal = false" />
+          <h3>Unbestätigte Anmeldungen verwerfen</h3>
+        </header>
+        <div v-if="discardCandidates.length === 0">
+          <p>Keine unbestätigten Anmeldungen vorhanden.</p>
+        </div>
+        <template v-else>
+          <p>
+            <a href="#" @click.prevent="toggleAllDiscard">
+              {{ selectedDiscardIds.size === discardCandidates.length ? 'Alle abwählen' : 'Alle auswählen' }}
+            </a>
+          </p>
+          <div class="discard-list">
+            <label v-for="reg in discardCandidates" :key="reg.id" class="discard-item">
+              <input
+                type="checkbox"
+                :checked="selectedDiscardIds.has(reg.id)"
+                @change="toggleDiscardId(reg.id)"
+              />
+              {{ reg.name }} ({{ reg.group_size }} Pers.)
+            </label>
+          </div>
+          <label for="discardSubject">
+            Betreff
+            <input
+              id="discardSubject"
+              v-model="discardSubject"
+              type="text"
+            />
+          </label>
+          <label for="discardMessage">
+            Nachricht an die Teilnehmer
+            <textarea
+              id="discardMessage"
+              v-model="discardMessage"
+              rows="4"
+              placeholder="Optionale Nachricht an die Teilnehmer..."
+            ></textarea>
+          </label>
+          <div v-if="discardError" role="alert" class="error">{{ discardError }}</div>
+          <footer>
+            <button type="button" class="secondary" @click="showDiscardModal = false" :disabled="discarding">Abbrechen</button>
+            <button
+              class="discard-btn"
+              :disabled="selectedDiscardIds.size === 0 || discarding"
+              :aria-busy="discarding"
+              @click="handleDiscardConfirm"
+            >
+              {{ discarding ? 'Wird verworfen...' : `${selectedDiscardIds.size} Anmeldungen verwerfen` }}
+            </button>
+          </footer>
+        </template>
+      </article>
+    </dialog>
+
     <!-- Capacity Warning Popup -->
     <dialog :open="!!capacityWarning">
       <article v-if="capacityWarning">
@@ -278,9 +348,25 @@ import EventForm from '../../components/EventForm.vue'
 import EventDetailModal from '../../components/EventDetailModal.vue'
 import MessageComposer from '../../components/MessageComposer.vue'
 import MessageLog from '../../components/MessageLog.vue'
+import HelpButton from '../../components/help/HelpButton.vue'
+import HelpPanel from '../../components/help/HelpPanel.vue'
+import { useHelp } from '../../components/help/useHelp.js'
 
 const router = useRouter()
 const { logout: auth0Logout } = useAuth0()
+
+// Help system
+const help = useHelp()
+const helpPanelRef = ref(null)
+watch(helpPanelRef, (el) => { help.panelRef.value = el?.$el || el })
+
+const activeHelpKey = computed(() => {
+  if (showDiscardModal.value) return 'discard-modal'
+  if (showCreateModal.value || editEventData.value) return 'event-form'
+  if (cloneEvent.value) return 'clone-event'
+  if (showMessageComposer.value) return 'message-composer'
+  return 'admin-events'
+})
 
 // Core state
 const loading = ref(true)
@@ -335,8 +421,13 @@ const showMessageLog = ref(false)
 const togglingPromotedId = ref(null)
 
 // Discard unacknowledged
-const discardPreview = ref(null)
+const showDiscardModal = ref(false)
+const discardSubject = ref('')
+const discardMessage = ref('')
+const selectedDiscardIds = ref(new Set())
 const discarding = ref(false)
+const discardError = ref(null)
+const discardEventRef = ref(null)
 
 // Capacity warning popup
 const capacityWarning = ref(null)
@@ -351,6 +442,10 @@ const filteredEvents = computed(() => {
   }
   return events.value.filter(e => e.status === statusFilter.value)
 })
+
+const discardCandidates = computed(() =>
+  registrations.value.filter(r => r.status === 'CONFIRMED'),
+)
 
 // Helpers
 function formatDate(dateStr) {
@@ -468,6 +563,39 @@ function copyRegistrationLink(event) {
   navigator.clipboard.writeText(link).then(
     () => alert('Anmeldelink wurde kopiert!'),
     () => prompt('Kopiere diesen Link:', link),
+  )
+}
+
+function copyInviteText(event) {
+  const link = `${window.location.origin}/register/${event.registration_link_token}`
+  const date = new Date(event.start_at)
+  const dateStr = date.toLocaleDateString('de-DE', {
+    timeZone: 'Europe/Berlin',
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  })
+  const timeStr = date.toLocaleTimeString('de-DE', {
+    timeZone: 'Europe/Berlin',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+
+  let text = `⛵ ${event.name}\n\n`
+  if (event.description) {
+    text += `${event.description}\n\n`
+  }
+  text += `📅 ${dateStr} um ${timeStr} Uhr\n`
+  if (event.location) {
+    text += `📍 ${event.location}\n`
+  }
+  text += `👥 ${event.capacity} Plätze\n`
+  text += `\n🔗 Jetzt anmelden: ${link}`
+
+  navigator.clipboard.writeText(text).then(
+    () => alert('Einladungstext wurde kopiert!'),
+    () => prompt('Kopiere diesen Text:', text),
   )
 }
 
@@ -615,23 +743,57 @@ async function handlePromoteWaitlisted({ registrationId, targetStatus }) {
   }
 }
 
-async function handleDiscardUnacknowledged(event) {
-  if (!confirm('Alle unbestätigten Anmeldungen verwerfen und benachrichtigen? Diese Aktion kann nicht rückgängig gemacht werden.')) {
-    return
+function handleDiscardUnacknowledged(event) {
+  discardEventRef.value = event
+  discardError.value = null
+  discardSubject.value = `Dein Platz an Bord: ${event.name}`
+  discardMessage.value = 'Leider haben wir innerhalb der Frist keine Rückmeldung von dir erhalten, ob du wirklich mit an Bord kommst. Daher mussten wir deinen Platz an einen anderen Fisch aus unserem Schwarm weitergeben.\n\nFalls du beim nächsten Mal wieder anheuern möchtest, freuen wir uns sehr auf dich!'
+  selectedDiscardIds.value = new Set(
+    registrations.value.filter(r => r.status === 'CONFIRMED').map(r => r.id),
+  )
+  showDiscardModal.value = true
+}
+
+function toggleAllDiscard() {
+  if (selectedDiscardIds.value.size === discardCandidates.value.length) {
+    selectedDiscardIds.value = new Set()
+  } else {
+    selectedDiscardIds.value = new Set(discardCandidates.value.map(r => r.id))
   }
+}
+
+function toggleDiscardId(id) {
+  const next = new Set(selectedDiscardIds.value)
+  if (next.has(id)) {
+    next.delete(id)
+  } else {
+    next.add(id)
+  }
+  selectedDiscardIds.value = next
+}
+
+async function handleDiscardConfirm() {
+  if (!discardEventRef.value || selectedDiscardIds.value.size === 0) return
   discarding.value = true
+  discardError.value = null
   try {
-    const result = await adminApi.discardUnacknowledged(event.id)
+    const result = await adminApi.discardUnacknowledged(
+      discardEventRef.value.id,
+      [...selectedDiscardIds.value],
+      discardMessage.value.trim() || undefined,
+      discardSubject.value.trim() || undefined,
+    )
+    showDiscardModal.value = false
     alert(`${result.discarded_count} Anmeldungen verworfen (${result.discarded_spots} Plätze).`)
     // Refresh
     const [regs, evt] = await Promise.all([
-      adminApi.listRegistrations(event.id),
-      adminApi.getEvent(event.id),
+      adminApi.listRegistrations(discardEventRef.value.id),
+      adminApi.getEvent(discardEventRef.value.id),
     ])
     registrations.value = regs.items
     updateEventInList(evt)
   } catch (err) {
-    alert(err.message || 'Verwerfen fehlgeschlagen')
+    discardError.value = err.message || 'Verwerfen fehlgeschlagen'
   } finally {
     discarding.value = false
   }
@@ -665,6 +827,12 @@ header {
   align-items: center;
   flex-wrap: wrap;
   gap: 1rem;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 nav ul {
@@ -741,6 +909,27 @@ dialog footer {
 .delete-btn { background: #dc2626 !important; border-color: #dc2626 !important; color: white !important; }
 .delete-btn:hover:not(:disabled) { background: #b91c1c !important; border-color: #b91c1c !important; }
 .delete-btn:disabled { background: #fca5a5 !important; border-color: #fca5a5 !important; }
+
+.discard-list {
+  max-height: 250px;
+  overflow-y: auto;
+  margin-bottom: 1rem;
+}
+
+.discard-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+}
+
+.discard-item input[type="checkbox"] {
+  margin: 0;
+}
+
+.discard-btn { background: #dc2626 !important; border-color: #dc2626 !important; color: white !important; }
+.discard-btn:hover:not(:disabled) { background: #b91c1c !important; border-color: #b91c1c !important; }
+.discard-btn:disabled { background: #fca5a5 !important; border-color: #fca5a5 !important; }
 
 .access-denied {
   text-align: center;
