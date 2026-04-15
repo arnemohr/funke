@@ -62,10 +62,6 @@
   --text-lg: 1rem;
   --text-xl: 1.25rem;
 
-  /* Reduce Pico CSS base sizing */
-  --pico-font-size: 87.5%;
-  font-size: 87.5%;
-
   /* === Spacing Scale === */
   --space-1: 4px;
   --space-2: 8px;
@@ -164,11 +160,13 @@
   position: fixed;
   top: 1rem;
   right: 1rem;
+  left: 1rem;
   z-index: 9999;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  max-width: 400px;
+  max-width: min(400px, calc(100vw - 2rem));
+  margin-left: auto;
 }
 
 .toast {
@@ -226,5 +224,56 @@
   to {
     transform: translateX(0);
     opacity: 1;
+  }
+}
+
+/* === Mobile Font Restoration === */
+@media (max-width: 640px) {
+  :root {
+    font-size: 100%;
+    --pico-font-size: 100%;
+  }
+}
+
+/* === Touch Target Utility === */
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* === Mobile Card Table Utility === */
+@media (max-width: 640px) {
+  .mobile-card-table thead {
+    display: none;
+  }
+
+  .mobile-card-table tbody tr {
+    display: block;
+    border: 1px solid var(--color-border);
+    border-radius: var(--pico-border-radius);
+    margin-bottom: 0.75rem;
+    padding: 0.75rem;
+    background: var(--color-surface-raised);
+    position: relative;
+  }
+
+  .mobile-card-table tbody td {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.2rem 0;
+    border: none;
+    align-items: baseline;
+  }
+
+  .mobile-card-table tbody td[data-label]::before {
+    content: attr(data-label) ":";
+    font-weight: 600;
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+    min-width: 90px;
+    flex-shrink: 0;
   }
 }
