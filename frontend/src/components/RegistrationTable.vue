@@ -89,12 +89,12 @@
                 <span v-if="reg.promoted" class="promoted-badge" title="Bevorzugt">★</span>
               </template>
             </td>
-            <td data-label="Angemeldet">{{ formatDate(reg.registered_at) }}</td>
+            <td data-label="Angemeldet am">{{ formatDate(reg.registered_at) }}</td>
             <td v-if="showActions" class="context-menu-cell">
               <template v-if="hasActions(reg)">
                 <div class="card-actions">
                   <button
-                    class="context-menu-trigger"
+                    class="context-menu-trigger touch-target"
                     @click.stop="toggleMenu(reg.id)"
                     aria-label="Aktionen"
                   >
@@ -460,6 +460,7 @@ function smsLink(reg) {
     display: block;
     padding: 0;
     border: none;
+    position: static;
   }
   .card-actions {
     position: absolute;
@@ -472,15 +473,8 @@ function smsLink(reg) {
     position: fixed;
     right: 1rem;
     left: auto;
-  }
-
-  /* Larger tap targets */
-  .context-menu-trigger {
-    min-height: 44px;
-    min-width: 44px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+    top: unset;
+    bottom: auto;
   }
 
   .context-menu-item {
