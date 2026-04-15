@@ -39,8 +39,8 @@
     <!-- Events list -->
     <template v-else>
       <!-- Filter tabs -->
-      <nav>
-        <ul>
+      <nav class="filter-nav">
+        <ul class="filter-tabs">
           <li>
             <a href="#" :class="{ active: statusFilter === null }" @click.prevent="statusFilter = null">Alle ({{ filterCounts.all }})</a>
           </li>
@@ -69,7 +69,7 @@
       </article>
 
       <!-- Events table -->
-      <table v-else>
+      <table v-else class="mobile-card-table">
         <thead>
           <tr>
             <th>Veranstaltung</th>
@@ -80,20 +80,20 @@
         </thead>
         <tbody>
           <tr v-for="event in filteredEvents" :key="event.id">
-            <td>
+            <td data-label="Veranstaltung">
               <a href="#" @click.prevent="viewRegistrations(event)">
                 <strong>{{ event.name }}</strong>
               </a>
               <br />
               <small>{{ event.location || 'Kein Ort angegeben' }}</small>
             </td>
-            <td>{{ formatDate(event.start_at) }}</td>
-            <td>
+            <td data-label="Datum">{{ formatDate(event.start_at) }}</td>
+            <td data-label="Status">
               <span :class="['status-badge', `status-${event.status.toLowerCase()}`]">
                 {{ formatEventStatus(event.status) }}
               </span>
             </td>
-            <td>
+            <td data-label="Anmeldungen">
               <div>{{ event.registration_count }} Anmeldungen ({{ event.registration_spots }} Pers.)</div>
               <div style="font-size: var(--text-sm); color: var(--pico-muted-color);">{{ event.confirmed_spots }} / {{ event.capacity }} bestätigt<span v-if="event.waitlist_count"> · {{ event.waitlist_spots }} Warteliste</span></div>
             </td>
@@ -856,28 +856,43 @@ header {
   gap: 0.75rem;
 }
 
-nav ul {
-  list-style: none;
-  padding: 0;
-  display: flex;
-  gap: 1rem;
+.filter-nav {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  /* Scroll hint: fade out on the right */
+  mask-image: linear-gradient(to right, #000 85%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, #000 85%, transparent 100%);
   margin-bottom: 1rem;
 }
 
-nav a {
+.filter-tabs {
+  display: flex;
+  gap: 0.5rem;
+  white-space: nowrap;
+  list-style: none;
+  padding: 0 0 2px;
+  margin: 0;
+}
+
+/* Ensure tab links are touch-friendly */
+.filter-nav nav a,
+.filter-tabs a {
+  white-space: nowrap;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.5rem 0.875rem;
   text-decoration: none;
-  padding: 0.5rem 1rem;
   border-radius: var(--pico-border-radius);
 }
 
-nav a.active {
+.filter-tabs a.active {
   background: var(--pico-primary);
   color: white;
 }
 
-
-dialog article { max-width: 600px; }
-dialog article.modal-wide { max-width: 750px; }
+dialog article { max-width: min(600px, calc(100vw - 2rem)); }
+dialog article.modal-wide { max-width: min(750px, calc(100vw - 2rem)); }
 
 dialog footer {
   display: flex;
@@ -938,4 +953,21 @@ dialog footer {
 .access-denied h3 { color: #dc2626; margin-bottom: 1rem; }
 .access-denied p { margin-bottom: 0.5rem; }
 .access-denied button { margin-top: 1.5rem; }
+
+@media (max-width: 640px) {
+  tbody td[data-label="Veranstaltung"] {
+    font-weight: 600;
+    font-size: var(--text-base);
+    border-bottom: 1px solid var(--color-border);
+    padding-bottom: 0.4rem;
+    margin-bottom: 0.25rem;
+  }
+  tbody td[data-label="Veranstaltung"]::before {
+    display: none;
+  }
+  /* Status badge is self-explanatory, hide label */
+  tbody td[data-label="Status"]::before {
+    display: none;
+  }
+}
 </style>
