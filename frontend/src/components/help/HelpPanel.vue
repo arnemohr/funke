@@ -156,8 +156,6 @@ const content = computed(() => {
     width: 100%;
     max-height: 60vh;
     border-radius: var(--pico-border-radius) var(--pico-border-radius) 0 0;
-    border-bottom-left-radius: 0;
-    border-bottom-right-radius: 0;
   }
   .help-slide-enter-from,
   .help-slide-leave-to {

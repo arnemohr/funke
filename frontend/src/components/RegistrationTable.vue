@@ -473,8 +473,8 @@ function smsLink(reg) {
     position: fixed;
     right: 1rem;
     left: auto;
-    top: unset;
-    bottom: auto;
+    top: auto;
+    bottom: 5rem;
   }
 
   .context-menu-item {

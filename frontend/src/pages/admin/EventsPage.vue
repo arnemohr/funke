@@ -859,9 +859,6 @@ header {
 .filter-nav {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
-  /* Scroll hint: fade out on the right */
-  mask-image: linear-gradient(to right, #000 85%, transparent 100%);
-  -webkit-mask-image: linear-gradient(to right, #000 85%, transparent 100%);
   margin-bottom: 1rem;
 }
 
@@ -952,6 +949,14 @@ dialog footer {
 .access-denied h3 { color: #dc2626; margin-bottom: 1rem; }
 .access-denied p { margin-bottom: 0.5rem; }
 .access-denied button { margin-top: 1.5rem; }
+
+@media (max-width: 768px) {
+  .filter-nav {
+    /* Scroll hint: fade out on the right */
+    mask-image: linear-gradient(to right, #000 85%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to right, #000 85%, transparent 100%);
+  }
+}
 
 @media (max-width: 640px) {
   tbody td[data-label="Veranstaltung"] {
