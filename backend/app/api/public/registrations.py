@@ -238,10 +238,9 @@ async def get_registration_manage(
         event_svc = get_event_service()
         event = await event_svc.get_event_by_id(registration.event_id)
         if event:
-            from ...services.email_service import _format_date
             event_info = EventInfo(
                 name=event.name,
-                start_at=_format_date(event.start_at),
+                start_at=event.start_at.isoformat(),
                 location=event.location,
             )
     except Exception:
