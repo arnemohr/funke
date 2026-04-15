@@ -870,12 +870,11 @@ header {
   gap: 0.5rem;
   white-space: nowrap;
   list-style: none;
-  padding: 0 0 2px;
+  padding: 0 2rem 2px 0;
   margin: 0;
 }
 
 /* Ensure tab links are touch-friendly */
-.filter-nav nav a,
 .filter-tabs a {
   white-space: nowrap;
   min-height: 44px;
@@ -960,7 +959,6 @@ dialog footer {
     font-size: var(--text-base);
     border-bottom: 1px solid var(--color-border);
     padding-bottom: 0.4rem;
-    margin-bottom: 0.25rem;
   }
   tbody td[data-label="Veranstaltung"]::before {
     display: none;
