@@ -2,9 +2,13 @@
   <article style="position: relative;">
     <header class="page-header">
       <div>
-        <p class="back-link">
-          <a href="#" @click.prevent="goBack">← Zurück zu Veranstaltungen</a>
-        </p>
+        <nav class="breadcrumbs" aria-label="Breadcrumb">
+          <a href="#" @click.prevent="goBack">Veranstaltungen</a>
+          <span class="breadcrumb-sep">›</span>
+          <span v-if="event">{{ event.name }}</span>
+          <span class="breadcrumb-sep">›</span>
+          <span>Verlosung</span>
+        </nav>
         <h2>Verlosung</h2>
         <p class="muted">Verlosung durchführen und abschließen</p>
       </div>
@@ -13,7 +17,7 @@
         <div class="status-chip" v-if="event">
           <span class="label">Status</span>
           <span :class="['status-badge', `status-${event.status.toLowerCase()}`]">
-            {{ event.status }}
+            {{ formatEventStatus(event.status) }}
           </span>
         </div>
       </div>
@@ -137,6 +141,11 @@
             </p>
           </div>
         </div>
+
+        <div v-if="lottery?.is_finalized" class="finalized-guidance">
+          <p>Teilnehmende wurden benachrichtigt. Du kannst den Bestätigungsstatus in der Veranstaltungsübersicht verfolgen.</p>
+          <a href="#" @click.prevent="goBack" class="outline" role="button">Zurück zur Übersicht</a>
+        </div>
       </section>
 
       <section class="panel">
@@ -208,6 +217,7 @@
 import { onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { adminApi } from '../../../../services/api'
+import { formatDate, formatEventStatus } from '../../../../utils/formatters.js'
 import HelpButton from '../../../../components/help/HelpButton.vue'
 import HelpPanel from '../../../../components/help/HelpPanel.vue'
 import { useHelp } from '../../../../components/help/useHelp.js'
@@ -226,19 +236,6 @@ const loading = ref(true)
 const error = ref(null)
 const running = ref(false)
 const finalizing = ref(false)
-
-function formatDate(value) {
-  if (!value) return '-'
-  const date = new Date(value)
-  return date.toLocaleString('de-DE', {
-    timeZone: 'Europe/Berlin',
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
 
 function goBack() {
   router.push({ name: 'admin-events' })
@@ -304,8 +301,16 @@ onMounted(loadData)
   flex-wrap: wrap;
 }
 
-.back-link {
-  margin: 0;
+.breadcrumbs {
+  font-size: var(--text-sm);
+  margin: 0 0 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.breadcrumb-sep {
+  color: var(--pico-muted-color);
 }
 
 .muted {
@@ -323,44 +328,6 @@ onMounted(loadData)
   text-align: right;
 }
 
-.status-badge {
-  display: inline-block;
-  padding: 0.35rem 0.65rem;
-  border-radius: var(--pico-border-radius);
-  font-size: 0.8rem;
-  font-weight: 600;
-}
-
-.status-confirmed {
-  background: #fef3c7;
-  color: #d97706;
-}
-
-.status-finalized {
-  background: #d1fae5;
-  color: #065f46;
-}
-
-.status-registration_closed {
-  background: #fef3c7;
-  color: #d97706;
-}
-
-.status-draft {
-  background: #e2e8f0;
-  color: #64748b;
-}
-
-.status-open {
-  background: #dbeafe;
-  color: #2563eb;
-}
-
-.status-lottery_pending {
-  background: #ede9fe;
-  color: #7c3aed;
-}
-
 .event-summary {
   display: flex;
   justify-content: space-between;
@@ -375,7 +342,7 @@ onMounted(loadData)
 
 .summary-metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 1rem;
 }
 
@@ -462,5 +429,17 @@ th {
 .promoted-star {
   color: #d97706;
   font-size: 0.9rem;
+}
+
+.finalized-guidance {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: var(--color-success-bg);
+  border-radius: var(--pico-border-radius);
+  color: var(--color-success-text);
+}
+
+.finalized-guidance p {
+  margin-bottom: 0.75rem;
 }
 </style>

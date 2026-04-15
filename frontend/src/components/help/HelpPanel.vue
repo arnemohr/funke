@@ -1,4 +1,5 @@
 <template>
+  <div v-if="open && content" class="help-backdrop" @click="$emit('close')"></div>
   <transition name="help-slide">
     <aside v-if="open && content" class="help-panel" ref="panel">
       <header class="help-panel-header">
@@ -132,6 +133,16 @@ const content = computed(() => {
 .help-slide-leave-to {
   transform: translateX(20px);
   opacity: 0;
+}
+
+.help-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.2);
+  z-index: 99;
 }
 
 /* Responsive: full-width on mobile */

@@ -58,9 +58,9 @@
           </div>
           <div class="event-meta">
             <span :class="['status-badge', `status-${event.status.toLowerCase()}`]">
-              {{ event.status }}
+              {{ formatEventStatus(event.status) }}
             </span>
-            <span>{{ formatDate(event.start_at) }}</span>
+            <span>{{ formatDateOnly(event.start_at) }}</span>
             <span>{{ event.registration_spots }} ({{ event.registration_count }}) · {{ event.confirmed_spots }}/{{ event.capacity }} Best (+{{ event.waitlist_spots }} WL)</span>
           </div>
         </header>
@@ -119,7 +119,7 @@
                 <td>{{ reg.group_size }}</td>
                 <td>
                   <span :class="['status-badge', `status-${reg.status.toLowerCase()}`]">
-                    {{ reg.status }}
+                    {{ formatRegistrationStatus(reg.status) }}
                   </span>
                 </td>
                 <td>{{ reg.waitlist_position || '-' }}</td>
@@ -148,8 +148,10 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { adminApi } from '../../services/api'
+import { formatDateOnly, formatDateTime, formatRegistrationStatus, formatEventStatus } from '../../utils/formatters.js'
+import { showToast } from '../../composables/useToast.js'
 
 const loading = ref(true)
 const error = ref(null)
@@ -157,31 +159,6 @@ const events = ref([])
 const expandedEvents = ref(new Set())
 const loadingRegistrations = ref(new Set())
 const registrationsByEvent = reactive({})
-
-// Format date for display
-function formatDate(dateStr) {
-  if (!dateStr) return '-'
-  const date = new Date(dateStr)
-  return date.toLocaleDateString('de-DE', {
-    timeZone: 'Europe/Berlin',
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  })
-}
-
-// Format datetime for display
-function formatDateTime(dateStr) {
-  if (!dateStr) return '-'
-  const date = new Date(dateStr)
-  return date.toLocaleString('de-DE', {
-    timeZone: 'Europe/Berlin',
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
 
 // Get registration URL for an event
 function getRegistrationUrl(event) {
@@ -204,7 +181,7 @@ function getTelegramUrl(phone) {
 // Copy to clipboard
 function copyToClipboard(text) {
   navigator.clipboard.writeText(text).then(() => {
-    alert('Link kopiert!')
+    showToast('Link kopiert!', 'success')
   }).catch(() => {
     prompt('Link kopieren:', text)
   })
@@ -273,6 +250,10 @@ function handleVisibilityChange() {
 onMounted(() => {
   loadAllData()
   document.addEventListener('visibilitychange', handleVisibilityChange)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 </script>
 
@@ -451,6 +432,7 @@ button.tiny {
 .event-content {
   padding: 0.75rem 1rem;
   border-top: 1px solid var(--pico-muted-border-color, #e2e8f0);
+  overflow-x: auto;
 }
 
 .event-actions {
@@ -568,68 +550,4 @@ button.tiny {
   background: #bfdbfe;
 }
 
-/* Status badges */
-.status-badge {
-  display: inline-block;
-  padding: 0.15rem 0.4rem;
-  border-radius: 3px;
-  font-size: 0.65rem;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-.status-draft {
-  background: #e2e8f0;
-  color: #64748b;
-}
-
-.status-open {
-  background: #dcfce7;
-  color: #16a34a;
-}
-
-.status-registration_closed {
-  background: #fef3c7;
-  color: #d97706;
-}
-
-.status-lottery_pending {
-  background: #ede9fe;
-  color: #7c3aed;
-}
-
-.status-confirmed {
-  background: #fef3c7;
-  color: #d97706;
-}
-
-.status-completed {
-  background: #dbeafe;
-  color: #2563eb;
-}
-
-.status-cancelled {
-  background: #fee2e2;
-  color: #dc2626;
-}
-
-.status-registered {
-  background: #e0e7ff;
-  color: #4f46e5;
-}
-
-.status-participating {
-  background: #dcfce7;
-  color: #16a34a;
-}
-
-.status-waitlisted {
-  background: #e5e7eb;
-  color: #6b7280;
-}
-
-.status-checked_in {
-  background: #dbeafe;
-  color: #2563eb;
-}
 </style>

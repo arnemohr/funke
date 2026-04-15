@@ -1,7 +1,7 @@
 /**
  * API service for communicating with the backend.
  */
-import { useAuth0 } from '@auth0/auth0-vue'
+import { auth0 } from '../plugins/auth0'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -20,8 +20,7 @@ async function getAccessToken() {
   }
 
   try {
-    const { getAccessTokenSilently } = useAuth0()
-    cachedToken = await getAccessTokenSilently()
+    cachedToken = await auth0.getAccessTokenSilently()
     // Cache for 5 minutes (tokens typically last longer but this is safe)
     tokenExpiry = Date.now() + 5 * 60 * 1000
     return cachedToken
@@ -50,8 +49,7 @@ async function request(endpoint, options = {}, requiresAuth = false) {
   if (requiresAuth) {
     const token = await getAccessToken()
     if (!token) {
-      const { loginWithRedirect } = useAuth0()
-      await loginWithRedirect({ appState: { targetUrl: window.location.pathname } })
+      await auth0.loginWithRedirect({ appState: { targetUrl: window.location.pathname } })
       throw new Error('Sitzung abgelaufen. Du wirst zur Anmeldung weitergeleitet.')
     }
     defaultHeaders['Authorization'] = `Bearer ${token}`

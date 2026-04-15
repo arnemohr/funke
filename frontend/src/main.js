@@ -4,6 +4,7 @@ import { router } from './router'
 import { auth0 } from './plugins/auth0'
 import App from './App.vue'
 import '@picocss/pico/css/pico.min.css'
+import './assets/design-tokens.css'
 
 const app = createApp(App)
 app.use(createPinia())

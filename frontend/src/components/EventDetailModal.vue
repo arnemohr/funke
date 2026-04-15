@@ -43,6 +43,7 @@
         </div>
       </div>
 
+      <div style="overflow-x: auto;">
       <RegistrationTable
         :registrations="registrations"
         :event-status="event?.status"
@@ -53,6 +54,7 @@
         @promote-waitlisted="$emit('promote-waitlisted', $event)"
         @delete-registration="$emit('delete-registration', $event)"
       />
+      </div>
 
       <footer>
         <!-- Tier 1: Primary workflow action -->
@@ -89,60 +91,68 @@
 
         <!-- Tier 2: Common utility actions -->
         <div class="tier-utility">
-          <button
-            v-if="['DRAFT', 'OPEN'].includes(event?.status)"
-            @click="$emit('edit', event)"
-            class="outline"
-          >
-            Bearbeiten
-          </button>
-          <button
-            v-if="event?.registration_link_token && !['DRAFT', 'COMPLETED', 'CANCELLED'].includes(event?.status)"
-            @click="$emit('copy-link', event)"
-            class="outline"
-          >
-            {{ event?.status === 'OPEN' ? 'Link kopieren' : 'Link kopieren (Warteliste)' }}
-          </button>
-          <button
-            v-if="event?.registration_link_token && !['DRAFT', 'COMPLETED', 'CANCELLED'].includes(event?.status)"
-            @click="$emit('copy-invite', event)"
-            class="outline"
-          >
-            Einladungstext
-          </button>
-          <button
-            @click="$emit('clone', event)"
-            class="outline secondary"
-          >
-            Duplizieren
-          </button>
-          <button
-            v-if="event?.status === 'CONFIRMED'"
-            @click="$emit('go-to-lottery', event)"
-            class="outline secondary"
-          >
-            Verlosung ansehen
-          </button>
-          <button
-            @click="$emit('export-csv', event)"
-            class="outline"
-            :disabled="registrations.length === 0"
-          >
-            Boardingzettel
-          </button>
-          <button
-            @click="$emit('send-message', event)"
-            class="outline"
-            :disabled="registrations.length === 0"
-          >
-            Nachricht senden
-          </button>
-          <button
-            @click="$emit('show-messages', event)"
-            class="outline"
-          >
-            Nachrichten
-          </button>
+          <div class="button-group">
+            <button
+              v-if="['DRAFT', 'OPEN'].includes(event?.status)"
+              @click="$emit('edit', event)"
+              class="outline"
+            >
+              Bearbeiten
+            </button>
+            <button
+              @click="$emit('clone', event)"
+              class="outline secondary"
+            >
+              Duplizieren
+            </button>
+            <button
+              @click="$emit('export-csv', event)"
+              class="outline"
+              :disabled="registrations.length === 0"
+              title="PDF-Liste aller Teilnehmenden für den Check-in"
+            >
+              Boardingzettel
+            </button>
+          </div>
+          <div class="button-group">
+            <button
+              v-if="event?.registration_link_token && !['DRAFT', 'COMPLETED', 'CANCELLED'].includes(event?.status)"
+              @click="$emit('copy-link', event)"
+              class="outline"
+            >
+              {{ event?.status === 'OPEN' ? 'Link kopieren' : 'Link kopieren (Warteliste)' }}
+            </button>
+            <button
+              v-if="event?.registration_link_token && !['DRAFT', 'COMPLETED', 'CANCELLED'].includes(event?.status)"
+              @click="$emit('copy-invite', event)"
+              class="outline"
+              title="Vorformulierter Text zum Teilen in Chats"
+            >
+              Einladungstext
+            </button>
+          </div>
+          <div class="button-group">
+            <button
+              @click="$emit('send-message', event)"
+              class="outline"
+              :disabled="registrations.length === 0"
+            >
+              Nachricht senden
+            </button>
+            <button
+              @click="$emit('show-messages', event)"
+              class="outline"
+            >
+              Nachrichten
+            </button>
+            <button
+              v-if="event?.status === 'CONFIRMED'"
+              @click="$emit('go-to-lottery', event)"
+              class="outline secondary"
+            >
+              Verlosung ansehen
+            </button>
+          </div>
         </div>
 
         <!-- Tier 3: Destructive/rare actions -->
@@ -155,28 +165,27 @@
             <button
               v-if="event?.status === 'CONFIRMED'"
               @click="$emit('discard-unacknowledged', event)"
-              class="outline cancel-btn"
+              class="outline btn-danger"
             >
               Unbestätigte verwerfen
             </button>
             <button
               v-if="!['COMPLETED', 'CANCELLED'].includes(event?.status)"
               @click="$emit('cancel-event', event)"
-              class="outline cancel-btn"
+              class="outline btn-danger"
             >
               Absagen
             </button>
             <button
               v-if="event?.status === 'CANCELLED'"
               @click="$emit('delete', event)"
-              class="outline delete-btn"
+              class="btn-danger"
             >
               Löschen
             </button>
           </div>
         </details>
 
-        <button @click="$emit('close')" class="close-btn">Schließen</button>
       </footer>
     </article>
   </dialog>
@@ -184,6 +193,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue'
+import { formatDate } from '../utils/formatters.js'
 import RegistrationTable from './RegistrationTable.vue'
 import HelpButton from './help/HelpButton.vue'
 import HelpPanel from './help/HelpPanel.vue'
@@ -219,19 +229,6 @@ function spotsBy(status) {
 
 const participatingSpots = computed(() => spotsBy('PARTICIPATING'))
 const pendingSpots = computed(() => spotsBy('CONFIRMED'))
-
-function formatDate(dateStr) {
-  if (!dateStr) return 'Noch offen'
-  const date = new Date(dateStr)
-  return date.toLocaleDateString('de-DE', {
-    timeZone: 'Europe/Berlin',
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
 
 function formatReminderSchedule(days) {
   if (!days || !Array.isArray(days) || days.length === 0) return '7, 3, 1'
@@ -298,30 +295,15 @@ footer {
   margin: 0;
 }
 
-.close-btn {
-  margin: 0;
-  align-self: flex-end;
+.button-group {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
-.cancel-btn {
-  border-color: #dc2626 !important;
-  color: #dc2626 !important;
-}
-
-.cancel-btn:hover {
-  background: #dc2626 !important;
-  color: white !important;
-}
-
-.outline.delete-btn {
-  background: transparent !important;
-  color: #dc2626 !important;
-  border-color: #dc2626 !important;
-}
-
-.outline.delete-btn:hover {
-  background: #dc2626 !important;
-  color: white !important;
+.button-group + .button-group {
+  padding-left: 0.5rem;
+  border-left: 1px solid var(--pico-muted-border-color, #e2e8f0);
 }
 
 .event-info-summary {

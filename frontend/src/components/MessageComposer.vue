@@ -50,7 +50,7 @@
               />
               {{ reg.name }} ({{ reg.email }})
               <span :class="['status-badge', `status-${reg.status.toLowerCase()}`]">
-                {{ reg.status }}
+                {{ formatRegistrationStatus(reg.status) }}
               </span>
             </label>
           </div>
@@ -123,6 +123,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { adminApi } from '../services/api'
+import { formatRegistrationStatus } from '../utils/formatters.js'
 import HelpButton from './help/HelpButton.vue'
 import HelpPanel from './help/HelpPanel.vue'
 import { useHelp } from './help/useHelp.js'
@@ -175,6 +176,12 @@ function toggleAll(e) {
 watch(() => props.open, (isOpen) => {
   if (isOpen) {
     statusFilter.value = ''
+    subject.value = ''
+    body.value = ''
+    selectedIds.value = []
+    includeLinks.value = false
+    error.value = null
+    result.value = null
   }
 })
 
@@ -266,20 +273,6 @@ legend {
 .recipient-item input[type="checkbox"] {
   margin: 0;
 }
-
-.status-badge {
-  display: inline-block;
-  padding: 0.1rem 0.3rem;
-  border-radius: var(--pico-border-radius);
-  font-size: 0.65rem;
-  font-weight: bold;
-  text-transform: uppercase;
-}
-
-.status-confirmed { background: #fef3c7; color: #d97706; }
-.status-participating { background: #dcfce7; color: #16a34a; }
-.status-waitlisted { background: #e5e7eb; color: #6b7280; }
-.status-registered { background: #e0e7ff; color: #4f46e5; }
 
 .checkbox-label {
   display: flex;

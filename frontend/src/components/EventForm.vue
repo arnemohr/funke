@@ -114,6 +114,7 @@
 
 <script setup>
 import { reactive, computed, watch } from 'vue'
+import { berlinToUTCISO } from '../utils/formatters.js'
 
 const props = defineProps({
   event: { type: Object, default: null },
@@ -137,20 +138,6 @@ function formatDateTimeLocal(dateStr) {
   }).formatToParts(date)
   const get = (type) => parts.find(p => p.type === type).value
   return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`
-}
-
-function berlinToUTCISO(localDateStr) {
-  // Interpret a datetime-local value (e.g. "2026-03-26T12:30") as Europe/Berlin time
-  if (!localDateStr) return null
-  // Parse as if UTC to get a reference point
-  const asUTC = new Date(localDateStr + 'Z')
-  // Find what Berlin's wall-clock time is at this UTC instant
-  const berlinStr = asUTC.toLocaleString('sv-SE', { timeZone: 'Europe/Berlin', hourCycle: 'h23' })
-  const berlinMs = new Date(berlinStr + 'Z').getTime()
-  // The difference is Berlin's UTC offset at this time
-  const offsetMs = berlinMs - asUTC.getTime()
-  // Input represents Berlin wall-clock time, so subtract offset to get UTC
-  return new Date(asUTC.getTime() - offsetMs).toISOString()
 }
 
 function formatReminderSchedule(days) {
@@ -265,5 +252,11 @@ footer {
   gap: 1rem;
   margin-top: 1rem;
   flex-wrap: wrap;
+}
+
+@media (max-width: 576px) {
+  .form-row {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

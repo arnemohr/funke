@@ -4,7 +4,8 @@ import { authGuard } from '@auth0/auth0-vue'
 const routes = [
   {
     path: '/',
-    redirect: '/login',
+    name: 'landing',
+    component: () => import('../pages/LandingPage.vue'),
   },
 
   // Auth routes

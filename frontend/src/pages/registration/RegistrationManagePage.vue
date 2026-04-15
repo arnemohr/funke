@@ -16,7 +16,7 @@
       <div v-if="eventInfo" class="event-info-bar">
         <div class="event-info-text">
           <strong>{{ eventInfo.name }}</strong>
-          <span class="event-meta">{{ eventInfo.start_at }}<template v-if="eventInfo.location"> · {{ eventInfo.location }}</template></span>
+          <span class="event-meta">{{ formatDate(eventInfo.start_at) }}<template v-if="eventInfo.location"> · {{ eventInfo.location }}</template></span>
         </div>
         <HelpButton @click="help.toggle(currentHelpKey)" />
       </div>
@@ -58,7 +58,7 @@
 
       <!-- REGISTERED -->
       <template v-else-if="registration?.status === 'REGISTERED'">
-        <section class="status-banner neutral">
+        <section class="status-banner info">
           <div class="status-icon">⏳</div>
           <h2>Anmeldung eingegangen</h2>
           <p>{{ statusMessage }}</p>
@@ -80,9 +80,10 @@
       <!-- WAITLISTED -->
       <template v-else-if="registration?.status === 'WAITLISTED'">
         <section class="status-banner neutral">
-          <div class="status-icon">⏳</div>
+          <div class="status-icon">📋</div>
           <h2>Du stehst auf der Warteliste</h2>
           <p>{{ statusMessage }}</p>
+          <p class="waitlist-hint">Falls jemand absagt, rückst du automatisch nach.</p>
         </section>
         <div class="registration-details">
           <dl>
@@ -232,7 +233,7 @@
       </template>
 
       <!-- Cancel confirmation dialog -->
-      <dialog ref="cancelDialog" :open="showCancelDialog || undefined">
+      <dialog :open="showCancelDialog || undefined">
         <article style="max-width: 500px;">
           <header>
             <button
@@ -277,6 +278,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { publicApi } from '../../services/api'
+import { formatDate } from '../../utils/formatters.js'
 import HelpButton from '../../components/help/HelpButton.vue'
 import HelpPanel from '../../components/help/HelpPanel.vue'
 import { useHelp } from '../../components/help/useHelp.js'
@@ -311,7 +313,7 @@ const saveSuccess = ref(null)
 const cancelling = ref(false)
 const cancelError = ref(null)
 const showCancelDialog = ref(false)
-const cancelDialog = ref(null)
+
 
 const hasUnsavedChanges = computed(() => {
   if (editableMembers.value.length !== lastSavedMembers.value.length) return true
@@ -530,6 +532,19 @@ onMounted(loadRegistration)
   background: #f5f5f5;
 }
 
+.status-banner.info {
+  background: var(--color-info-bg, #dbeafe);
+}
+.status-banner.info h2 {
+  color: var(--color-info-text, #1d4ed8);
+}
+
+.waitlist-hint {
+  font-size: var(--text-sm);
+  color: var(--color-neutral-text);
+  font-style: italic;
+}
+
 .status-icon {
   font-size: 3rem;
   margin-bottom: 0.5rem;
@@ -608,17 +623,12 @@ onMounted(loadRegistration)
 }
 
 .confirm-btn {
-  background: #16a34a !important;
-  border-color: #16a34a !important;
-  color: white !important;
+  --pico-primary: #16a34a;
+  --pico-primary-hover: #15803d;
+  --pico-primary-focus: rgba(22, 163, 74, 0.25);
   width: 100%;
   padding: 0.75rem;
   font-size: 1.1rem;
-}
-
-.confirm-btn:hover:not(:disabled) {
-  background: #15803d !important;
-  border-color: #15803d !important;
 }
 
 .save-btn {
@@ -633,14 +643,15 @@ onMounted(loadRegistration)
 }
 
 .cancel-btn {
-  color: #dc2626 !important;
-  border-color: #dc2626 !important;
+  --pico-primary: #dc2626;
+  --pico-primary-hover: #b91c1c;
+  --pico-primary-focus: rgba(220, 38, 38, 0.25);
 }
 
 .cancel-confirm-btn {
-  background: #dc2626 !important;
-  border-color: #dc2626 !important;
-  color: white !important;
+  --pico-primary: #dc2626;
+  --pico-primary-hover: #b91c1c;
+  --pico-primary-focus: rgba(220, 38, 38, 0.25);
 }
 
 .warning-box {

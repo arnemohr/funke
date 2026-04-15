@@ -33,14 +33,14 @@
         <h3>Details</h3>
         <dl>
           <dt>Datum</dt>
-          <dd>{{ formatDate(event.start_at) }}</dd>
+          <dd>{{ formatDateLong(event.start_at) }}</dd>
           <dt>Ort</dt>
           <dd>{{ event.location || 'Wird noch bekannt gegeben' }}</dd>
           <dt>Plätze</dt>
           <dd>{{ event.capacity }}</dd>
           <dt>Anmeldeschluss</dt>
           <dd :class="{ 'deadline-passed': deadlinePassed }">
-            {{ formatDate(event.registration_deadline) }}
+            {{ formatDateLong(event.registration_deadline) }}
             <span v-if="deadlinePassed"> (Warteliste möglich)</span>
           </dd>
         </dl>
@@ -102,6 +102,7 @@
                 {{ n }} {{ n === 1 ? 'Person' : 'Personen' }}
               </option>
             </select>
+            <small>Wie viele Personen insgesamt (inkl. dir selbst)?</small>
           </label>
 
           <label for="notes">
@@ -150,6 +151,15 @@
             Über den Link in der E-Mail kannst du deine Anmeldung bei Bedarf stornieren.
           </p>
         </div>
+
+        <div v-if="registration" class="manage-link-box">
+          <p><strong>Dein Verwaltungslink:</strong></p>
+          <p class="manage-link-text">Speichere diesen Link, um deine Anmeldung später zu verwalten:</p>
+          <div class="manage-link-row">
+            <code class="manage-link-url">{{ managementUrl }}</code>
+            <button type="button" class="outline" @click="copyManagementLink">Link kopieren</button>
+          </div>
+        </div>
       </section>
     </template>
   </article>
@@ -159,6 +169,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { publicApi } from '../../services/api'
+import { formatDateLong } from '../../utils/formatters.js'
 import HelpButton from '../../components/help/HelpButton.vue'
 import HelpPanel from '../../components/help/HelpPanel.vue'
 import { useHelp } from '../../components/help/useHelp.js'
@@ -195,21 +206,6 @@ const form = ref({
   groupSize: 1,
   notes: '',
 })
-
-// Format date for display
-function formatDate(dateStr) {
-  if (!dateStr) return 'Wird noch bekannt gegeben'
-  const date = new Date(dateStr)
-  return date.toLocaleDateString('de-DE', {
-    timeZone: 'Europe/Berlin',
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
 
 // Load event info
 async function loadEvent() {
@@ -266,6 +262,15 @@ async function handleSubmit() {
   } finally {
     submitting.value = false
   }
+}
+
+const managementUrl = computed(() => {
+  if (!registration.value) return ''
+  return `${window.location.origin}/registration/${registration.value.id}?token=${registration.value.registration_token}`
+})
+
+function copyManagementLink() {
+  navigator.clipboard.writeText(managementUrl.value).catch(() => {})
 }
 
 onMounted(loadEvent)
@@ -365,5 +370,40 @@ dl {
 
 dt {
   font-weight: bold;
+}
+
+.manage-link-box {
+  text-align: left;
+  background: white;
+  padding: 1rem;
+  border-radius: var(--pico-border-radius);
+  margin-top: 1rem;
+  border-left: 4px solid var(--color-warning-text, #92400e);
+}
+
+.manage-link-text {
+  font-size: var(--text-sm);
+  margin-bottom: 0.5rem;
+}
+
+.manage-link-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.manage-link-url {
+  flex: 1;
+  word-break: break-all;
+  font-size: var(--text-xs);
+  padding: 0.5rem;
+  background: #f1f5f9;
+  border-radius: var(--pico-border-radius);
+}
+
+.manage-link-row button {
+  margin: 0;
+  white-space: nowrap;
 }
 </style>

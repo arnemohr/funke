@@ -60,7 +60,7 @@
             <td>{{ reg.group_size }}</td>
             <td>
               <span :class="['status-badge', `status-${reg.status.toLowerCase()}`]">
-                {{ formatStatus(reg.status) }}
+                {{ formatRegistrationStatus(reg.status) }}
                 <template v-if="reg.status === 'WAITLISTED' && reg.waitlist_position">
                   (#{{ reg.waitlist_position }})
                 </template>
@@ -99,7 +99,7 @@
                 >
                   &hellip;
                 </button>
-                <div v-if="openMenuId === reg.id" class="context-menu" @click.stop>
+                <div v-if="openMenuId === reg.id" class="context-menu" @click.stop @keydown="handleMenuKeydown($event, reg)">
                   <template v-if="reg.status === 'WAITLISTED' && eventStatus === 'CONFIRMED'">
                     <button
                       class="context-menu-item"
@@ -158,6 +158,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { formatDate, formatRegistrationStatus } from '../utils/formatters.js'
 
 const props = defineProps({
   registrations: { type: Array, required: true },
@@ -175,7 +176,25 @@ const openMenuId = ref(null)
 
 function hasActions(reg) {
   return reg.status !== 'CANCELLED'
-    || (reg.status === 'WAITLISTED' && props.eventStatus === 'CONFIRMED')
+}
+
+function handleMenuKeydown(event, reg) {
+  if (event.key === 'Escape') {
+    openMenuId.value = null
+    return
+  }
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault()
+    const items = event.currentTarget.querySelectorAll('.context-menu-item')
+    const currentIndex = Array.from(items).indexOf(document.activeElement)
+    let nextIndex
+    if (event.key === 'ArrowDown') {
+      nextIndex = currentIndex < items.length - 1 ? currentIndex + 1 : 0
+    } else {
+      nextIndex = currentIndex > 0 ? currentIndex - 1 : items.length - 1
+    }
+    items[nextIndex]?.focus()
+  }
 }
 
 function toggleMenu(id) {
@@ -233,19 +252,6 @@ const filteredRegistrations = computed(() => {
   return result
 })
 
-function formatDate(dateStr) {
-  if (!dateStr) return 'Noch offen'
-  const date = new Date(dateStr)
-  return date.toLocaleDateString('de-DE', {
-    timeZone: 'Europe/Berlin',
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
 function spotsBy(regs) {
   return regs.reduce((sum, r) => sum + r.group_size, 0)
 }
@@ -260,17 +266,7 @@ function smsLink(reg) {
   return `sms:${reg.phone}?body=${encodeURIComponent(body)}`
 }
 
-function formatStatus(status) {
-  const statusLabels = {
-    'REGISTERED': 'Angemeldet',
-    'CONFIRMED': 'Bestätigung ausstehend',
-    'PARTICIPATING': 'Nimmt teil',
-    'WAITLISTED': 'Warteliste',
-    'CANCELLED': 'Abgesagt',
-    'CHECKED_IN': 'Eingecheckt',
-  }
-  return statusLabels[status] || status
-}
+
 </script>
 
 <style scoped>
@@ -289,22 +285,6 @@ function formatStatus(status) {
 .status-filter {
   min-width: 180px;
 }
-
-.status-badge {
-  display: inline-block;
-  padding: 0.25rem 0.5rem;
-  border-radius: var(--pico-border-radius);
-  font-size: 0.75rem;
-  font-weight: bold;
-  text-transform: uppercase;
-}
-
-.status-registered { background: #e0e7ff; color: #4f46e5; }
-.status-confirmed { background: #fef3c7; color: #d97706; }
-.status-participating { background: #dcfce7; color: #16a34a; }
-.status-waitlisted { background: #e5e7eb; color: #6b7280; }
-.status-cancelled { background: #fee2e2; color: #dc2626; }
-.status-checked_in { background: #dbeafe; color: #2563eb; }
 
 .promoted-toggle {
   margin: 0;
@@ -432,5 +412,16 @@ function formatStatus(status) {
   background: var(--pico-color-red-50, #fff5f5);
   border-radius: var(--pico-border-radius);
   margin-bottom: 1rem;
+}
+
+.context-menu-trigger:focus-visible {
+  outline: 2px solid var(--pico-primary);
+  outline-offset: 2px;
+}
+
+.context-menu-item:focus-visible {
+  outline: 2px solid var(--pico-primary);
+  outline-offset: -2px;
+  background: #f1f5f9;
 }
 </style>

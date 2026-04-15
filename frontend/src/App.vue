@@ -1,9 +1,10 @@
 <template>
+  <ToastContainer />
   <main class="container">
     <header>
       <nav>
         <ul>
-          <li><strong>Funke</strong></li>
+          <li><strong class="brand-name">⚓ Funke</strong></li>
         </ul>
         <ul>
           <li v-if="isAuthenticated">
@@ -32,6 +33,7 @@
 
 <script setup>
 import { useAuth0 } from '@auth0/auth0-vue'
+import ToastContainer from './components/ToastContainer.vue'
 
 const { isAuthenticated, user, logout } = useAuth0()
 
@@ -44,25 +46,26 @@ function handleLogout() {
 }
 </script>
 
-<style>
-:root {
-  font-size: 87.5%;
-}
-</style>
-
 <style scoped>
 header {
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid var(--color-border, #DFE2E6);
+}
+
+.brand-name {
+  color: var(--color-brand, #0C1E3C);
+  font-size: var(--text-sm);
+  letter-spacing: 0.02em;
 }
 
 .user-email {
-  font-size: 0.875rem;
-  color: var(--pico-muted-color);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted, #5C6470);
 }
 
 .debug-link {
-  font-size: 0.8rem;
-  color: var(--pico-muted-color);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted, #5C6470);
   text-decoration: none;
 }
 
@@ -72,5 +75,13 @@ header {
 
 nav ul li button {
   margin: 0;
+  font-size: var(--text-xs);
+}
+
+nav a.router-link-exact-active {
+  font-weight: bold;
+  color: var(--color-brand, #0C1E3C);
+  border-bottom: 2px solid var(--color-accent, #E8722A);
+  padding-bottom: 2px;
 }
 </style>

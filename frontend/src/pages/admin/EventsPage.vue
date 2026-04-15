@@ -42,30 +42,31 @@
       <nav>
         <ul>
           <li>
-            <a href="#" :class="{ active: statusFilter === null }" @click.prevent="statusFilter = null">Alle</a>
+            <a href="#" :class="{ active: statusFilter === null }" @click.prevent="statusFilter = null">Alle ({{ filterCounts.all }})</a>
           </li>
           <li>
-            <a href="#" :class="{ active: statusFilter === 'DRAFT' }" @click.prevent="statusFilter = 'DRAFT'">Entwurf</a>
+            <a href="#" :class="{ active: statusFilter === 'DRAFT' }" @click.prevent="statusFilter = 'DRAFT'">Entwurf ({{ filterCounts.DRAFT }})</a>
           </li>
           <li>
-            <a href="#" :class="{ active: statusFilter === 'OPEN' }" @click.prevent="statusFilter = 'OPEN'">Offen</a>
+            <a href="#" :class="{ active: statusFilter === 'OPEN' }" @click.prevent="statusFilter = 'OPEN'">Offen ({{ filterCounts.OPEN }})</a>
           </li>
           <li>
-            <a href="#" :class="{ active: statusFilter === 'IN_PROGRESS' }" @click.prevent="statusFilter = 'IN_PROGRESS'">In Bearbeitung</a>
+            <a href="#" :class="{ active: statusFilter === 'IN_PROGRESS' }" @click.prevent="statusFilter = 'IN_PROGRESS'">In Bearbeitung ({{ filterCounts.IN_PROGRESS }})</a>
           </li>
           <li>
-            <a href="#" :class="{ active: statusFilter === 'COMPLETED' }" @click.prevent="statusFilter = 'COMPLETED'">Abgeschlossen</a>
+            <a href="#" :class="{ active: statusFilter === 'COMPLETED' }" @click.prevent="statusFilter = 'COMPLETED'">Abgeschlossen ({{ filterCounts.COMPLETED }})</a>
           </li>
           <li>
-            <a href="#" :class="{ active: statusFilter === 'CANCELLED' }" @click.prevent="statusFilter = 'CANCELLED'">Abgesagt</a>
+            <a href="#" :class="{ active: statusFilter === 'CANCELLED' }" @click.prevent="statusFilter = 'CANCELLED'">Abgesagt ({{ filterCounts.CANCELLED }})</a>
           </li>
         </ul>
       </nav>
 
       <!-- Empty state -->
-      <p v-if="filteredEvents.length === 0">
-        Noch keine Veranstaltungen. Leg los und erstelle deine erste!
-      </p>
+      <article v-if="filteredEvents.length === 0" style="text-align: center; padding: 2rem;">
+        <p>Noch keine Veranstaltungen. Leg los und erstelle deine erste!</p>
+        <button @click="showCreateModal = true">Neue Veranstaltung</button>
+      </article>
 
       <!-- Events table -->
       <table v-else>
@@ -89,12 +90,12 @@
             <td>{{ formatDate(event.start_at) }}</td>
             <td>
               <span :class="['status-badge', `status-${event.status.toLowerCase()}`]">
-                {{ event.status }}
+                {{ formatEventStatus(event.status) }}
               </span>
             </td>
             <td>
-              {{ event.registration_spots }} Pers. ({{ event.registration_count }}) · {{ event.confirmed_spots }} Best. / {{ event.capacity }}
-              <span v-if="event.waitlist_count"> (+{{ event.waitlist_spots }} WL)</span>
+              <div>{{ event.registration_count }} Anmeldungen ({{ event.registration_spots }} Pers.)</div>
+              <div style="font-size: var(--text-sm); color: var(--pico-muted-color);">{{ event.confirmed_spots }} / {{ event.capacity }} bestätigt<span v-if="event.waitlist_count"> · {{ event.waitlist_spots }} Warteliste</span></div>
             </td>
           </tr>
         </tbody>
@@ -216,7 +217,7 @@
           <div v-if="cancelError" role="alert" class="error">{{ cancelError }}</div>
           <footer>
             <button type="button" class="secondary" @click="cancelEventData = null" :disabled="cancelling">Zurück</button>
-            <button type="submit" class="cancel-confirm-btn" :disabled="cancelConfirmation !== 'absagen' || cancelling" :aria-busy="cancelling">
+            <button type="submit" class="btn-danger" :disabled="cancelConfirmation !== 'absagen' || cancelling" :aria-busy="cancelling">
               {{ cancelling ? 'Wird abgesagt...' : 'Absage bestätigen' }}
             </button>
           </footer>
@@ -236,7 +237,7 @@
         <div v-if="deleteError" role="alert" class="error">{{ deleteError }}</div>
         <footer>
           <button type="button" class="secondary" @click="deleteEventData = null" :disabled="deleting">Abbrechen</button>
-          <button @click="handleDelete" class="delete-btn" :disabled="deleting" :aria-busy="deleting">
+          <button @click="handleDelete" class="btn-danger" :disabled="deleting" :aria-busy="deleting">
             {{ deleting ? 'Wird gelöscht...' : 'Löschen' }}
           </button>
         </footer>
@@ -306,7 +307,7 @@
           <footer>
             <button type="button" class="secondary" @click="showDiscardModal = false" :disabled="discarding">Abbrechen</button>
             <button
-              class="discard-btn"
+              class="btn-danger"
               :disabled="selectedDiscardIds.size === 0 || discarding"
               :aria-busy="discarding"
               @click="handleDiscardConfirm"
@@ -336,6 +337,20 @@
         </footer>
       </article>
     </dialog>
+    <!-- Delete Registration Confirmation -->
+    <dialog :open="deleteRegData !== null">
+      <article>
+        <header>
+          <a href="#" aria-label="Schließen" class="close" @click.prevent="deleteRegData = null" />
+          <h3>Anmeldung löschen</h3>
+        </header>
+        <p>Anmeldung von "{{ deleteRegData?.name }}" unwiderruflich löschen?</p>
+        <footer>
+          <button type="button" class="secondary" @click="deleteRegData = null">Abbrechen</button>
+          <button class="btn-danger" @click="confirmDeleteRegistration">Löschen</button>
+        </footer>
+      </article>
+    </dialog>
   </article>
 </template>
 
@@ -351,6 +366,8 @@ import MessageLog from '../../components/MessageLog.vue'
 import HelpButton from '../../components/help/HelpButton.vue'
 import HelpPanel from '../../components/help/HelpPanel.vue'
 import { useHelp } from '../../components/help/useHelp.js'
+import { formatDate, formatEventStatus, berlinToUTCISO } from '../../utils/formatters.js'
+import { showToast } from '../../composables/useToast.js'
 
 const router = useRouter()
 const { logout: auth0Logout } = useAuth0()
@@ -429,6 +446,9 @@ const discarding = ref(false)
 const discardError = ref(null)
 const discardEventRef = ref(null)
 
+// Delete registration modal
+const deleteRegData = ref(null)
+
 // Capacity warning popup
 const capacityWarning = ref(null)
 
@@ -443,28 +463,23 @@ const filteredEvents = computed(() => {
   return events.value.filter(e => e.status === statusFilter.value)
 })
 
+const filterCounts = computed(() => {
+  const all = events.value
+  return {
+    all: all.length,
+    DRAFT: all.filter(e => e.status === 'DRAFT').length,
+    OPEN: all.filter(e => e.status === 'OPEN').length,
+    IN_PROGRESS: all.filter(e => IN_PROGRESS_STATUSES.includes(e.status)).length,
+    COMPLETED: all.filter(e => e.status === 'COMPLETED').length,
+    CANCELLED: all.filter(e => e.status === 'CANCELLED').length,
+  }
+})
+
 const discardCandidates = computed(() =>
   registrations.value.filter(r => r.status === 'CONFIRMED'),
 )
 
 // Helpers
-function formatDate(dateStr) {
-  if (!dateStr) return 'Noch offen'
-  return new Date(dateStr).toLocaleDateString('de-DE', {
-    timeZone: 'Europe/Berlin',
-    year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-  })
-}
-
-function berlinToUTCISO(localDateStr) {
-  if (!localDateStr) return null
-  const asUTC = new Date(localDateStr + 'Z')
-  const berlinStr = asUTC.toLocaleString('sv-SE', { timeZone: 'Europe/Berlin', hourCycle: 'h23' })
-  const berlinMs = new Date(berlinStr + 'Z').getTime()
-  const offsetMs = berlinMs - asUTC.getTime()
-  return new Date(asUTC.getTime() - offsetMs).toISOString()
-}
-
 function logout() {
   auth0Logout({ logoutParams: { returnTo: window.location.origin } })
 }
@@ -499,6 +514,8 @@ async function handleCreate(formData) {
     const newEvent = await adminApi.createEvent(formData)
     events.value.unshift(newEvent)
     showCreateModal.value = false
+    selectedEvent.value = newEvent
+    viewRegistrations(newEvent)
   } catch (err) {
     createError.value = err.message || 'Erstellen fehlgeschlagen'
   } finally {
@@ -511,7 +528,7 @@ async function publishEvent(event) {
   try {
     updateEventInList(await adminApi.publishEvent(event.id))
   } catch (err) {
-    alert(err.message || 'Veröffentlichung fehlgeschlagen')
+    showToast(err.message || 'Veröffentlichung fehlgeschlagen', 'error')
   } finally {
     publishing.value = null
   }
@@ -522,7 +539,7 @@ async function closeRegistration(event) {
   try {
     updateEventInList(await adminApi.closeRegistration(event.id))
   } catch (err) {
-    alert(err.message || 'Anmeldung konnte nicht geschlossen werden')
+    showToast(err.message || 'Anmeldung konnte nicht geschlossen werden', 'error')
   } finally {
     closing.value = null
   }
@@ -533,7 +550,7 @@ async function completeEvent(event) {
   try {
     updateEventInList(await adminApi.completeEvent(event.id))
   } catch (err) {
-    alert(err.message || 'Abschließen fehlgeschlagen')
+    showToast(err.message || 'Abschließen fehlgeschlagen', 'error')
   } finally {
     completing.value = null
   }
@@ -561,7 +578,7 @@ async function handleClone() {
 function copyRegistrationLink(event) {
   const link = `${window.location.origin}/register/${event.registration_link_token}`
   navigator.clipboard.writeText(link).then(
-    () => alert('Anmeldelink wurde kopiert!'),
+    () => showToast('Anmeldelink wurde kopiert!', 'success'),
     () => prompt('Kopiere diesen Link:', link),
   )
 }
@@ -594,7 +611,7 @@ function copyInviteText(event) {
   text += `\n🔗 Jetzt anmelden: ${link}`
 
   navigator.clipboard.writeText(text).then(
-    () => alert('Einladungstext wurde kopiert!'),
+    () => showToast('Einladungstext wurde kopiert!', 'success'),
     () => prompt('Kopiere diesen Text:', text),
   )
 }
@@ -682,7 +699,7 @@ async function handleExportCsv(event) {
   try {
     await adminApi.exportBoardingPdf(event.id)
   } catch (err) {
-    alert(err.message || 'Boardingzettel konnte nicht erstellt werden')
+    showToast(err.message || 'Boardingzettel konnte nicht erstellt werden', 'error')
   }
 }
 
@@ -703,7 +720,7 @@ async function handleTogglePromoted({ registrationId, promoted }) {
     registrations.value = regs.items
     updateEventInList(evt)
   } catch (err) {
-    alert(err.message || 'Bevorzugung konnte nicht geändert werden')
+    showToast(err.message || 'Bevorzugung konnte nicht geändert werden', 'error')
   } finally {
     togglingPromotedId.value = null
   }
@@ -739,7 +756,7 @@ async function handlePromoteWaitlisted({ registrationId, targetStatus }) {
     registrations.value = regs.items
     updateEventInList(evt)
   } catch (err) {
-    alert(err.message || 'Nachrücken fehlgeschlagen')
+    showToast(err.message || 'Nachrücken fehlgeschlagen', 'error')
   }
 }
 
@@ -784,7 +801,7 @@ async function handleDiscardConfirm() {
       discardSubject.value.trim() || undefined,
     )
     showDiscardModal.value = false
-    alert(`${result.discarded_count} Anmeldungen verworfen (${result.discarded_spots} Plätze).`)
+    showToast(`${result.discarded_count} Anmeldungen verworfen (${result.discarded_spots} Plätze).`, 'success')
     // Refresh
     const [regs, evt] = await Promise.all([
       adminApi.listRegistrations(discardEventRef.value.id),
@@ -801,8 +818,13 @@ async function handleDiscardConfirm() {
 
 async function handleDeleteRegistration({ registrationId, name }) {
   if (!selectedEvent.value) return
-  if (!confirm(`Anmeldung von "${name}" unwiderruflich löschen?`)) return
+  deleteRegData.value = { registrationId, name }
+}
 
+async function confirmDeleteRegistration() {
+  if (!selectedEvent.value || !deleteRegData.value) return
+  const { registrationId } = deleteRegData.value
+  deleteRegData.value = null
   try {
     await adminApi.deleteRegistration(selectedEvent.value.id, registrationId)
     const [regs, evt] = await Promise.all([
@@ -812,11 +834,10 @@ async function handleDeleteRegistration({ registrationId, name }) {
     registrations.value = regs.items
     updateEventInList(evt)
   } catch (err) {
-    alert(err.message || 'Löschen fehlgeschlagen')
+    showToast(err.message || 'Löschen fehlgeschlagen', 'error')
   }
 }
 
-watch(statusFilter, loadEvents)
 onMounted(loadEvents)
 </script>
 
@@ -854,22 +875,6 @@ nav a.active {
   color: white;
 }
 
-.status-badge {
-  display: inline-block;
-  padding: 0.25rem 0.5rem;
-  border-radius: var(--pico-border-radius);
-  font-size: 0.75rem;
-  font-weight: bold;
-  text-transform: uppercase;
-}
-
-.status-draft { background: #e2e8f0; color: #64748b; }
-.status-open { background: #dcfce7; color: #16a34a; }
-.status-registration_closed { background: #fef3c7; color: #d97706; }
-.status-lottery_pending { background: #ede9fe; color: #7c3aed; }
-.status-confirmed { background: #d1fae5; color: #065f46; }
-.status-completed { background: #dbeafe; color: #2563eb; }
-.status-cancelled { background: #fee2e2; color: #dc2626; }
 
 dialog article { max-width: 600px; }
 dialog article.modal-wide { max-width: 750px; }
@@ -902,13 +907,6 @@ dialog footer {
 .cancel-warning p { margin-bottom: 0.5rem; }
 .cancel-warning ul { margin: 0.5rem 0 0 1.5rem; padding: 0; }
 
-.cancel-confirm-btn { background: #dc2626 !important; border-color: #dc2626 !important; }
-.cancel-confirm-btn:hover:not(:disabled) { background: #b91c1c !important; border-color: #b91c1c !important; }
-.cancel-confirm-btn:disabled { background: #fca5a5 !important; border-color: #fca5a5 !important; }
-
-.delete-btn { background: #dc2626 !important; border-color: #dc2626 !important; color: white !important; }
-.delete-btn:hover:not(:disabled) { background: #b91c1c !important; border-color: #b91c1c !important; }
-.delete-btn:disabled { background: #fca5a5 !important; border-color: #fca5a5 !important; }
 
 .discard-list {
   max-height: 250px;
@@ -927,9 +925,6 @@ dialog footer {
   margin: 0;
 }
 
-.discard-btn { background: #dc2626 !important; border-color: #dc2626 !important; color: white !important; }
-.discard-btn:hover:not(:disabled) { background: #b91c1c !important; border-color: #b91c1c !important; }
-.discard-btn:disabled { background: #fca5a5 !important; border-color: #fca5a5 !important; }
 
 .access-denied {
   text-align: center;
