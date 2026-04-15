@@ -260,11 +260,17 @@ legend {
 .recipient-list {
   max-height: 200px;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  mask-image: linear-gradient(to bottom, #000 80%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 80%, transparent 100%);
+  padding-bottom: 1rem;
 }
 
 .recipient-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  min-height: 44px;
   gap: 0.5rem;
   padding: 0.25rem 0;
   font-size: 0.875rem;
@@ -309,5 +315,15 @@ footer {
   align-items: center;
   gap: 1rem;
   margin-top: 1rem;
+}
+
+@media (max-width: 480px) {
+  footer {
+    flex-direction: column-reverse;
+  }
+  footer button {
+    width: 100%;
+    min-height: 44px;
+  }
 }
 </style>
