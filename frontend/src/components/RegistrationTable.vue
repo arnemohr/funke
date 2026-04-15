@@ -33,7 +33,7 @@
         </select>
       </div>
 
-      <table>
+      <table class="mobile-card-table">
         <thead>
           <tr>
             <th>Name</th>
@@ -48,17 +48,17 @@
         </thead>
         <tbody>
           <tr v-for="reg in filteredRegistrations" :key="reg.id">
-            <td>{{ reg.name }}</td>
-            <td><a :href="`mailto:${reg.email}`">{{ reg.email }}</a></td>
-            <td>
+            <td data-label="Name">{{ reg.name }}</td>
+            <td data-label="E-Mail"><a :href="`mailto:${reg.email}`">{{ reg.email }}</a></td>
+            <td data-label="Telefon">
               <a
                 v-if="reg.phone"
                 :href="smsLink(reg)"
               >{{ reg.phone }}</a>
               <span v-else>&ndash;</span>
             </td>
-            <td>{{ reg.group_size }}</td>
-            <td>
+            <td data-label="Personen">{{ reg.group_size }}</td>
+            <td data-label="Status">
               <span :class="['status-badge', `status-${reg.status.toLowerCase()}`]">
                 {{ formatRegistrationStatus(reg.status) }}
                 <template v-if="reg.status === 'WAITLISTED' && reg.waitlist_position">
@@ -73,7 +73,7 @@
                 Gesehen
               </span>
             </td>
-            <td v-if="showPromotedColumn">
+            <td v-if="showPromotedColumn" data-label="Bevorzugt">
               <template v-if="isPromotedEditable">
                 <label class="promoted-toggle" :title="'Garantierte Teilnahme bei der Verlosung'">
                   <input
@@ -89,39 +89,41 @@
                 <span v-if="reg.promoted" class="promoted-badge" title="Bevorzugt">★</span>
               </template>
             </td>
-            <td>{{ formatDate(reg.registered_at) }}</td>
+            <td data-label="Angemeldet">{{ formatDate(reg.registered_at) }}</td>
             <td v-if="showActions" class="context-menu-cell">
               <template v-if="hasActions(reg)">
-                <button
-                  class="context-menu-trigger"
-                  @click.stop="toggleMenu(reg.id)"
-                  aria-label="Aktionen"
-                >
-                  &hellip;
-                </button>
-                <div v-if="openMenuId === reg.id" class="context-menu" @click.stop @keydown="handleMenuKeydown($event, reg)">
-                  <template v-if="reg.status === 'WAITLISTED' && eventStatus === 'CONFIRMED'">
-                    <button
-                      class="context-menu-item"
-                      @click="doAction(() => $emit('promote-waitlisted', { registrationId: reg.id, targetStatus: 'CONFIRMED' }))"
-                    >
-                      Nachrücken
-                    </button>
-                    <button
-                      class="context-menu-item"
-                      @click="doAction(() => $emit('promote-waitlisted', { registrationId: reg.id, targetStatus: 'PARTICIPATING' }))"
-                    >
-                      Direkt bestätigen
-                    </button>
-                    <hr class="context-menu-divider" />
-                  </template>
+                <div class="card-actions">
                   <button
-                    v-if="reg.status !== 'CANCELLED'"
-                    class="context-menu-item destructive"
-                    @click="doAction(() => $emit('delete-registration', { registrationId: reg.id, name: reg.name }))"
+                    class="context-menu-trigger"
+                    @click.stop="toggleMenu(reg.id)"
+                    aria-label="Aktionen"
                   >
-                    Löschen
+                    &hellip;
                   </button>
+                  <div v-if="openMenuId === reg.id" class="context-menu" @click.stop @keydown="handleMenuKeydown($event, reg)">
+                    <template v-if="reg.status === 'WAITLISTED' && eventStatus === 'CONFIRMED'">
+                      <button
+                        class="context-menu-item"
+                        @click="doAction(() => $emit('promote-waitlisted', { registrationId: reg.id, targetStatus: 'CONFIRMED' }))"
+                      >
+                        Nachrücken
+                      </button>
+                      <button
+                        class="context-menu-item"
+                        @click="doAction(() => $emit('promote-waitlisted', { registrationId: reg.id, targetStatus: 'PARTICIPATING' }))"
+                      >
+                        Direkt bestätigen
+                      </button>
+                      <hr class="context-menu-divider" />
+                    </template>
+                    <button
+                      v-if="reg.status !== 'CANCELLED'"
+                      class="context-menu-item destructive"
+                      @click="doAction(() => $emit('delete-registration', { registrationId: reg.id, name: reg.name }))"
+                    >
+                      Löschen
+                    </button>
+                  </div>
                 </div>
               </template>
             </td>
@@ -279,11 +281,21 @@ function smsLink(reg) {
 
 .search-input {
   flex: 1;
-  min-width: 200px;
+  min-width: 0;
 }
 
 .status-filter {
-  min-width: 180px;
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .filters {
+    flex-direction: column;
+  }
+  .search-input,
+  .status-filter {
+    width: 100%;
+  }
 }
 
 .promoted-toggle {
@@ -423,5 +435,57 @@ function smsLink(reg) {
   outline: 2px solid var(--pico-primary);
   outline-offset: -2px;
   background: #f1f5f9;
+}
+
+@media (max-width: 640px) {
+  /* Name row is prominent — hide the ::before label for it */
+  tbody td[data-label="Name"] {
+    font-weight: 600;
+    font-size: var(--text-lg);
+    padding-bottom: 0.35rem;
+    margin-bottom: 0.2rem;
+    border-bottom: 1px solid var(--color-border);
+  }
+  tbody td[data-label="Name"]::before {
+    display: none;
+  }
+
+  /* Status badge is self-labeling — hide the redundant "Status:" prefix */
+  tbody td[data-label="Status"]::before {
+    display: none;
+  }
+
+  /* Card actions: absolutely positioned at top-right of card */
+  .context-menu-cell {
+    display: block;
+    padding: 0;
+    border: none;
+  }
+  .card-actions {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+  }
+
+  /* Context menu: position fixed to avoid viewport overflow */
+  .context-menu {
+    position: fixed;
+    right: 1rem;
+    left: auto;
+  }
+
+  /* Larger tap targets */
+  .context-menu-trigger {
+    min-height: 44px;
+    min-width: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .context-menu-item {
+    padding: 0.75rem 1rem;
+    font-size: var(--text-base);
+  }
 }
 </style>
