@@ -42,7 +42,7 @@ const content = computed(() => {
   position: absolute;
   top: 0;
   right: 0;
-  width: 320px;
+  width: min(320px, calc(100vw - 2rem));
   max-height: 70vh;
   overflow-y: auto;
   background: var(--pico-background-color, #fff);
@@ -145,13 +145,30 @@ const content = computed(() => {
   z-index: 99;
 }
 
-/* Responsive: full-width on mobile */
-@media (max-width: 576px) {
+/* Responsive: bottom sheet on mobile */
+@media (max-width: 640px) {
   .help-panel {
-    width: 100%;
-    right: 0;
+    position: fixed;
+    bottom: 0;
     left: 0;
+    right: 0;
+    top: auto;
+    width: 100%;
     max-height: 60vh;
+    border-radius: var(--pico-border-radius) var(--pico-border-radius) 0 0;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+  .help-slide-enter-from,
+  .help-slide-leave-to {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  .help-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 99;
+    background: rgba(0, 0, 0, 0.4);
   }
 }
 </style>
