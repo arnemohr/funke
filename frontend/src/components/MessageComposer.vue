@@ -261,9 +261,6 @@ legend {
   max-height: 200px;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  mask-image: linear-gradient(to bottom, #000 80%, transparent 100%);
-  -webkit-mask-image: linear-gradient(to bottom, #000 80%, transparent 100%);
-  padding-bottom: 1rem;
 }
 
 .recipient-item {
@@ -315,6 +312,14 @@ footer {
   align-items: center;
   gap: 1rem;
   margin-top: 1rem;
+}
+
+@media (max-width: 640px) {
+  .recipient-list {
+    mask-image: linear-gradient(to bottom, #000 80%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, #000 80%, transparent 100%);
+    padding-bottom: 1rem;
+  }
 }
 
 @media (max-width: 480px) {

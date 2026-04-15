@@ -259,7 +259,9 @@ footer {
     grid-template-columns: 1fr;
   }
 
-  input, textarea, select {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+  textarea,
+  select {
     font-size: 1rem;     /* prevents iOS Safari auto-zoom on focus */
     min-height: 48px;
   }
