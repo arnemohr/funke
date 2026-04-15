@@ -158,7 +158,7 @@
           Noch keine Gewinner. Starte die Verlosung.
         </p>
 
-        <table v-else>
+        <table v-else class="mobile-card-table">
           <thead>
             <tr>
               <th>Name</th>
@@ -169,10 +169,10 @@
           </thead>
           <tbody>
             <tr v-for="winner in lottery.winners" :key="winner.id">
-              <td>{{ winner.name }} <span v-if="winner.promoted" class="promoted-star" title="Bevorzugt">★</span></td>
-              <td class="mono">{{ winner.email }}</td>
-              <td>{{ winner.group_size }}</td>
-              <td>
+              <td data-label="Name">{{ winner.name }} <span v-if="winner.promoted" class="promoted-star" title="Bevorzugt">★</span></td>
+              <td data-label="E-Mail" class="mono">{{ winner.email }}</td>
+              <td data-label="Personen">{{ winner.group_size }}</td>
+              <td data-label="Status">
                 <span class="status-badge status-confirmed">BESTÄTIGT</span>
               </td>
             </tr>
@@ -190,7 +190,7 @@
           Keine Wartelistenanmeldungen.
         </p>
 
-        <table v-else>
+        <table v-else class="mobile-card-table">
           <thead>
             <tr>
               <th>Position</th>
@@ -201,10 +201,10 @@
           </thead>
           <tbody>
             <tr v-for="wait in lottery.waitlist" :key="wait.id">
-              <td>#{{ wait.waitlist_position || '-' }}</td>
-              <td>{{ wait.name }}</td>
-              <td class="mono">{{ wait.email }}</td>
-              <td>{{ wait.group_size }}</td>
+              <td data-label="Position">#{{ wait.waitlist_position || '-' }}</td>
+              <td data-label="Name">{{ wait.name }}</td>
+              <td data-label="E-Mail" class="mono">{{ wait.email }}</td>
+              <td data-label="Personen">{{ wait.group_size }}</td>
             </tr>
           </tbody>
         </table>
@@ -441,5 +441,22 @@ th {
 
 .finalized-guidance p {
   margin-bottom: 0.75rem;
+}
+
+/* Mobile card layout for tables */
+@media (max-width: 640px) {
+  .mobile-card-table tbody td[data-label="Name"] {
+    font-weight: 600;
+    font-size: var(--text-base, 0.875rem);
+    border-bottom: 1px solid var(--pico-muted-border-color, #e2e8f0);
+    padding-bottom: 0.4rem;
+    margin-bottom: 0.2rem;
+  }
+  .mobile-card-table tbody td[data-label="Name"]::before {
+    display: none;
+  }
+  .mobile-card-table tbody td[data-label="Status"]::before {
+    display: none;
+  }
 }
 </style>

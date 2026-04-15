@@ -10,7 +10,7 @@
  */
 export function formatDate(dateStr, fallback = 'Noch offen') {
   if (!dateStr) return fallback
-  return new Date(dateStr).toLocaleDateString('de-DE', {
+  return new Date(dateStr).toLocaleString('de-DE', {
     timeZone: 'Europe/Berlin',
     year: 'numeric',
     month: 'short',
@@ -27,7 +27,7 @@ export function formatDate(dateStr, fallback = 'Noch offen') {
  */
 export function formatDateLong(dateStr, fallback = 'Wird noch bekannt gegeben') {
   if (!dateStr) return fallback
-  return new Date(dateStr).toLocaleDateString('de-DE', {
+  return new Date(dateStr).toLocaleString('de-DE', {
     timeZone: 'Europe/Berlin',
     weekday: 'long',
     year: 'numeric',
