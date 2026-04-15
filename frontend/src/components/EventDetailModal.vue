@@ -1,6 +1,6 @@
 <template>
   <dialog :open="!!event">
-    <article style="max-width: 1100px; position: relative;">
+    <article class="modal-article">
       <header class="modal-header">
         <a
           href="#"
@@ -43,7 +43,7 @@
         </div>
       </div>
 
-      <div style="overflow-x: auto;">
+      <div class="table-scroll-wrapper">
       <RegistrationTable
         :registrations="registrations"
         :event-status="event?.status"
@@ -91,7 +91,7 @@
 
         <!-- Tier 2: Common utility actions -->
         <div class="tier-utility">
-          <div class="button-group">
+          <div class="tier-utility-primary">
             <button
               v-if="['DRAFT', 'OPEN'].includes(event?.status)"
               @click="$emit('edit', event)"
@@ -114,7 +114,7 @@
               Boardingzettel
             </button>
           </div>
-          <div class="button-group">
+          <div class="tier-utility-secondary">
             <button
               v-if="event?.registration_link_token && !['DRAFT', 'COMPLETED', 'CANCELLED'].includes(event?.status)"
               @click="$emit('copy-link', event)"
@@ -130,8 +130,6 @@
             >
               Einladungstext
             </button>
-          </div>
-          <div class="button-group">
             <button
               @click="$emit('send-message', event)"
               class="outline"
@@ -237,6 +235,19 @@ function formatReminderSchedule(days) {
 </script>
 
 <style scoped>
+/* Modal article — replaces the old inline style */
+.modal-article {
+  max-width: min(1100px, calc(100vw - 2rem));
+  width: 100%;
+  position: relative;
+}
+
+/* Table scroll wrapper */
+.table-scroll-wrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .modal-header {
   display: flex;
   align-items: center;
@@ -260,18 +271,27 @@ footer {
 }
 
 .tier-primary button {
-  margin: 0;
   width: 100%;
+  min-height: 44px;
+  margin: 0;
 }
 
 .tier-utility {
   display: flex;
+  flex-direction: column;
   gap: 0.5rem;
+}
+
+.tier-utility-primary,
+.tier-utility-secondary {
+  display: flex;
   flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 .tier-utility button {
   margin: 0;
+  min-height: 44px;
 }
 
 .tier-destructive {
@@ -295,15 +315,28 @@ footer {
   margin: 0;
 }
 
-.button-group {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
+/* On desktop: restore horizontal layout with divider */
+@media (min-width: 641px) {
+  .tier-utility {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+  .tier-utility-secondary {
+    padding-left: 0.5rem;
+    border-left: 1px solid var(--color-border);
+  }
 }
 
-.button-group + .button-group {
-  padding-left: 0.5rem;
-  border-left: 1px solid var(--pico-muted-border-color, #e2e8f0);
+/* Mobile specific */
+@media (max-width: 640px) {
+  .event-info-label {
+    min-width: 80px;
+  }
+  .tier-destructive-actions button {
+    width: 100%;
+    min-height: 44px;
+  }
 }
 
 .event-info-summary {
