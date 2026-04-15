@@ -254,9 +254,14 @@ footer {
   flex-wrap: wrap;
 }
 
-@media (max-width: 576px) {
+@media (max-width: 640px) {
   .form-row {
     grid-template-columns: 1fr;
+  }
+
+  input, textarea, select {
+    font-size: 1rem;     /* prevents iOS Safari auto-zoom on focus */
+    min-height: 48px;
   }
 }
 </style>
