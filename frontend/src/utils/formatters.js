@@ -10,7 +10,9 @@
  */
 export function formatDate(dateStr, fallback = 'Noch offen') {
   if (!dateStr) return fallback
-  return new Date(dateStr).toLocaleString('de-DE', {
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return fallback
+  return d.toLocaleString('de-DE', {
     timeZone: 'Europe/Berlin',
     year: 'numeric',
     month: 'short',
@@ -27,7 +29,9 @@ export function formatDate(dateStr, fallback = 'Noch offen') {
  */
 export function formatDateLong(dateStr, fallback = 'Wird noch bekannt gegeben') {
   if (!dateStr) return fallback
-  return new Date(dateStr).toLocaleString('de-DE', {
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return fallback
+  return d.toLocaleString('de-DE', {
     timeZone: 'Europe/Berlin',
     weekday: 'long',
     year: 'numeric',
@@ -45,7 +49,9 @@ export function formatDateLong(dateStr, fallback = 'Wird noch bekannt gegeben') 
  */
 export function formatDateOnly(dateStr, fallback = '-') {
   if (!dateStr) return fallback
-  return new Date(dateStr).toLocaleDateString('de-DE', {
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return fallback
+  return d.toLocaleDateString('de-DE', {
     timeZone: 'Europe/Berlin',
     day: '2-digit',
     month: '2-digit',
@@ -60,7 +66,9 @@ export function formatDateOnly(dateStr, fallback = '-') {
  */
 export function formatDateTime(dateStr, fallback = '-') {
   if (!dateStr) return fallback
-  return new Date(dateStr).toLocaleString('de-DE', {
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return fallback
+  return d.toLocaleString('de-DE', {
     timeZone: 'Europe/Berlin',
     day: '2-digit',
     month: '2-digit',
