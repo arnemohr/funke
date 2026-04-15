@@ -84,4 +84,22 @@ nav a.router-link-exact-active {
   border-bottom: 2px solid var(--color-accent, #E8722A);
   padding-bottom: 2px;
 }
+
+@media (max-width: 640px) {
+  nav {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  nav ul:first-child {
+    flex: 0 0 100%;
+  }
+  nav ul:last-child {
+    gap: 0.5rem;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+  .user-email {
+    display: none;
+  }
+}
 </style>
