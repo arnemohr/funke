@@ -33,7 +33,8 @@
         </select>
       </div>
 
-      <table class="mobile-card-table">
+      <div class="table-wrap">
+      <table class="mobile-card-table registration-table">
         <thead>
           <tr>
             <th>Name</th>
@@ -130,6 +131,7 @@
           </tr>
         </tbody>
       </table>
+      </div>
 
       <p class="total-info">
         {{ filteredRegistrations.length }} Buchungen,
@@ -437,22 +439,42 @@ function smsLink(reg) {
   background: #f1f5f9;
 }
 
-@media (max-width: 640px) {
-  /* Name row is prominent — hide the ::before label for it */
+/* Desktop table — prevent individual cells from stretching the table past its wrapper.
+   Long emails/timestamps wrap naturally; the .table-wrap provides overflow-x as a safety net. */
+.registration-table {
+  width: 100%;
+}
+
+.registration-table td,
+.registration-table th {
+  vertical-align: middle;
+}
+
+.registration-table td[data-label="E-Mail"],
+.registration-table td[data-label="Telefon"] {
+  word-break: break-word;
+}
+
+@media (max-width: 900px) {
+  /* Name: primary anchor, sensible bold body size. Drop the border divider —
+     the card itself already provides the container. */
   tbody td[data-label="Name"] {
     font-weight: 600;
-    font-size: var(--text-lg);
-    padding-bottom: 0.35rem;
-    margin-bottom: 0.2rem;
-    border-bottom: 1px solid var(--color-border);
+    font-size: var(--text-base);
+    padding-bottom: 2px;
   }
   tbody td[data-label="Name"]::before {
     display: none;
   }
 
-  /* Status badge is self-labeling — hide the redundant "Status:" prefix */
+  /* Status badge is self-labeling */
   tbody td[data-label="Status"]::before {
     display: none;
+  }
+
+  /* Tighter badges inside cards */
+  tbody .status-badge {
+    font-size: var(--text-xs);
   }
 
   /* Card actions: absolutely positioned at top-right of card */
@@ -464,8 +486,8 @@ function smsLink(reg) {
   }
   .card-actions {
     position: absolute;
-    top: 0.5rem;
-    right: 0.5rem;
+    top: var(--space-1);
+    right: var(--space-1);
   }
 
   /* Context menu: position fixed to avoid viewport overflow */
@@ -480,6 +502,18 @@ function smsLink(reg) {
   .context-menu-item {
     padding: 0.75rem 1rem;
     font-size: var(--text-base);
+  }
+}
+
+/* At iPhone widths, tighten even further and reduce label width */
+@media (max-width: 480px) {
+  .mobile-card-table tbody td[data-label]::before {
+    min-width: 72px;
+    font-size: var(--text-xs);
+  }
+  tbody td[data-label="E-Mail"],
+  tbody td[data-label="Telefon"] {
+    font-size: var(--text-sm);
   }
 }
 </style>

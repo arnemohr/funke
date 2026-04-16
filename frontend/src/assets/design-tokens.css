@@ -316,8 +316,28 @@
   justify-content: center;
 }
 
-/* === Mobile Card Table Utility === */
-@media (max-width: 640px) {
+/* === Table scroll wrapper — prevents wide tables from overflowing the viewport === */
+.table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  /* Soft scroll-hint shadow on the right when content overflows */
+  background:
+    linear-gradient(to right, var(--color-surface-raised) 30%, rgba(255, 255, 255, 0)) left center no-repeat,
+    linear-gradient(to left, var(--color-surface-raised) 30%, rgba(255, 255, 255, 0)) right center no-repeat,
+    linear-gradient(to right, rgba(12, 30, 60, 0.12), rgba(12, 30, 60, 0)) left center no-repeat,
+    linear-gradient(to left, rgba(12, 30, 60, 0.12), rgba(12, 30, 60, 0)) right center no-repeat;
+  background-size: 20px 100%, 20px 100%, 8px 100%, 8px 100%;
+  background-attachment: local, local, scroll, scroll;
+}
+
+.table-wrap > table {
+  margin-bottom: 0;
+}
+
+/* === Mobile Card Table Utility ===
+   Breakpoint sized for the widest table in the app (RegistrationTable has 8 cols).
+   Narrower tables can opt into an earlier breakpoint via their own scoped styles. */
+@media (max-width: 900px) {
   .mobile-card-table thead {
     display: none;
   }
@@ -325,27 +345,28 @@
   .mobile-card-table tbody tr {
     display: block;
     border: 1px solid var(--color-border);
-    border-radius: var(--pico-border-radius);
-    margin-bottom: 0.75rem;
-    padding: 0.75rem;
+    border-radius: var(--radius-md);
+    margin-bottom: var(--space-2);
+    padding: var(--space-2) var(--space-3);
     background: var(--color-surface-raised);
     position: relative;
+    box-shadow: var(--shadow-card);
   }
 
   .mobile-card-table tbody td {
     display: flex;
-    gap: 0.5rem;
-    padding: 0.2rem 0;
+    gap: var(--space-2);
+    padding: 2px 0;
     border: none;
     align-items: baseline;
   }
 
   .mobile-card-table tbody td[data-label]::before {
-    content: attr(data-label) ":";
-    font-weight: 600;
+    content: attr(data-label);
+    font-weight: 500;
     color: var(--color-text-muted);
     font-size: var(--text-sm);
-    min-width: 90px;
+    min-width: 88px;
     flex-shrink: 0;
   }
 }
