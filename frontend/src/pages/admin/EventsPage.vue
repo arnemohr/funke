@@ -81,9 +81,9 @@
         <tbody>
           <tr v-for="event in filteredEvents" :key="event.id">
             <td data-label="Veranstaltung">
-              <a href="#" @click.prevent="viewRegistrations(event)">
+              <router-link :to="`/admin/events/${event.id}`">
                 <strong>{{ event.name }}</strong>
-              </a>
+              </router-link>
               <br />
               <small>{{ event.location || 'Kein Ort angegeben' }}</small>
             </td>
@@ -119,238 +119,6 @@
         />
       </article>
     </dialog>
-
-    <!-- Edit Event Modal -->
-    <dialog :open="editEventData !== null">
-      <article class="modal-wide">
-        <header>
-          <a href="#" aria-label="Schließen" class="close" @click.prevent="editEventData = null" />
-          <h3>Veranstaltung bearbeiten</h3>
-        </header>
-        <EventForm
-          :event="editEventData"
-          :disabled="editing"
-          :error="editError"
-          submit-label="Speichern"
-          submit-busy-label="Wird gespeichert..."
-          @submit="handleEdit"
-          @cancel="editEventData = null"
-        />
-      </article>
-    </dialog>
-
-    <!-- Clone Event Modal -->
-    <dialog :open="cloneEvent !== null">
-      <article>
-        <header>
-          <a href="#" aria-label="Schließen" class="close" @click.prevent="cloneEvent = null" />
-          <h3>Veranstaltung duplizieren</h3>
-        </header>
-        <p>Erstelle eine Kopie von "{{ cloneEvent?.name }}" mit neuem Datum.</p>
-        <form @submit.prevent="handleClone">
-          <label for="cloneStartAt">
-            Neues Datum & Uhrzeit *
-            <input id="cloneStartAt" v-model="cloneStartAt" type="datetime-local" required :disabled="cloning" />
-          </label>
-          <div v-if="cloneError" role="alert" class="error">{{ cloneError }}</div>
-          <footer>
-            <button type="button" class="secondary" @click="cloneEvent = null" :disabled="cloning">Abbrechen</button>
-            <button type="submit" :disabled="cloning" :aria-busy="cloning">
-              {{ cloning ? 'Wird dupliziert...' : 'Duplizieren' }}
-            </button>
-          </footer>
-        </form>
-      </article>
-    </dialog>
-
-    <!-- Event Detail Modal (registrations + actions) -->
-    <EventDetailModal
-      :event="selectedEvent"
-      :registrations="registrations"
-      :loading="loadingRegistrations"
-      :error="registrationsError"
-      :publishing="publishing === selectedEvent?.id"
-      :closing-registration="closing === selectedEvent?.id"
-      :completing="completing === selectedEvent?.id"
-      :toggling-id="togglingPromotedId"
-      @close="selectedEvent = null"
-      @edit="showEditModal"
-      @publish="publishEvent"
-      @clone="showCloneModal"
-      @cancel-event="showCancelEventModal"
-      @delete="showDeleteModal"
-      @close-registration="closeRegistration"
-      @copy-link="copyRegistrationLink"
-      @copy-invite="copyInviteText"
-      @go-to-lottery="goToLottery"
-      @complete-event="completeEvent"
-      @export-csv="handleExportCsv"
-      @send-message="showMessageComposer = true"
-      @show-messages="showMessageLog = true"
-      @toggle-promoted="handleTogglePromoted"
-      @promote-waitlisted="handlePromoteWaitlisted"
-      @discard-unacknowledged="handleDiscardUnacknowledged"
-      @delete-registration="handleDeleteRegistration"
-    />
-
-    <!-- Cancel Event Confirmation Modal -->
-    <dialog :open="cancelEventData !== null">
-      <article>
-        <header>
-          <a href="#" aria-label="Schließen" class="close" @click.prevent="cancelEventData = null" />
-          <h3>Veranstaltung absagen</h3>
-        </header>
-        <div class="cancel-warning">
-          <p><strong>Achtung:</strong> Diese Aktion kann nicht rückgängig gemacht werden.</p>
-          <p>Wenn du "{{ cancelEventData?.name }}" absagst:</p>
-          <ul>
-            <li>Wird der Status auf ABGESAGT gesetzt</li>
-            <li>Werden alle Angemeldeten benachrichtigt</li>
-            <li>Sind keine weiteren Anmeldungen möglich</li>
-          </ul>
-        </div>
-        <form @submit.prevent="handleCancelEvent">
-          <label for="cancelConfirmation">
-            Tippe <strong>absagen</strong> zur Bestätigung:
-            <input id="cancelConfirmation" v-model="cancelConfirmation" type="text" placeholder="absagen" autocomplete="off" :disabled="cancelling" />
-          </label>
-          <div v-if="cancelError" role="alert" class="error">{{ cancelError }}</div>
-          <footer>
-            <button type="button" class="secondary" @click="cancelEventData = null" :disabled="cancelling">Zurück</button>
-            <button type="submit" class="btn-danger" :disabled="cancelConfirmation !== 'absagen' || cancelling" :aria-busy="cancelling">
-              {{ cancelling ? 'Wird abgesagt...' : 'Absage bestätigen' }}
-            </button>
-          </footer>
-        </form>
-      </article>
-    </dialog>
-
-    <!-- Delete Event Confirmation Modal -->
-    <dialog :open="deleteEventData !== null">
-      <article>
-        <header>
-          <a href="#" aria-label="Schließen" class="close" @click.prevent="deleteEventData = null" />
-          <h3>Veranstaltung löschen</h3>
-        </header>
-        <p>Möchtest du "{{ deleteEventData?.name }}" wirklich endgültig löschen?</p>
-        <p><small>Diese Aktion kann nicht rückgängig gemacht werden.</small></p>
-        <div v-if="deleteError" role="alert" class="error">{{ deleteError }}</div>
-        <footer>
-          <button type="button" class="secondary" @click="deleteEventData = null" :disabled="deleting">Abbrechen</button>
-          <button @click="handleDelete" class="btn-danger" :disabled="deleting" :aria-busy="deleting">
-            {{ deleting ? 'Wird gelöscht...' : 'Löschen' }}
-          </button>
-        </footer>
-      </article>
-    </dialog>
-
-    <!-- Message Composer -->
-    <MessageComposer
-      :open="showMessageComposer"
-      :event-id="selectedEvent?.id"
-      :registrations="registrations"
-      @close="showMessageComposer = false"
-      @sent="onMessageSent"
-    />
-
-    <!-- Message Log -->
-    <MessageLog
-      :open="showMessageLog"
-      :event-id="selectedEvent?.id"
-      @close="showMessageLog = false"
-    />
-
-    <!-- Discard Unacknowledged Modal -->
-    <dialog :open="showDiscardModal">
-      <article>
-        <header>
-          <a href="#" aria-label="Schließen" class="close" @click.prevent="showDiscardModal = false" />
-          <h3>Unbestätigte Anmeldungen verwerfen</h3>
-        </header>
-        <div v-if="discardCandidates.length === 0">
-          <p>Keine unbestätigten Anmeldungen vorhanden.</p>
-        </div>
-        <template v-else>
-          <p>
-            <a href="#" @click.prevent="toggleAllDiscard">
-              {{ selectedDiscardIds.size === discardCandidates.length ? 'Alle abwählen' : 'Alle auswählen' }}
-            </a>
-          </p>
-          <div class="discard-list">
-            <label v-for="reg in discardCandidates" :key="reg.id" class="discard-item">
-              <input
-                type="checkbox"
-                :checked="selectedDiscardIds.has(reg.id)"
-                @change="toggleDiscardId(reg.id)"
-              />
-              {{ reg.name }} ({{ reg.group_size }} Pers.)
-            </label>
-          </div>
-          <label for="discardSubject">
-            Betreff
-            <input
-              id="discardSubject"
-              v-model="discardSubject"
-              type="text"
-            />
-          </label>
-          <label for="discardMessage">
-            Nachricht an die Teilnehmer
-            <textarea
-              id="discardMessage"
-              v-model="discardMessage"
-              rows="4"
-              placeholder="Optionale Nachricht an die Teilnehmer..."
-            ></textarea>
-          </label>
-          <div v-if="discardError" role="alert" class="error">{{ discardError }}</div>
-          <footer>
-            <button type="button" class="secondary" @click="showDiscardModal = false" :disabled="discarding">Abbrechen</button>
-            <button
-              class="btn-danger"
-              :disabled="selectedDiscardIds.size === 0 || discarding"
-              :aria-busy="discarding"
-              @click="handleDiscardConfirm"
-            >
-              {{ discarding ? 'Wird verworfen...' : `${selectedDiscardIds.size} Anmeldungen verwerfen` }}
-            </button>
-          </footer>
-        </template>
-      </article>
-    </dialog>
-
-    <!-- Capacity Warning Popup -->
-    <dialog :open="!!capacityWarning">
-      <article v-if="capacityWarning">
-        <header>
-          <button aria-label="Schließen" rel="prev" @click="capacityWarning = null"></button>
-          <h3>Kapazität überschritten</h3>
-        </header>
-        <p>
-          <strong>{{ capacityWarning.name }}</strong> benötigt {{ capacityWarning.needed }}
-          {{ capacityWarning.needed === 1 ? 'Platz' : 'Plätze' }}, aber nur
-          {{ capacityWarning.remaining <= 0 ? 'keine' : capacityWarning.remaining }}
-          {{ capacityWarning.remaining === 1 ? 'Platz ist' : 'Plätze sind' }} frei.
-        </p>
-        <footer>
-          <button @click="capacityWarning = null">Verstanden</button>
-        </footer>
-      </article>
-    </dialog>
-    <!-- Delete Registration Confirmation -->
-    <dialog :open="deleteRegData !== null">
-      <article>
-        <header>
-          <a href="#" aria-label="Schließen" class="close" @click.prevent="deleteRegData = null" />
-          <h3>Anmeldung löschen</h3>
-        </header>
-        <p>Anmeldung von "{{ deleteRegData?.name }}" unwiderruflich löschen?</p>
-        <footer>
-          <button type="button" class="secondary" @click="deleteRegData = null">Abbrechen</button>
-          <button class="btn-danger" @click="confirmDeleteRegistration">Löschen</button>
-        </footer>
-      </article>
-    </dialog>
   </article>
 </template>
 
@@ -360,14 +128,10 @@ import { useRouter } from 'vue-router'
 import { useAuth0 } from '@auth0/auth0-vue'
 import { adminApi } from '../../services/api'
 import EventForm from '../../components/EventForm.vue'
-import EventDetailModal from '../../components/EventDetailModal.vue'
-import MessageComposer from '../../components/MessageComposer.vue'
-import MessageLog from '../../components/MessageLog.vue'
 import HelpButton from '../../components/help/HelpButton.vue'
 import HelpPanel from '../../components/help/HelpPanel.vue'
 import { useHelp } from '../../components/help/useHelp.js'
-import { formatDate, formatEventStatus, berlinToUTCISO } from '../../utils/formatters.js'
-import { showToast } from '../../composables/useToast.js'
+import { formatDate, formatEventStatus } from '../../utils/formatters.js'
 
 const router = useRouter()
 const { logout: auth0Logout } = useAuth0()
@@ -378,11 +142,8 @@ const helpPanelRef = ref(null)
 watch(helpPanelRef, (el) => { help.panelRef.value = el?.$el || el })
 
 const activeHelpKey = computed(() => {
-  if (showDiscardModal.value) return 'discard-modal'
-  if (showCreateModal.value || editEventData.value) return 'event-form'
-  if (cloneEvent.value) return 'clone-event'
-  if (showMessageComposer.value) return 'message-composer'
-  return 'admin-events'
+  if (showCreateModal.value) return 'event-form'
+  return 'events-list'
 })
 
 // Core state
@@ -396,61 +157,6 @@ const statusFilter = ref(null)
 const showCreateModal = ref(false)
 const creating = ref(false)
 const createError = ref(null)
-
-// Clone modal
-const cloneEvent = ref(null)
-const cloneStartAt = ref('')
-const cloning = ref(false)
-const cloneError = ref(null)
-
-// Action states
-const publishing = ref(null)
-const closing = ref(null)
-const completing = ref(null)
-
-// Registrations / detail modal
-const selectedEvent = ref(null)
-const registrations = ref([])
-const loadingRegistrations = ref(false)
-const registrationsError = ref(null)
-
-// Cancel event modal
-const cancelEventData = ref(null)
-const cancelConfirmation = ref('')
-const cancelling = ref(false)
-const cancelError = ref(null)
-
-// Edit event modal
-const editEventData = ref(null)
-const editing = ref(false)
-const editError = ref(null)
-
-// Delete event modal
-const deleteEventData = ref(null)
-const deleting = ref(false)
-const deleteError = ref(null)
-
-// Messaging
-const showMessageComposer = ref(false)
-const showMessageLog = ref(false)
-
-// Promoted toggle
-const togglingPromotedId = ref(null)
-
-// Discard unacknowledged
-const showDiscardModal = ref(false)
-const discardSubject = ref('')
-const discardMessage = ref('')
-const selectedDiscardIds = ref(new Set())
-const discarding = ref(false)
-const discardError = ref(null)
-const discardEventRef = ref(null)
-
-// Delete registration modal
-const deleteRegData = ref(null)
-
-// Capacity warning popup
-const capacityWarning = ref(null)
 
 // Computed
 const IN_PROGRESS_STATUSES = ['REGISTRATION_CLOSED', 'LOTTERY_PENDING', 'CONFIRMED']
@@ -475,10 +181,6 @@ const filterCounts = computed(() => {
   }
 })
 
-const discardCandidates = computed(() =>
-  registrations.value.filter(r => r.status === 'CONFIRMED'),
-)
-
 // Helpers
 function logout() {
   auth0Logout({ logoutParams: { returnTo: window.location.origin } })
@@ -487,7 +189,6 @@ function logout() {
 function updateEventInList(updated) {
   const index = events.value.findIndex(e => e.id === updated.id)
   if (index !== -1) events.value[index] = updated
-  if (selectedEvent.value?.id === updated.id) selectedEvent.value = updated
 }
 
 // API actions
@@ -514,327 +215,11 @@ async function handleCreate(formData) {
     const newEvent = await adminApi.createEvent(formData)
     events.value.unshift(newEvent)
     showCreateModal.value = false
-    selectedEvent.value = newEvent
-    viewRegistrations(newEvent)
+    router.push('/admin/events/' + newEvent.id)
   } catch (err) {
     createError.value = err.message || 'Erstellen fehlgeschlagen'
   } finally {
     creating.value = false
-  }
-}
-
-async function publishEvent(event) {
-  publishing.value = event.id
-  try {
-    updateEventInList(await adminApi.publishEvent(event.id))
-  } catch (err) {
-    showToast(err.message || 'Veröffentlichung fehlgeschlagen', 'error')
-  } finally {
-    publishing.value = null
-  }
-}
-
-async function closeRegistration(event) {
-  closing.value = event.id
-  try {
-    updateEventInList(await adminApi.closeRegistration(event.id))
-  } catch (err) {
-    showToast(err.message || 'Anmeldung konnte nicht geschlossen werden', 'error')
-  } finally {
-    closing.value = null
-  }
-}
-
-async function completeEvent(event) {
-  completing.value = event.id
-  try {
-    updateEventInList(await adminApi.completeEvent(event.id))
-  } catch (err) {
-    showToast(err.message || 'Abschließen fehlgeschlagen', 'error')
-  } finally {
-    completing.value = null
-  }
-}
-
-function showCloneModal(event) {
-  cloneEvent.value = event
-  cloneStartAt.value = ''
-  cloneError.value = null
-}
-
-async function handleClone() {
-  cloning.value = true
-  cloneError.value = null
-  try {
-    events.value.unshift(await adminApi.cloneEvent(cloneEvent.value.id, berlinToUTCISO(cloneStartAt.value)))
-    cloneEvent.value = null
-  } catch (err) {
-    cloneError.value = err.message || 'Duplizieren fehlgeschlagen'
-  } finally {
-    cloning.value = false
-  }
-}
-
-function copyRegistrationLink(event) {
-  const link = `${window.location.origin}/register/${event.registration_link_token}`
-  navigator.clipboard.writeText(link).then(
-    () => showToast('Anmeldelink wurde kopiert!', 'success'),
-    () => prompt('Kopiere diesen Link:', link),
-  )
-}
-
-function copyInviteText(event) {
-  const link = `${window.location.origin}/register/${event.registration_link_token}`
-  const date = new Date(event.start_at)
-  const dateStr = date.toLocaleDateString('de-DE', {
-    timeZone: 'Europe/Berlin',
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  })
-  const timeStr = date.toLocaleTimeString('de-DE', {
-    timeZone: 'Europe/Berlin',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-
-  let text = `⛵ ${event.name}\n\n`
-  if (event.description) {
-    text += `${event.description}\n\n`
-  }
-  text += `📅 ${dateStr} um ${timeStr} Uhr\n`
-  if (event.location) {
-    text += `📍 ${event.location}\n`
-  }
-  text += `👥 ${event.capacity} Plätze\n`
-  text += `\n🔗 Jetzt anmelden: ${link}`
-
-  navigator.clipboard.writeText(text).then(
-    () => showToast('Einladungstext wurde kopiert!', 'success'),
-    () => prompt('Kopiere diesen Text:', text),
-  )
-}
-
-function goToLottery(event) {
-  router.push({ name: 'admin-event-lottery', params: { eventId: event.id } })
-}
-
-async function viewRegistrations(event) {
-  selectedEvent.value = event
-  loadingRegistrations.value = true
-  registrationsError.value = null
-  registrations.value = []
-  try {
-    registrations.value = (await adminApi.listRegistrations(event.id)).items
-  } catch (err) {
-    registrationsError.value = err.message || 'Anmeldungen konnten nicht geladen werden'
-  } finally {
-    loadingRegistrations.value = false
-  }
-}
-
-function showCancelEventModal(event) {
-  cancelEventData.value = event
-  cancelConfirmation.value = ''
-  cancelError.value = null
-}
-
-async function handleCancelEvent() {
-  if (cancelConfirmation.value !== 'absagen') return
-  cancelling.value = true
-  cancelError.value = null
-  try {
-    const updated = await adminApi.cancelEvent(cancelEventData.value.id)
-    updateEventInList(updated)
-    cancelEventData.value = null
-    selectedEvent.value = null
-  } catch (err) {
-    cancelError.value = err.message || 'Absage fehlgeschlagen'
-  } finally {
-    cancelling.value = false
-  }
-}
-
-function showEditModal(event) {
-  selectedEvent.value = null
-  editEventData.value = event
-  editError.value = null
-}
-
-async function handleEdit(formData) {
-  editing.value = true
-  editError.value = null
-  try {
-    updateEventInList(await adminApi.updateEvent(editEventData.value.id, formData))
-    editEventData.value = null
-  } catch (err) {
-    editError.value = err.message || 'Änderungen konnten nicht gespeichert werden'
-  } finally {
-    editing.value = false
-  }
-}
-
-function showDeleteModal(event) {
-  deleteEventData.value = event
-  deleteError.value = null
-}
-
-async function handleDelete() {
-  deleting.value = true
-  deleteError.value = null
-  try {
-    await adminApi.deleteEvent(deleteEventData.value.id)
-    events.value = events.value.filter(e => e.id !== deleteEventData.value.id)
-    deleteEventData.value = null
-    selectedEvent.value = null
-  } catch (err) {
-    deleteError.value = err.message || 'Veranstaltung konnte nicht gelöscht werden'
-  } finally {
-    deleting.value = false
-  }
-}
-
-async function handleExportCsv(event) {
-  try {
-    await adminApi.exportBoardingPdf(event.id)
-  } catch (err) {
-    showToast(err.message || 'Boardingzettel konnte nicht erstellt werden', 'error')
-  }
-}
-
-function onMessageSent() {
-  // Optionally refresh registrations after message sent
-}
-
-async function handleTogglePromoted({ registrationId, promoted }) {
-  if (!selectedEvent.value) return
-  togglingPromotedId.value = registrationId
-  try {
-    await adminApi.togglePromoted(selectedEvent.value.id, registrationId, promoted)
-    // Refresh registrations and event
-    const [regs, evt] = await Promise.all([
-      adminApi.listRegistrations(selectedEvent.value.id),
-      adminApi.getEvent(selectedEvent.value.id),
-    ])
-    registrations.value = regs.items
-    updateEventInList(evt)
-  } catch (err) {
-    showToast(err.message || 'Bevorzugung konnte nicht geändert werden', 'error')
-  } finally {
-    togglingPromotedId.value = null
-  }
-}
-
-async function handlePromoteWaitlisted({ registrationId, targetStatus }) {
-  if (!selectedEvent.value) return
-
-  // Check capacity before promoting
-  const reg = registrations.value.find(r => r.id === registrationId)
-  if (reg) {
-    const confirmedSpots = registrations.value
-      .filter(r => ['CONFIRMED', 'PARTICIPATING'].includes(r.status))
-      .reduce((sum, r) => sum + r.group_size, 0)
-    const remaining = selectedEvent.value.capacity - confirmedSpots
-    if (reg.group_size > remaining) {
-      capacityWarning.value = {
-        needed: reg.group_size,
-        remaining,
-        name: reg.name,
-      }
-      return
-    }
-  }
-
-  try {
-    await adminApi.promoteFromWaitlist(selectedEvent.value.id, registrationId, targetStatus)
-    // Refresh registrations and event
-    const [regs, evt] = await Promise.all([
-      adminApi.listRegistrations(selectedEvent.value.id),
-      adminApi.getEvent(selectedEvent.value.id),
-    ])
-    registrations.value = regs.items
-    updateEventInList(evt)
-  } catch (err) {
-    showToast(err.message || 'Nachrücken fehlgeschlagen', 'error')
-  }
-}
-
-function handleDiscardUnacknowledged(event) {
-  discardEventRef.value = event
-  discardError.value = null
-  discardSubject.value = `Dein Platz an Bord: ${event.name}`
-  discardMessage.value = 'Leider haben wir innerhalb der Frist keine Rückmeldung von dir erhalten, ob du wirklich mit an Bord kommst. Daher mussten wir deinen Platz an einen anderen Fisch aus unserem Schwarm weitergeben.\n\nFalls du beim nächsten Mal wieder anheuern möchtest, freuen wir uns sehr auf dich!'
-  selectedDiscardIds.value = new Set(
-    registrations.value.filter(r => r.status === 'CONFIRMED').map(r => r.id),
-  )
-  showDiscardModal.value = true
-}
-
-function toggleAllDiscard() {
-  if (selectedDiscardIds.value.size === discardCandidates.value.length) {
-    selectedDiscardIds.value = new Set()
-  } else {
-    selectedDiscardIds.value = new Set(discardCandidates.value.map(r => r.id))
-  }
-}
-
-function toggleDiscardId(id) {
-  const next = new Set(selectedDiscardIds.value)
-  if (next.has(id)) {
-    next.delete(id)
-  } else {
-    next.add(id)
-  }
-  selectedDiscardIds.value = next
-}
-
-async function handleDiscardConfirm() {
-  if (!discardEventRef.value || selectedDiscardIds.value.size === 0) return
-  discarding.value = true
-  discardError.value = null
-  try {
-    const result = await adminApi.discardUnacknowledged(
-      discardEventRef.value.id,
-      [...selectedDiscardIds.value],
-      discardMessage.value.trim() || undefined,
-      discardSubject.value.trim() || undefined,
-    )
-    showDiscardModal.value = false
-    showToast(`${result.discarded_count} Anmeldungen verworfen (${result.discarded_spots} Plätze).`, 'success')
-    // Refresh
-    const [regs, evt] = await Promise.all([
-      adminApi.listRegistrations(discardEventRef.value.id),
-      adminApi.getEvent(discardEventRef.value.id),
-    ])
-    registrations.value = regs.items
-    updateEventInList(evt)
-  } catch (err) {
-    discardError.value = err.message || 'Verwerfen fehlgeschlagen'
-  } finally {
-    discarding.value = false
-  }
-}
-
-async function handleDeleteRegistration({ registrationId, name }) {
-  if (!selectedEvent.value) return
-  deleteRegData.value = { registrationId, name }
-}
-
-async function confirmDeleteRegistration() {
-  if (!selectedEvent.value || !deleteRegData.value) return
-  const { registrationId } = deleteRegData.value
-  deleteRegData.value = null
-  try {
-    await adminApi.deleteRegistration(selectedEvent.value.id, registrationId)
-    const [regs, evt] = await Promise.all([
-      adminApi.listRegistrations(selectedEvent.value.id),
-      adminApi.getEvent(selectedEvent.value.id),
-    ])
-    registrations.value = regs.items
-    updateEventInList(evt)
-  } catch (err) {
-    showToast(err.message || 'Löschen fehlgeschlagen', 'error')
   }
 }
 
@@ -906,36 +291,6 @@ dialog footer {
   border-radius: var(--pico-border-radius);
   margin-bottom: 1rem;
 }
-
-.cancel-warning {
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  border-radius: var(--pico-border-radius);
-  padding: 1rem;
-  margin-bottom: 1rem;
-}
-
-.cancel-warning p { margin-bottom: 0.5rem; }
-.cancel-warning ul { margin: 0.5rem 0 0 1.5rem; padding: 0; }
-
-
-.discard-list {
-  max-height: 250px;
-  overflow-y: auto;
-  margin-bottom: 1rem;
-}
-
-.discard-item {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.25rem 0;
-}
-
-.discard-item input[type="checkbox"] {
-  margin: 0;
-}
-
 
 .access-denied {
   text-align: center;

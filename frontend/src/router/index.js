@@ -62,11 +62,24 @@ const routes = [
     beforeEnter: authGuard,
   },
   {
+    path: '/admin/events/:eventId',
+    name: 'admin-event-detail',
+    component: () => import('../pages/admin/EventDetailPage.vue'),
+    beforeEnter: authGuard,
+    props: true,
+  },
+  {
     path: '/admin/events/:eventId/lottery',
     name: 'admin-event-lottery',
     component: () => import('../pages/admin/events/[eventId]/lottery.vue'),
     beforeEnter: authGuard,
     props: true,
+  },
+  {
+    path: '/admin/settings',
+    name: 'admin-settings',
+    component: () => import('../pages/admin/SettingsPage.vue'),
+    beforeEnter: authGuard,
   },
   {
     path: '/admin/debug',
