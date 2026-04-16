@@ -10,14 +10,41 @@ const permission = ref(
 )
 
 function urlBase64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  // Trim whitespace/newlines that can sneak in via env vars
+  const trimmed = (base64String || '').trim()
+  const padding = '='.repeat((4 - (trimmed.length % 4)) % 4)
+  const base64 = (trimmed + padding).replace(/-/g, '+').replace(/_/g, '/')
   const rawData = atob(base64)
   const outputArray = new Uint8Array(rawData.length)
   for (let i = 0; i < rawData.length; ++i) {
     outputArray[i] = rawData.charCodeAt(i)
   }
   return outputArray
+}
+
+/**
+ * Verify a decoded VAPID public key is a valid P-256 uncompressed point.
+ * Must be exactly 65 bytes with a 0x04 prefix. Throws a diagnostic error otherwise.
+ */
+function assertValidVapidKey(keyBytes) {
+  if (!keyBytes || keyBytes.length === 0) {
+    throw new Error(
+      'VAPID_PUBLIC_KEY ist leer. Backend-Umgebungsvariable prüfen (VAPID_PUBLIC_KEY).',
+    )
+  }
+  if (keyBytes.length !== 65) {
+    throw new Error(
+      `VAPID-Schlüssel hat falsche Länge: ${keyBytes.length} Bytes (erwartet: 65). ` +
+      'Erzeuge einen gültigen Schlüssel mit py-vapid oder pywebpush.',
+    )
+  }
+  if (keyBytes[0] !== 0x04) {
+    throw new Error(
+      `VAPID-Schlüssel beginnt nicht mit 0x04 (uncompressed point marker). ` +
+      `Erstes Byte: 0x${keyBytes[0].toString(16).padStart(2, '0')}. ` +
+      'Schlüssel muss raw P-256 uncompressed point sein (nicht PEM/DER).',
+    )
+  }
 }
 
 function arrayBufferToBase64(buffer) {
@@ -46,11 +73,13 @@ export function usePushNotifications() {
     }
 
     const { public_key } = await adminApi.getVapidKey()
+    const keyBytes = urlBase64ToUint8Array(public_key)
+    assertValidVapidKey(keyBytes)
 
     const registration = await navigator.serviceWorker.ready
     const subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(public_key),
+      applicationServerKey: keyBytes,
     })
 
     await adminApi.subscribePush({

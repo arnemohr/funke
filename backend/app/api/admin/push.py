@@ -5,7 +5,7 @@ Provides:
 - Push subscription management (subscribe/unsubscribe)
 """
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
 from ...models.admin import AdminRole
@@ -32,7 +32,16 @@ class PushSubscriptionCreate(BaseModel):
 async def get_vapid_key(user: CurrentUser):
     """Return the VAPID public key for push subscription."""
     service = get_push_service()
-    return VapidKeyResponse(public_key=service.get_public_key())
+    key = service.get_public_key().strip()
+    if not key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Push notifications not configured. "
+                "Set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY env vars."
+            ),
+        )
+    return VapidKeyResponse(public_key=key)
 
 
 @router.post(
