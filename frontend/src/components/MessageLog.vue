@@ -1,5 +1,6 @@
 <template>
-  <dialog :open="open">
+  <!-- Modal mode — legacy callers -->
+  <dialog v-if="mode === 'modal'" :open="open">
     <article style="max-width: 800px;">
       <header>
         <a
@@ -10,61 +11,33 @@
         />
         <h3>Gesendete Nachrichten</h3>
       </header>
-
-      <div v-if="loading" aria-busy="true">
-        Nachrichten werden geladen...
-      </div>
-
-      <div v-else-if="error" role="alert" class="error">
-        {{ error }}
-      </div>
-
-      <template v-else>
-        <p v-if="messages.length === 0">
-          Noch keine Nachrichten für diese Veranstaltung.
-        </p>
-
-        <table v-else>
-          <thead>
-            <tr>
-              <th>Typ</th>
-              <th>Betreff</th>
-              <th>Empfänger</th>
-              <th>Status</th>
-              <th>Gesendet am</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="msg in messages" :key="msg.id">
-              <td>
-                <span class="type-badge">{{ formatType(msg.type) }}</span>
-              </td>
-              <td>{{ msg.subject }}</td>
-              <td>{{ msg.recipient_email || '-' }}</td>
-              <td>
-                <span :class="['status-badge', `status-${msg.status}`]">
-                  {{ formatMsgStatus(msg.status) }}
-                </span>
-              </td>
-              <td>{{ formatDate(msg.sent_at) }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </template>
-
+      <MessageLogContent
+        :messages="messages"
+        :loading="loading"
+        :error="error"
+      />
       <footer>
         <button @click="$emit('close')">Schließen</button>
       </footer>
     </article>
   </dialog>
+
+  <!-- Inline mode — embedded inside page tabs/sections -->
+  <MessageLogContent
+    v-else
+    :messages="messages"
+    :loading="loading"
+    :error="error"
+  />
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, computed, h } from 'vue'
 import { adminApi } from '../services/api'
 import { formatDate } from '../utils/formatters.js'
 
 const props = defineProps({
+  mode: { type: String, default: 'modal', validator: (v) => ['modal', 'inline'].includes(v) },
   open: { type: Boolean, default: false },
   eventId: { type: String, default: null },
 })
@@ -75,23 +48,29 @@ const messages = ref([])
 const loading = ref(false)
 const error = ref(null)
 
-watch(
-  () => props.open,
-  async (isOpen) => {
-    if (isOpen && props.eventId) {
-      loading.value = true
-      error.value = null
-      try {
-        const result = await adminApi.listMessages(props.eventId)
-        messages.value = result.items || []
-      } catch (err) {
-        error.value = err.message || 'Nachrichten konnten nicht geladen werden'
-      } finally {
-        loading.value = false
-      }
-    }
-  },
-)
+// Inline mode loads once when eventId is present; modal mode waits for open.
+const shouldLoad = computed(() => {
+  if (!props.eventId) return false
+  if (props.mode === 'inline') return true
+  return props.open
+})
+
+async function load() {
+  if (!props.eventId) return
+  loading.value = true
+  error.value = null
+  try {
+    const result = await adminApi.listMessages(props.eventId)
+    messages.value = result.items || []
+  } catch (err) {
+    error.value = err.message || 'Nachrichten konnten nicht geladen werden'
+  } finally {
+    loading.value = false
+  }
+}
+
+watch(shouldLoad, (v) => { if (v) load() }, { immediate: true })
+watch(() => props.eventId, () => { if (shouldLoad.value) load() })
 
 function formatType(type) {
   const labels = {
@@ -116,6 +95,48 @@ function formatMsgStatus(status) {
   }
   return labels[status] || status
 }
+
+// Inline render helper — table/empty/error/loading all handled here
+const MessageLogContent = {
+  props: ['messages', 'loading', 'error'],
+  setup(p) {
+    return () => {
+      if (p.loading) {
+        return h('div', { 'aria-busy': 'true' }, 'Nachrichten werden geladen…')
+      }
+      if (p.error) {
+        return h('div', { role: 'alert', class: 'error' }, p.error)
+      }
+      if (!p.messages || p.messages.length === 0) {
+        return h('p', { class: 'muted' }, 'Noch keine Nachrichten für diese Veranstaltung.')
+      }
+      return h('div', { class: 'message-log-wrap' }, [
+        h('table', null, [
+          h('thead', null,
+            h('tr', null, [
+              h('th', null, 'Typ'),
+              h('th', null, 'Betreff'),
+              h('th', null, 'Empfänger'),
+              h('th', null, 'Status'),
+              h('th', null, 'Gesendet am'),
+            ]),
+          ),
+          h('tbody', null, p.messages.map(msg =>
+            h('tr', { key: msg.id }, [
+              h('td', null, h('span', { class: 'type-badge' }, formatType(msg.type))),
+              h('td', null, msg.subject),
+              h('td', null, msg.recipient_email || '-'),
+              h('td', null,
+                h('span', { class: ['status-badge', `status-${msg.status}`] }, formatMsgStatus(msg.status)),
+              ),
+              h('td', null, formatDate(msg.sent_at)),
+            ]),
+          )),
+        ]),
+      ])
+    }
+  },
+}
 </script>
 
 <style scoped>
@@ -135,6 +156,14 @@ function formatMsgStatus(status) {
   background: var(--pico-color-red-50, #fff5f5);
   border-radius: var(--pico-border-radius);
   margin-bottom: 1rem;
+}
+
+.muted {
+  color: var(--color-text-muted, #5C6470);
+}
+
+.message-log-wrap {
+  overflow-x: auto;
 }
 
 footer {

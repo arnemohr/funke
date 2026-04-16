@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { adminApi } from '../services/api'
 import { showToast } from './useToast.js'
@@ -22,24 +22,19 @@ export function useEventActions({ event, registrations, refreshEvent, refreshReg
   const completing = ref(false)
   const togglingPromotedId = ref(null)
 
-  // --- Clone modal ---
+  // --- Clone modal (stays a modal — one field) ---
   const cloneEvent = ref(null)
   const cloneStartAt = ref('')
   const cloning = ref(false)
   const cloneError = ref(null)
 
-  // --- Cancel modal ---
+  // --- Cancel modal (stays a modal — confirmation only) ---
   const cancelEventData = ref(null)
   const cancelConfirmation = ref('')
   const cancelling = ref(false)
   const cancelError = ref(null)
 
-  // --- Edit modal ---
-  const editEventData = ref(null)
-  const editing = ref(false)
-  const editError = ref(null)
-
-  // --- Delete event modal ---
+  // --- Delete event modal (stays a modal — confirmation only) ---
   const deleteEventData = ref(null)
   const deleting = ref(false)
   const deleteError = ref(null)
@@ -52,20 +47,6 @@ export function useEventActions({ event, registrations, refreshEvent, refreshReg
 
   // --- Messaging ---
   const showMessageComposer = ref(false)
-  const showMessageLog = ref(false)
-
-  // --- Discard unacknowledged ---
-  const showDiscardModal = ref(false)
-  const discardSubject = ref('')
-  const discardMessage = ref('')
-  const selectedDiscardIds = ref(new Set())
-  const discarding = ref(false)
-  const discardError = ref(null)
-
-  // Computed: registrations eligible for discard (CONFIRMED status)
-  const discardCandidates = computed(() =>
-    registrations.value.filter(r => r.status === 'CONFIRMED'),
-  )
 
   // --- Action handlers ---
 
@@ -173,6 +154,14 @@ export function useEventActions({ event, registrations, refreshEvent, refreshReg
     router.push({ name: 'admin-event-lottery', params: { eventId: evt.id } })
   }
 
+  function goToEdit(evt) {
+    router.push({ name: 'admin-event-edit', params: { eventId: evt.id } })
+  }
+
+  function goToDiscard(evt) {
+    router.push({ name: 'admin-event-discard', params: { eventId: evt.id } })
+  }
+
   function showCancelEventModal(evt) {
     cancelEventData.value = evt
     cancelConfirmation.value = ''
@@ -191,25 +180,6 @@ export function useEventActions({ event, registrations, refreshEvent, refreshReg
       cancelError.value = err.message || 'Absage fehlgeschlagen'
     } finally {
       cancelling.value = false
-    }
-  }
-
-  function showEditModal(evt) {
-    editEventData.value = evt
-    editError.value = null
-  }
-
-  async function handleEdit(formData) {
-    editing.value = true
-    editError.value = null
-    try {
-      const updated = await adminApi.updateEvent(editEventData.value.id, formData)
-      event.value = updated
-      editEventData.value = null
-    } catch (err) {
-      editError.value = err.message || 'Änderungen konnten nicht gespeichert werden'
-    } finally {
-      editing.value = false
     }
   }
 
@@ -280,55 +250,6 @@ export function useEventActions({ event, registrations, refreshEvent, refreshReg
     }
   }
 
-  function handleDiscardUnacknowledged(evt) {
-    discardError.value = null
-    discardSubject.value = `Absage: ${evt.name}`
-    discardMessage.value = 'Leider haben wir innerhalb der Frist keine Rückmeldung von dir erhalten, ob du wirklich mit an Bord kommst. Daher mussten wir deinen Platz an einen anderen Fisch aus unserem Schwarm weitergeben.\n\nFalls du beim nächsten Mal wieder anheuern möchtest, freuen wir uns sehr auf dich!'
-    selectedDiscardIds.value = new Set(
-      registrations.value.filter(r => r.status === 'CONFIRMED').map(r => r.id),
-    )
-    showDiscardModal.value = true
-  }
-
-  function toggleAllDiscard() {
-    if (selectedDiscardIds.value.size === discardCandidates.value.length) {
-      selectedDiscardIds.value = new Set()
-    } else {
-      selectedDiscardIds.value = new Set(discardCandidates.value.map(r => r.id))
-    }
-  }
-
-  function toggleDiscardId(id) {
-    const next = new Set(selectedDiscardIds.value)
-    if (next.has(id)) {
-      next.delete(id)
-    } else {
-      next.add(id)
-    }
-    selectedDiscardIds.value = next
-  }
-
-  async function handleDiscardConfirm() {
-    if (!event.value || selectedDiscardIds.value.size === 0) return
-    discarding.value = true
-    discardError.value = null
-    try {
-      const result = await adminApi.discardUnacknowledged(
-        event.value.id,
-        [...selectedDiscardIds.value],
-        discardMessage.value.trim() || undefined,
-        discardSubject.value.trim() || undefined,
-      )
-      showDiscardModal.value = false
-      showToast(`${result.discarded_count} Anmeldungen verworfen (${result.discarded_spots} Plätze).`, 'success')
-      await Promise.all([refreshRegistrations(), refreshEvent()])
-    } catch (err) {
-      discardError.value = err.message || 'Verwerfen fehlgeschlagen'
-    } finally {
-      discarding.value = false
-    }
-  }
-
   function handleDeleteRegistration({ registrationId, name }) {
     if (!event.value) return
     deleteRegData.value = { registrationId, name }
@@ -365,11 +286,6 @@ export function useEventActions({ event, registrations, refreshEvent, refreshReg
     cancelling,
     cancelError,
 
-    // Edit modal
-    editEventData,
-    editing,
-    editError,
-
     // Delete event modal
     deleteEventData,
     deleting,
@@ -383,16 +299,6 @@ export function useEventActions({ event, registrations, refreshEvent, refreshReg
 
     // Messaging
     showMessageComposer,
-    showMessageLog,
-
-    // Discard
-    showDiscardModal,
-    discardSubject,
-    discardMessage,
-    selectedDiscardIds,
-    discarding,
-    discardError,
-    discardCandidates,
 
     // Handlers
     publishEvent,
@@ -403,19 +309,15 @@ export function useEventActions({ event, registrations, refreshEvent, refreshReg
     copyRegistrationLink,
     copyInviteText,
     goToLottery,
+    goToEdit,
+    goToDiscard,
     showCancelEventModal,
     handleCancelEvent,
-    showEditModal,
-    handleEdit,
     showDeleteModal,
     handleDelete,
     handleExportPdf,
     handleTogglePromoted,
     handlePromoteWaitlisted,
-    handleDiscardUnacknowledged,
-    toggleAllDiscard,
-    toggleDiscardId,
-    handleDiscardConfirm,
     handleDeleteRegistration,
     confirmDeleteRegistration,
   }

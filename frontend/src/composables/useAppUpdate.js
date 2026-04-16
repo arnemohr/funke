@@ -1,12 +1,12 @@
-import { ref, watch } from 'vue'
+import { ref } from 'vue'
 import { useRegisterSW } from 'virtual:pwa-register/vue'
 
 export function useAppUpdate() {
-  const showUpdateBanner = ref(false)
+  const dismissed = ref(false)
 
   const { needRefresh, updateServiceWorker } = useRegisterSW({
     onRegisteredSW(_swUrl, registration) {
-      // Poll for SW updates every 60 seconds
+      // Poll for SW updates every 60 seconds.
       if (registration) {
         setInterval(() => {
           registration.update()
@@ -18,15 +18,19 @@ export function useAppUpdate() {
     },
   })
 
-  // Auto-reload when update detected
-  watch(needRefresh, (val) => {
-    if (val) {
-      showUpdateBanner.value = true
-      setTimeout(() => {
-        updateServiceWorker(true)
-      }, 2000)
-    }
-  })
+  // Users explicitly trigger reload — no surprise interruption of in-flight work.
+  function applyUpdate() {
+    updateServiceWorker(true)
+  }
 
-  return { showUpdateBanner }
+  function dismissUpdate() {
+    dismissed.value = true
+  }
+
+  return {
+    updateAvailable: needRefresh,
+    dismissed,
+    applyUpdate,
+    dismissUpdate,
+  }
 }

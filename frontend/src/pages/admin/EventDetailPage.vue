@@ -1,22 +1,22 @@
 <template>
   <article class="event-detail-page">
-    <!-- Page header -->
-    <header class="page-header">
-      <div class="header-left">
-        <a href="#" class="back-link" @click.prevent="$router.push('/admin/events')">
-          &larr; Events
-        </a>
-        <div v-if="event" class="header-title">
-          <h2>{{ event.name }}</h2>
-          <span :class="['status-badge', `status-${event.status.toLowerCase()}`]">
-            {{ formatEventStatus(event.status) }}
-          </span>
-        </div>
-      </div>
-      <div class="header-actions">
+    <PageHeader back="/admin/events" back-label="Events">
+      <template #title>
+        <span v-if="event">{{ event.name }}</span>
+        <span v-else-if="loading" class="skeleton skeleton-title" />
+      </template>
+      <template #chip>
+        <span
+          v-if="event"
+          :class="['status-badge', `status-${event.status.toLowerCase()}`]"
+        >
+          {{ formatEventStatus(event.status) }}
+        </span>
+      </template>
+      <template #actions>
         <HelpButton @click="help.toggle(activeHelpKey)" />
-      </div>
-    </header>
+      </template>
+    </PageHeader>
 
     <HelpPanel
       :help-key="help.helpKey.value"
@@ -25,39 +25,74 @@
       @close="help.close()"
     />
 
-    <!-- Loading state -->
-    <div v-if="loading" aria-busy="true">
-      Veranstaltung wird geladen...
+    <!-- Skeleton while loading -->
+    <div v-if="loading" class="skeleton-container" aria-busy="true" aria-label="Veranstaltung wird geladen">
+      <div class="skeleton skeleton-tab-row" />
+      <div class="skeleton-card">
+        <div class="skeleton skeleton-row" />
+        <div class="skeleton skeleton-row short" />
+        <div class="skeleton skeleton-row" />
+        <div class="skeleton skeleton-row short" />
+      </div>
     </div>
 
-    <!-- Error state -->
     <div v-else-if="loadError" role="alert" class="error">
       {{ loadError }}
     </div>
 
-    <!-- Content -->
     <template v-else-if="event">
-      <!-- Tabs -->
-      <nav class="tab-nav">
+      <!-- In-page tabs -->
+      <nav class="tab-nav" aria-label="Tabs">
         <ul class="tab-list">
           <li>
-            <a href="#" :class="{ active: activeTab === 'details' }" @click.prevent="activeTab = 'details'">Details</a>
-          </li>
-          <li>
-            <a href="#" :class="{ active: activeTab === 'registrations' }" @click.prevent="activeTab = 'registrations'">
-              Anmeldungen ({{ registrations.length }})
+            <a
+              href="#"
+              :class="{ active: activeTab === 'details' }"
+              :aria-current="activeTab === 'details' ? 'page' : undefined"
+              @click.prevent="activeTab = 'details'"
+            >
+              Details
             </a>
           </li>
           <li>
-            <a href="#" :class="{ active: activeTab === 'messages' }" @click.prevent="activeTab = 'messages'">Nachrichten</a>
+            <a
+              href="#"
+              :class="{ active: activeTab === 'registrations' }"
+              :aria-current="activeTab === 'registrations' ? 'page' : undefined"
+              @click.prevent="activeTab = 'registrations'"
+            >
+              Anmeldungen
+              <span v-if="registrations.length" class="tab-badge">{{ registrations.length }}</span>
+            </a>
+          </li>
+          <li>
+            <a
+              href="#"
+              :class="{ active: activeTab === 'messages' }"
+              :aria-current="activeTab === 'messages' ? 'page' : undefined"
+              @click.prevent="activeTab = 'messages'"
+            >
+              Nachrichten
+            </a>
           </li>
         </ul>
       </nav>
 
       <!-- Details tab -->
       <div v-show="activeTab === 'details'" class="tab-content">
-        <div class="event-info">
-          <dl>
+        <!-- Info card -->
+        <section class="card">
+          <header class="card-header">
+            <h3>Informationen</h3>
+            <button
+              type="button"
+              class="link-btn"
+              @click="actions.goToEdit(event)"
+            >
+              Bearbeiten
+            </button>
+          </header>
+          <dl class="event-info">
             <dt>Datum</dt>
             <dd>{{ formatDate(event.start_at) }}</dd>
 
@@ -76,18 +111,73 @@
             <dt>Erinnerungen</dt>
             <dd>{{ event.reminder_schedule_days?.join(', ') || 'Keine' }} Tage vorher</dd>
 
-            <dt>Beschreibung</dt>
-            <dd>{{ event.description || 'Keine Beschreibung' }}</dd>
+            <dt v-if="event.description">Beschreibung</dt>
+            <dd v-if="event.description">{{ event.description }}</dd>
           </dl>
-        </div>
+        </section>
 
-        <div class="action-buttons">
-          <button class="secondary outline" @click="actions.showEditModal(event)">Bearbeiten</button>
-          <button class="secondary outline" @click="actions.showCloneModal(event)">Duplizieren</button>
-          <button class="secondary outline" @click="actions.copyRegistrationLink(event)">Link kopieren</button>
-          <button class="secondary outline" @click="actions.copyInviteText(event)">Einladungstext</button>
-          <button class="secondary outline" @click="actions.handleExportPdf()">Boardingzettel PDF</button>
-        </div>
+        <!-- Share card -->
+        <section class="card">
+          <header class="card-header">
+            <h3>Teilen</h3>
+          </header>
+          <div class="action-row">
+            <button class="secondary outline" @click="actions.copyRegistrationLink(event)">
+              <span class="btn-icon" aria-hidden="true">🔗</span>
+              Link kopieren
+            </button>
+            <button class="secondary outline" @click="actions.copyInviteText(event)">
+              <span class="btn-icon" aria-hidden="true">✉️</span>
+              Einladungstext
+            </button>
+          </div>
+        </section>
+
+        <!-- Export & duplicate card -->
+        <section class="card">
+          <header class="card-header">
+            <h3>Weiteres</h3>
+          </header>
+          <div class="action-row">
+            <button class="secondary outline" @click="actions.showCloneModal(event)">
+              <span class="btn-icon" aria-hidden="true">📋</span>
+              Duplizieren
+            </button>
+            <button class="secondary outline" @click="actions.handleExportPdf()">
+              <span class="btn-icon" aria-hidden="true">📄</span>
+              Boardingzettel PDF
+            </button>
+          </div>
+        </section>
+
+        <!-- Danger zone (only render if any destructive action applies) -->
+        <section v-if="hasDangerActions" class="card card-danger">
+          <header class="card-header">
+            <h3>Gefahrenzone</h3>
+          </header>
+          <div class="action-row">
+            <button
+              v-if="event.status === 'CONFIRMED'"
+              class="btn-danger outline"
+              @click="actions.goToDiscard(event)"
+            >
+              Unbestätigte verwerfen
+            </button>
+            <button
+              v-if="!['CANCELLED', 'COMPLETED'].includes(event.status)"
+              class="btn-danger outline"
+              @click="actions.showCancelEventModal(event)"
+            >
+              Absagen
+            </button>
+            <button
+              class="btn-danger outline"
+              @click="actions.showDeleteModal(event)"
+            >
+              Löschen
+            </button>
+          </div>
+        </section>
       </div>
 
       <!-- Registrations tab -->
@@ -107,100 +197,28 @@
       <!-- Messages tab -->
       <div v-show="activeTab === 'messages'" class="tab-content">
         <div class="messages-tab-header">
-          <button @click="actions.showMessageComposer.value = true">Nachricht senden</button>
+          <button @click="actions.showMessageComposer.value = true">
+            Nachricht senden
+          </button>
         </div>
-        <MessageLog
-          :open="true"
-          :event-id="props.eventId"
-          @close=""
-        />
+        <MessageLog mode="inline" :event-id="props.eventId" />
       </div>
 
-      <!-- Sticky footer -->
-      <div class="sticky-footer">
-        <!-- Primary CTA -->
+      <!-- Sticky primary CTA — single button, no dropdown -->
+      <div v-if="primaryCta" class="sticky-cta">
         <button
-          v-if="event.status === 'DRAFT'"
-          @click="actions.publishEvent(event)"
-          :disabled="actions.publishing.value"
-          :aria-busy="actions.publishing.value"
+          :disabled="primaryCta.busy"
+          :aria-busy="primaryCta.busy"
+          @click="primaryCta.run"
         >
-          {{ actions.publishing.value ? 'Wird veröffentlicht...' : 'Veröffentlichen' }}
+          {{ primaryCta.busy ? primaryCta.busyLabel : primaryCta.label }}
         </button>
-        <button
-          v-else-if="event.status === 'OPEN'"
-          @click="actions.closeRegistration(event)"
-          :disabled="actions.closingRegistration.value"
-          :aria-busy="actions.closingRegistration.value"
-        >
-          {{ actions.closingRegistration.value ? 'Wird geschlossen...' : 'Anmeldung schließen' }}
-        </button>
-        <button
-          v-else-if="event.status === 'REGISTRATION_CLOSED' || event.status === 'LOTTERY_PENDING'"
-          @click="actions.goToLottery(event)"
-        >
-          Verlosung
-        </button>
-        <button
-          v-else-if="event.status === 'CONFIRMED'"
-          @click="actions.completeEvent(event)"
-          :disabled="actions.completing.value"
-          :aria-busy="actions.completing.value"
-        >
-          {{ actions.completing.value ? 'Wird abgeschlossen...' : 'Abschließen' }}
-        </button>
-
-        <!-- Destructive actions -->
-        <details class="destructive-actions">
-          <summary>Weitere Aktionen</summary>
-          <div class="destructive-buttons">
-            <button
-              v-if="event.status === 'CONFIRMED'"
-              class="btn-danger outline"
-              @click="actions.handleDiscardUnacknowledged(event)"
-            >
-              Unbestätigte verwerfen
-            </button>
-            <button
-              v-if="!['CANCELLED', 'COMPLETED'].includes(event.status)"
-              class="btn-danger outline"
-              @click="actions.showCancelEventModal(event)"
-            >
-              Absagen
-            </button>
-            <button
-              class="btn-danger outline"
-              @click="actions.showDeleteModal(event)"
-            >
-              Löschen
-            </button>
-          </div>
-        </details>
       </div>
     </template>
 
-    <!-- ===== Modals ===== -->
+    <!-- ===== Confirm-only modals remain (lightweight) ===== -->
 
-    <!-- Edit modal -->
-    <dialog :open="actions.editEventData.value !== null">
-      <article class="modal-wide">
-        <header>
-          <a href="#" aria-label="Schließen" class="close" @click.prevent="actions.editEventData.value = null" />
-          <h3>Veranstaltung bearbeiten</h3>
-        </header>
-        <EventForm
-          :event="actions.editEventData.value"
-          :disabled="actions.editing.value"
-          :error="actions.editError.value"
-          submit-label="Speichern"
-          submit-busy-label="Wird gespeichert..."
-          @submit="actions.handleEdit"
-          @cancel="actions.editEventData.value = null"
-        />
-      </article>
-    </dialog>
-
-    <!-- Clone modal -->
+    <!-- Clone -->
     <dialog :open="actions.cloneEvent.value !== null">
       <article>
         <header>
@@ -224,7 +242,7 @@
       </article>
     </dialog>
 
-    <!-- Cancel event modal -->
+    <!-- Cancel -->
     <dialog :open="actions.cancelEventData.value !== null">
       <article>
         <header>
@@ -256,7 +274,7 @@
       </article>
     </dialog>
 
-    <!-- Delete event modal -->
+    <!-- Delete -->
     <dialog :open="actions.deleteEventData.value !== null">
       <article>
         <header>
@@ -272,47 +290,6 @@
             {{ actions.deleting.value ? 'Wird gelöscht...' : 'Löschen' }}
           </button>
         </footer>
-      </article>
-    </dialog>
-
-    <!-- Discard unacknowledged modal -->
-    <dialog :open="actions.showDiscardModal.value">
-      <article>
-        <header>
-          <a href="#" aria-label="Schließen" class="close" @click.prevent="actions.showDiscardModal.value = false" />
-          <h3>Unbestätigte Anmeldungen verwerfen</h3>
-        </header>
-        <div v-if="actions.discardCandidates.value.length === 0">
-          <p>Keine unbestätigten Anmeldungen vorhanden.</p>
-        </div>
-        <template v-else>
-          <p>
-            <a href="#" @click.prevent="actions.toggleAllDiscard">
-              {{ actions.selectedDiscardIds.value.size === actions.discardCandidates.value.length ? 'Alle abwählen' : 'Alle auswählen' }}
-            </a>
-          </p>
-          <div class="discard-list">
-            <label v-for="reg in actions.discardCandidates.value" :key="reg.id" class="discard-item">
-              <input type="checkbox" :checked="actions.selectedDiscardIds.value.has(reg.id)" @change="actions.toggleDiscardId(reg.id)" />
-              {{ reg.name }} ({{ reg.group_size }} Pers.)
-            </label>
-          </div>
-          <label for="discardSubject">
-            Betreff
-            <input id="discardSubject" v-model="actions.discardSubject.value" type="text" />
-          </label>
-          <label for="discardMessage">
-            Nachricht an die Teilnehmer
-            <textarea id="discardMessage" v-model="actions.discardMessage.value" rows="4" placeholder="Optionale Nachricht an die Teilnehmer..."></textarea>
-          </label>
-          <div v-if="actions.discardError.value" role="alert" class="error">{{ actions.discardError.value }}</div>
-          <footer>
-            <button type="button" class="secondary" @click="actions.showDiscardModal.value = false" :disabled="actions.discarding.value">Abbrechen</button>
-            <button class="btn-danger" :disabled="actions.selectedDiscardIds.value.size === 0 || actions.discarding.value" :aria-busy="actions.discarding.value" @click="actions.handleDiscardConfirm">
-              {{ actions.discarding.value ? 'Wird verworfen...' : `${actions.selectedDiscardIds.value.size} Anmeldungen verwerfen` }}
-            </button>
-          </footer>
-        </template>
       </article>
     </dialog>
 
@@ -368,7 +345,7 @@ import { useEventActions } from '../../composables/useEventActions.js'
 import { useHelp } from '../../components/help/useHelp.js'
 import { formatDate, formatEventStatus } from '../../utils/formatters.js'
 import { showToast } from '../../composables/useToast.js'
-import EventForm from '../../components/EventForm.vue'
+import PageHeader from '../../components/PageHeader.vue'
 import RegistrationTable from '../../components/RegistrationTable.vue'
 import MessageComposer from '../../components/MessageComposer.vue'
 import MessageLog from '../../components/MessageLog.vue'
@@ -394,8 +371,6 @@ const helpPanelRef = ref(null)
 watch(helpPanelRef, (el) => { help.panelRef.value = el?.$el || el })
 
 const activeHelpKey = computed(() => {
-  if (actions.showDiscardModal.value) return 'discard-modal'
-  if (actions.editEventData.value) return 'event-form'
   if (actions.cloneEvent.value) return 'clone-event'
   if (actions.showMessageComposer.value) return 'message-composer'
   return 'event-detail'
@@ -428,13 +403,56 @@ function spotsBy(status) {
 const participatingSpots = computed(() => spotsBy('PARTICIPATING'))
 const pendingSpots = computed(() => spotsBy('CONFIRMED'))
 
-// Message sent handler
+const hasDangerActions = computed(() => {
+  if (!event.value) return false
+  // Delete is always available; danger zone always shows.
+  return true
+})
+
+// Primary CTA — one button in sticky footer, status-aware
+const primaryCta = computed(() => {
+  if (!event.value) return null
+  const e = event.value
+  if (e.status === 'DRAFT') {
+    return {
+      label: 'Veröffentlichen',
+      busyLabel: 'Wird veröffentlicht…',
+      busy: actions.publishing.value,
+      run: () => actions.publishEvent(e),
+    }
+  }
+  if (e.status === 'OPEN') {
+    return {
+      label: 'Anmeldung schließen',
+      busyLabel: 'Wird geschlossen…',
+      busy: actions.closingRegistration.value,
+      run: () => actions.closeRegistration(e),
+    }
+  }
+  if (e.status === 'REGISTRATION_CLOSED' || e.status === 'LOTTERY_PENDING') {
+    return {
+      label: 'Verlosung',
+      busyLabel: '',
+      busy: false,
+      run: () => actions.goToLottery(e),
+    }
+  }
+  if (e.status === 'CONFIRMED') {
+    return {
+      label: 'Abschließen',
+      busyLabel: 'Wird abgeschlossen…',
+      busy: actions.completing.value,
+      run: () => actions.completeEvent(e),
+    }
+  }
+  return null
+})
+
 function onMessageSent() {
   showToast('Nachricht wurde gesendet', 'success')
   refreshRegistrations()
 }
 
-// Initial load
 onMounted(async () => {
   loading.value = true
   loadError.value = null
@@ -455,47 +473,11 @@ onMounted(async () => {
 
 <style scoped>
 .event-detail-page {
-  padding-bottom: 6rem;
+  /* Space for sticky CTA (3.5rem) + bottom tab bar (3.5rem) + breathing room */
+  padding-bottom: 8rem;
 }
 
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  flex-wrap: wrap;
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-
-.header-left {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.back-link {
-  font-size: var(--text-sm, 0.875rem);
-  text-decoration: none;
-}
-
-.header-title {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.header-title h2 {
-  margin: 0;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-/* Tabs */
+/* Tab nav */
 .tab-nav {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
@@ -515,49 +497,129 @@ onMounted(async () => {
 .tab-list a {
   display: inline-flex;
   align-items: center;
+  gap: 0.35rem;
   padding: 0.5rem 1rem;
   min-height: 44px;
   text-decoration: none;
+  color: var(--color-text-muted, #5C6470);
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
 }
 
 .tab-list a.active {
-  border-bottom-color: var(--pico-primary);
-  color: var(--pico-primary);
+  border-bottom-color: var(--color-brand, #0C1E3C);
+  color: var(--color-brand, #0C1E3C);
   font-weight: 600;
+}
+
+.tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.35rem;
+  background: var(--color-border, #DFE2E6);
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--color-brand, #0C1E3C);
+}
+
+.tab-list a.active .tab-badge {
+  background: var(--color-brand, #0C1E3C);
+  color: white;
 }
 
 .tab-content {
   margin-bottom: 1rem;
 }
 
-/* Event info */
-.event-info dl {
+/* Cards */
+.card {
+  background: white;
+  border: 1px solid var(--color-border, #DFE2E6);
+  border-radius: var(--pico-border-radius);
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.card-header h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-text-muted, #5C6470);
+}
+
+.card-danger {
+  border-color: #fecaca;
+  background: #fff9f9;
+}
+
+.card-danger .card-header h3 {
+  color: var(--pico-color-red-500, #dc3545);
+}
+
+/* Info dl */
+.event-info {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 0.5rem 1rem;
-  margin: 0 0 1.5rem;
+  margin: 0;
 }
 
 .event-info dt {
   font-weight: 600;
-  color: var(--pico-muted-color);
+  color: var(--color-text-muted, #5C6470);
 }
 
 .event-info dd {
   margin: 0;
 }
 
-/* Action buttons */
-.action-buttons {
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--color-brand, #0C1E3C);
+  font-size: var(--text-sm, 0.875rem);
+  font-weight: 500;
+  padding: 0.25rem 0;
+  cursor: pointer;
+  width: auto;
+  margin: 0;
+  min-width: 0;
+  min-height: 44px;
+}
+
+.link-btn:hover {
+  text-decoration: underline;
+}
+
+/* Action rows */
+.action-row {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
 }
 
-.action-buttons button {
+.action-row button {
   width: auto;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.btn-icon {
+  display: inline-block;
 }
 
 /* Messages tab */
@@ -571,61 +633,76 @@ onMounted(async () => {
   width: auto;
 }
 
-/* Sticky footer */
-.sticky-footer {
+/* Sticky CTA — sits directly above the bottom tab bar */
+.sticky-cta {
   position: fixed;
-  bottom: 0;
+  bottom: calc(3.5rem + env(safe-area-inset-bottom, 0));
   left: 0;
   right: 0;
-  background: var(--pico-background-color, #fff);
-  border-top: 1px solid var(--pico-muted-border-color, #e2e8f0);
-  padding: 0.75rem 1rem;
   z-index: 50;
+  padding: 0.75rem 1rem;
+  background: white;
+  border-top: 1px solid var(--color-border, #DFE2E6);
+}
+
+.sticky-cta button {
+  width: 100%;
+  margin: 0;
+  min-height: 48px;
+}
+
+/* Skeleton loaders */
+.skeleton-container {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 1rem;
 }
 
-.sticky-footer > button {
-  width: auto;
-  margin: 0;
+.skeleton {
+  background: linear-gradient(90deg, #eee 25%, #f5f5f5 50%, #eee 75%);
+  background-size: 200% 100%;
+  border-radius: 4px;
+  animation: skeleton-shimmer 1.5s infinite;
 }
 
-.destructive-actions {
-  margin-left: auto;
+.skeleton-title {
+  display: inline-block;
+  width: 12rem;
+  height: 1.5rem;
+  vertical-align: middle;
 }
 
-.destructive-actions summary {
-  cursor: pointer;
-  font-size: var(--text-sm, 0.875rem);
-  color: var(--pico-muted-color);
+.skeleton-tab-row {
+  height: 44px;
+  width: 100%;
+  max-width: 24rem;
 }
 
-.destructive-buttons {
+.skeleton-card {
+  padding: 1rem;
+  border: 1px solid var(--color-border, #DFE2E6);
+  border-radius: var(--pico-border-radius);
+  background: white;
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  padding-top: 0.5rem;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
-.destructive-buttons button {
-  width: auto;
-  margin: 0;
+.skeleton-row {
+  height: 1rem;
+  width: 100%;
 }
 
-/* Modal styles */
-dialog article { max-width: min(600px, calc(100vw - 2rem)); }
-dialog article.modal-wide { max-width: min(750px, calc(100vw - 2rem)); }
-
-dialog footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
-  margin-top: 1rem;
-  flex-wrap: wrap;
+.skeleton-row.short {
+  width: 60%;
 }
 
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Error state */
 .error {
   color: var(--pico-color-red-500, #dc3545);
   padding: 1rem;
@@ -645,25 +722,19 @@ dialog footer {
 .cancel-warning p { margin-bottom: 0.5rem; }
 .cancel-warning ul { margin: 0.5rem 0 0 1.5rem; padding: 0; }
 
-.discard-list {
-  max-height: 250px;
-  overflow-y: auto;
-  margin-bottom: 1rem;
-}
+dialog article { max-width: min(600px, calc(100vw - 2rem)); }
 
-.discard-item {
+dialog footer {
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.25rem 0;
-}
-
-.discard-item input[type="checkbox"] {
-  margin: 0;
+  gap: 1rem;
+  margin-top: 1rem;
+  flex-wrap: wrap;
 }
 
 @media (max-width: 640px) {
-  .event-info dl {
+  .event-info {
     grid-template-columns: 1fr;
     gap: 0.25rem;
   }
@@ -672,13 +743,9 @@ dialog footer {
     margin-top: 0.5rem;
   }
 
-  .sticky-footer {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .destructive-actions {
-    margin-left: 0;
+  .action-row button {
+    flex: 1;
+    justify-content: center;
   }
 }
 </style>

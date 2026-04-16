@@ -62,6 +62,13 @@ const routes = [
     beforeEnter: authGuard,
   },
   {
+    path: '/admin/events/new',
+    name: 'admin-event-new',
+    component: () => import('../pages/admin/EventEditPage.vue'),
+    beforeEnter: authGuard,
+    meta: { hideTabBar: true },
+  },
+  {
     path: '/admin/events/:eventId',
     name: 'admin-event-detail',
     component: () => import('../pages/admin/EventDetailPage.vue'),
@@ -69,11 +76,28 @@ const routes = [
     props: true,
   },
   {
+    path: '/admin/events/:eventId/edit',
+    name: 'admin-event-edit',
+    component: () => import('../pages/admin/EventEditPage.vue'),
+    beforeEnter: authGuard,
+    props: true,
+    meta: { hideTabBar: true },
+  },
+  {
+    path: '/admin/events/:eventId/discard',
+    name: 'admin-event-discard',
+    component: () => import('../pages/admin/EventDiscardPage.vue'),
+    beforeEnter: authGuard,
+    props: true,
+    meta: { hideTabBar: true },
+  },
+  {
     path: '/admin/events/:eventId/lottery',
     name: 'admin-event-lottery',
     component: () => import('../pages/admin/events/[eventId]/lottery.vue'),
     beforeEnter: authGuard,
     props: true,
+    meta: { hideTabBar: true },
   },
   {
     path: '/admin/settings',
@@ -92,4 +116,7 @@ const routes = [
 export const router = createRouter({
   history: createWebHistory(),
   routes,
+  scrollBehavior(_to, _from, saved) {
+    return saved || { top: 0 }
+  },
 })

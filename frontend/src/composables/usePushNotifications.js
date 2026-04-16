@@ -2,7 +2,12 @@ import { ref } from 'vue'
 import { adminApi } from '../services/api'
 
 const isSubscribed = ref(false)
-const isSupported = ref('serviceWorker' in navigator && 'PushManager' in window)
+const isSupported = ref(
+  typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window,
+)
+const permission = ref(
+  typeof Notification !== 'undefined' ? Notification.permission : 'default',
+)
 
 function urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
@@ -26,12 +31,20 @@ function arrayBufferToBase64(buffer) {
 
 export function usePushNotifications() {
   async function subscribe() {
-    if (!isSupported.value) return false
+    if (!isSupported.value) return { ok: false, reason: 'unsupported' }
 
-    const permission = await Notification.requestPermission()
-    if (permission !== 'granted') return false
+    // Already denied — browser will silently reject, so surface that to the caller.
+    if (Notification.permission === 'denied') {
+      permission.value = 'denied'
+      return { ok: false, reason: 'denied' }
+    }
 
-    // Fetch VAPID public key from backend
+    const perm = await Notification.requestPermission()
+    permission.value = perm
+    if (perm !== 'granted') {
+      return { ok: false, reason: perm === 'denied' ? 'denied' : 'dismissed' }
+    }
+
     const { public_key } = await adminApi.getVapidKey()
 
     const registration = await navigator.serviceWorker.ready
@@ -40,7 +53,6 @@ export function usePushNotifications() {
       applicationServerKey: urlBase64ToUint8Array(public_key),
     })
 
-    // Send subscription to backend
     await adminApi.subscribePush({
       endpoint: subscription.endpoint,
       keys: {
@@ -50,7 +62,7 @@ export function usePushNotifications() {
     })
 
     isSubscribed.value = true
-    return true
+    return { ok: true }
   }
 
   async function unsubscribe() {
@@ -65,10 +77,20 @@ export function usePushNotifications() {
 
   async function checkSubscription() {
     if (!isSupported.value) return
+    if (typeof Notification !== 'undefined') {
+      permission.value = Notification.permission
+    }
     const registration = await navigator.serviceWorker.ready
     const subscription = await registration.pushManager.getSubscription()
     isSubscribed.value = !!subscription
   }
 
-  return { isSubscribed, isSupported, subscribe, unsubscribe, checkSubscription }
+  return {
+    isSubscribed,
+    isSupported,
+    permission,
+    subscribe,
+    unsubscribe,
+    checkSubscription,
+  }
 }

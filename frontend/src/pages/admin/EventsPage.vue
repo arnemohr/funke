@@ -7,7 +7,7 @@
       </hgroup>
       <div class="header-actions">
         <HelpButton @click="help.toggle(activeHelpKey)" />
-        <button v-if="!accessDenied" @click="showCreateModal = true">Neue Veranstaltung</button>
+        <button v-if="!accessDenied" @click="goToNew">Neue Veranstaltung</button>
       </div>
     </header>
 
@@ -65,7 +65,7 @@
       <!-- Empty state -->
       <article v-if="filteredEvents.length === 0" style="text-align: center; padding: 2rem;">
         <p>Noch keine Veranstaltungen. Leg los und erstelle deine erste!</p>
-        <button @click="showCreateModal = true">Neue Veranstaltung</button>
+        <button @click="goToNew">Neue Veranstaltung</button>
       </article>
 
       <!-- Events table -->
@@ -102,23 +102,6 @@
       </table>
     </template>
 
-    <!-- Create Event Modal -->
-    <dialog :open="showCreateModal">
-      <article class="modal-wide">
-        <header>
-          <a href="#" aria-label="Schließen" class="close" @click.prevent="showCreateModal = false" />
-          <h3>Neue Veranstaltung</h3>
-        </header>
-        <EventForm
-          :disabled="creating"
-          :error="createError"
-          submit-label="Erstellen"
-          submit-busy-label="Wird erstellt..."
-          @submit="handleCreate"
-          @cancel="showCreateModal = false"
-        />
-      </article>
-    </dialog>
   </article>
 </template>
 
@@ -127,7 +110,6 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuth0 } from '@auth0/auth0-vue'
 import { adminApi } from '../../services/api'
-import EventForm from '../../components/EventForm.vue'
 import HelpButton from '../../components/help/HelpButton.vue'
 import HelpPanel from '../../components/help/HelpPanel.vue'
 import { useHelp } from '../../components/help/useHelp.js'
@@ -141,10 +123,7 @@ const help = useHelp()
 const helpPanelRef = ref(null)
 watch(helpPanelRef, (el) => { help.panelRef.value = el?.$el || el })
 
-const activeHelpKey = computed(() => {
-  if (showCreateModal.value) return 'event-form'
-  return 'events-list'
-})
+const activeHelpKey = computed(() => 'events-list')
 
 // Core state
 const loading = ref(true)
@@ -152,11 +131,6 @@ const error = ref(null)
 const accessDenied = ref(false)
 const events = ref([])
 const statusFilter = ref(null)
-
-// Create modal
-const showCreateModal = ref(false)
-const creating = ref(false)
-const createError = ref(null)
 
 // Computed
 const IN_PROGRESS_STATUSES = ['REGISTRATION_CLOSED', 'LOTTERY_PENDING', 'CONFIRMED']
@@ -186,11 +160,6 @@ function logout() {
   auth0Logout({ logoutParams: { returnTo: window.location.origin } })
 }
 
-function updateEventInList(updated) {
-  const index = events.value.findIndex(e => e.id === updated.id)
-  if (index !== -1) events.value[index] = updated
-}
-
 // API actions
 async function loadEvents() {
   loading.value = true
@@ -208,19 +177,8 @@ async function loadEvents() {
   }
 }
 
-async function handleCreate(formData) {
-  creating.value = true
-  createError.value = null
-  try {
-    const newEvent = await adminApi.createEvent(formData)
-    events.value.unshift(newEvent)
-    showCreateModal.value = false
-    router.push('/admin/events/' + newEvent.id)
-  } catch (err) {
-    createError.value = err.message || 'Erstellen fehlgeschlagen'
-  } finally {
-    creating.value = false
-  }
+function goToNew() {
+  router.push('/admin/events/new')
 }
 
 onMounted(loadEvents)
