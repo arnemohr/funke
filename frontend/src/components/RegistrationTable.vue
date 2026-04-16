@@ -439,8 +439,8 @@ function smsLink(reg) {
   background: #f1f5f9;
 }
 
-/* Desktop table — prevent individual cells from stretching the table past its wrapper.
-   Long emails/timestamps wrap naturally; the .table-wrap provides overflow-x as a safety net. */
+/* Desktop table — natural content widths; the .table-wrap scrolls horizontally
+   when the sum exceeds the container. Long emails stay intact on one line. */
 .registration-table {
   width: 100%;
 }
@@ -448,11 +448,12 @@ function smsLink(reg) {
 .registration-table td,
 .registration-table th {
   vertical-align: middle;
+  white-space: nowrap;
 }
 
-.registration-table td[data-label="E-Mail"],
-.registration-table td[data-label="Telefon"] {
-  word-break: break-word;
+/* Allow only long free-text columns to wrap; identifiers stay single-line */
+.registration-table td[data-label="Name"] {
+  white-space: normal;
 }
 
 @media (max-width: 900px) {
