@@ -80,7 +80,22 @@ class StorageStack(Stack):
         )
 
         # Build additional behaviors for API routing
-        additional_behaviors: dict[str, cloudfront.BehaviorOptions] = {}
+        additional_behaviors: dict[str, cloudfront.BehaviorOptions] = {
+            # Service worker must never be cached by CloudFront
+            "/sw.js": cloudfront.BehaviorOptions(
+                origin=s3_origin,
+                viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
+                allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
+            ),
+            # Manifest must always be fresh for PWA updates
+            "/manifest.webmanifest": cloudfront.BehaviorOptions(
+                origin=s3_origin,
+                viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
+                allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
+            ),
+        }
 
         if api_stack is not None:
             # API Gateway origin
@@ -125,7 +140,7 @@ class StorageStack(Stack):
                     ),
                 ],
             ),
-            additional_behaviors=additional_behaviors if additional_behaviors else None,
+            additional_behaviors=additional_behaviors,
             default_root_object="index.html",
             price_class=cloudfront.PriceClass.PRICE_CLASS_100,
             domain_names=domain_names,

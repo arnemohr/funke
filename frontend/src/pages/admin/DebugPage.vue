@@ -37,6 +37,21 @@
       </div>
     </details>
 
+    <section class="push-section">
+      <h3>Push-Benachrichtigungen</h3>
+      <p v-if="!pushSupported" class="muted">
+        Push-Benachrichtigungen werden in diesem Browser nicht unterstützt.
+      </p>
+      <template v-else>
+        <button v-if="!pushSubscribed" @click="handleSubscribe" class="small">
+          Benachrichtigungen aktivieren
+        </button>
+        <button v-else @click="handleUnsubscribe" class="small outline secondary">
+          Benachrichtigungen deaktivieren
+        </button>
+      </template>
+    </section>
+
     <div v-if="loading && events.length === 0" aria-busy="true">
       Daten werden geladen...
     </div>
@@ -152,6 +167,31 @@ import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { adminApi } from '../../services/api'
 import { formatDateOnly, formatDateTime, formatRegistrationStatus, formatEventStatus } from '../../utils/formatters.js'
 import { showToast } from '../../composables/useToast.js'
+import { usePushNotifications } from '../../composables/usePushNotifications.js'
+
+const { isSubscribed: pushSubscribed, isSupported: pushSupported, subscribe, unsubscribe, checkSubscription } = usePushNotifications()
+
+async function handleSubscribe() {
+  try {
+    const ok = await subscribe()
+    if (ok) {
+      showToast('Push-Benachrichtigungen aktiviert', 'success')
+    } else {
+      showToast('Berechtigung verweigert', 'error')
+    }
+  } catch (err) {
+    showToast(`Fehler: ${err.message}`, 'error')
+  }
+}
+
+async function handleUnsubscribe() {
+  try {
+    await unsubscribe()
+    showToast('Push-Benachrichtigungen deaktiviert', 'success')
+  } catch (err) {
+    showToast(`Fehler: ${err.message}`, 'error')
+  }
+}
 
 const loading = ref(true)
 const error = ref(null)
@@ -249,6 +289,7 @@ function handleVisibilityChange() {
 
 onMounted(() => {
   loadAllData()
+  checkSubscription()
   document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
@@ -548,6 +589,19 @@ button.tiny {
 
 .action-link.manage:hover {
   background: #bfdbfe;
+}
+
+.push-section {
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--pico-border-radius);
+  background: #f8fafc;
+}
+
+.push-section h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
 }
 
 </style>

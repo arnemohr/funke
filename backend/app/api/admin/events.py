@@ -451,6 +451,26 @@ async def delete_event(
 
     log_admin_action("event.delete", user.email, str(event_id))
 
+    # Push notification: test trigger for PWA (spec 009)
+    try:
+        from ...services.push_service import get_push_service
+
+        push_service = get_push_service()
+        logger.info(
+            "Push check after event delete",
+            extra={"configured": push_service.is_configured(), "org_id": str(org_id)},
+        )
+        if push_service.is_configured():
+            sent = await push_service.send_to_org_admins(
+                org_id=str(org_id),
+                title="Veranstaltung gelöscht",
+                body="Eine Veranstaltung wurde dauerhaft gelöscht.",
+                url="/admin/events",
+            )
+            logger.info("Push notifications sent after event delete", extra={"sent": sent})
+    except Exception:
+        logger.warning("Push notification failed after event deletion", exc_info=True)
+
 
 @router.delete(
     "/{event_id}/registrations/{registration_id}",

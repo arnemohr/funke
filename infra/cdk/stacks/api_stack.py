@@ -81,6 +81,10 @@ class ApiStack(Stack):
                 "SMTP_SENDER_EMAIL": os.environ.get("SMTP_SENDER_EMAIL", ""),
                 "SMTP_SENDER_NAME": os.environ.get("SMTP_SENDER_NAME", "Verein für mobile Machenschaften e.V."),
                 "BASE_URL": self.node.try_get_context("base_url") or f"https://{domain_name}" if domain_name else "http://localhost:5173",
+                # VAPID configuration for Web Push notifications (spec 009)
+                "VAPID_PRIVATE_KEY": os.environ.get("VAPID_PRIVATE_KEY", ""),
+                "VAPID_PUBLIC_KEY": os.environ.get("VAPID_PUBLIC_KEY", ""),
+                "VAPID_CLAIM_EMAIL": os.environ.get("VAPID_CLAIM_EMAIL", "mailto:info@mobilemachenschaften.de"),
             },
             log_group=api_log_group,
         )

@@ -108,6 +108,7 @@ async def root() -> dict:
 # Import routers
 from .api.admin import events as admin_events
 from .api.admin import lottery as admin_lottery
+from .api.admin import push as admin_push
 from .api.public import registrations as public_registrations
 from .api.public import cancellations as public_cancellations
 from .api.public import confirmations as public_confirmations
@@ -115,6 +116,7 @@ from .api.public import confirmations as public_confirmations
 # Register admin routers
 app.include_router(admin_events.router, prefix="/api/admin/events", tags=["admin-events"])
 app.include_router(admin_lottery.router, prefix="/api/admin", tags=["admin-lottery"])
+app.include_router(admin_push.router, prefix="/api/admin", tags=["admin-push"])
 
 # Register public routers
 app.include_router(public_registrations.router, prefix="/api/public", tags=["public"])

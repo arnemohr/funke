@@ -35,6 +35,9 @@ deploy: build
 	$(eval DISTRIBUTION_ID := $(shell aws cloudformation describe-stacks --stack-name $(STACK_NAME) --query "Stacks[0].Outputs[?OutputKey=='DistributionId'].OutputValue" --output text))
 	@echo "Syncing to s3://$(BUCKET_NAME)..."
 	aws s3 sync dist/ s3://$(BUCKET_NAME) --delete
+	@echo "Fixing manifest Content-Type..."
+	aws s3 cp s3://$(BUCKET_NAME)/manifest.webmanifest s3://$(BUCKET_NAME)/manifest.webmanifest \
+		--content-type "application/manifest+json" --metadata-directive REPLACE 2>/dev/null || true
 	@echo "Invalidating CloudFront cache..."
 	aws cloudfront create-invalidation --distribution-id $(DISTRIBUTION_ID) --paths "/*"
 	@echo "Deploy complete!"

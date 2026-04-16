@@ -480,6 +480,25 @@ export const adminApi = {
       body: JSON.stringify({ group_members: groupMembers }),
     }, true)
   },
+
+  // Push notification endpoints
+
+  async getVapidKey() {
+    return request('/api/admin/push/vapid-key', {}, true)
+  },
+
+  async subscribePush(subscription) {
+    return request('/api/admin/push/subscribe', {
+      method: 'POST',
+      body: JSON.stringify(subscription),
+    }, true)
+  },
+
+  async unsubscribePush() {
+    return request('/api/admin/push/subscribe', {
+      method: 'DELETE',
+    }, true)
+  },
 }
 
 export default { publicApi, adminApi }
