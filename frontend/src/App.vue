@@ -22,7 +22,7 @@
     <router-view :key="viewKey" />
   </main>
 
-  <!-- Bottom tab bar (authenticated, and not suppressed by route) -->
+  <!-- Bottom tab bar -->
   <nav v-if="showTabBar" class="bottom-nav">
     <a
       href="#"
@@ -31,12 +31,8 @@
       :aria-current="isEventsActive ? 'page' : undefined"
       @click.prevent="navTo('/admin/events')"
     >
-      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-        <line x1="16" y1="2" x2="16" y2="6" />
-        <line x1="8" y1="2" x2="8" y2="6" />
-        <line x1="3" y1="10" x2="21" y2="10" />
-      </svg>
+      <span class="nav-tab-indicator" aria-hidden="true" />
+      <Calendar :size="22" class="nav-icon" aria-hidden="true" />
       <span>Events</span>
     </a>
     <a
@@ -46,10 +42,8 @@
       :aria-current="isSettingsActive ? 'page' : undefined"
       @click.prevent="navTo('/admin/settings')"
     >
-      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <circle cx="12" cy="12" r="3" />
-        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-      </svg>
+      <span class="nav-tab-indicator" aria-hidden="true" />
+      <Settings :size="22" class="nav-icon" aria-hidden="true" />
       <span>Einstellungen</span>
     </a>
     <a
@@ -60,10 +54,8 @@
       :aria-current="isDebugActive ? 'page' : undefined"
       @click.prevent="navTo('/admin/debug')"
     >
-      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M12 20h9" />
-        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-      </svg>
+      <span class="nav-tab-indicator" aria-hidden="true" />
+      <Wrench :size="22" class="nav-icon" aria-hidden="true" />
       <span>Debug</span>
     </a>
   </nav>
@@ -73,6 +65,7 @@
 import { useAuth0 } from '@auth0/auth0-vue'
 import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { Calendar, Settings, Wrench } from 'lucide-vue-next'
 import ToastContainer from './components/ToastContainer.vue'
 import { useAppUpdate } from './composables/useAppUpdate.js'
 import { useInstallPrompt } from './composables/useInstallPrompt.js'
@@ -98,13 +91,11 @@ const isSettingsActive = computed(() => route.path === '/admin/settings')
 const isDebugActive = computed(() => route.path === '/admin/debug')
 
 function navTo(path) {
-  // Same route: scroll to top and reset stacked state via viewKey bump.
   if (route.path === path) {
     viewKey.value++
     window.scrollTo({ top: 0, behavior: 'smooth' })
     return
   }
-  // Sub-path of target (e.g. /admin/events/123 when tapping Events): go up to list.
   if (path === '/admin/events' && route.path.startsWith('/admin/events/')) {
     router.push('/admin/events')
     return
@@ -123,7 +114,7 @@ async function onInstall() {
 </script>
 
 <style scoped>
-/* Banners — unified look, stack at top */
+/* Banners */
 .banner {
   position: fixed;
   top: 0;
@@ -133,12 +124,12 @@ async function onInstall() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.6rem 1rem;
+  gap: var(--space-3);
+  padding: 0.6rem var(--space-4);
   padding-top: calc(0.6rem + env(safe-area-inset-top, 0));
-  background: var(--color-brand, #0C1E3C);
+  background: var(--color-brand);
   color: white;
-  font-size: var(--text-sm, 0.875rem);
+  font-size: var(--text-base);
   font-weight: 500;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
@@ -148,13 +139,12 @@ async function onInstall() {
   bottom: 3.5rem;
   padding-bottom: calc(0.6rem + env(safe-area-inset-bottom, 0));
   padding-top: 0.6rem;
-  background: var(--color-brand, #0C1E3C);
 }
 
 .banner-actions {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: var(--space-2);
   flex-shrink: 0;
 }
 
@@ -164,13 +154,13 @@ async function onInstall() {
   justify-content: center;
   height: 2rem;
   min-width: 2rem;
-  padding: 0 0.75rem;
+  padding: 0 var(--space-3);
   margin: 0;
   background: transparent;
   color: white;
   border: 1px solid rgba(255, 255, 255, 0.4);
-  border-radius: 0.375rem;
-  font-size: var(--text-xs, 0.75rem);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
@@ -179,7 +169,7 @@ async function onInstall() {
 
 .banner-btn.primary {
   background: white;
-  color: var(--color-brand, #0C1E3C);
+  color: var(--color-brand);
   border-color: white;
 }
 
@@ -209,23 +199,25 @@ async function onInstall() {
   justify-content: space-around;
   align-items: stretch;
   height: 3.5rem;
-  background: white;
-  border-top: 1px solid var(--color-border, #DFE2E6);
+  background: var(--color-surface-raised);
+  border-top: 1px solid var(--color-border);
   padding-bottom: env(safe-area-inset-bottom, 0);
+  box-shadow: 0 -1px 3px rgba(12, 30, 60, 0.03);
 }
 
 .nav-tab {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.15rem;
+  gap: 2px;
   flex: 1;
   min-height: 44px;
-  padding: 0.25rem 0;
-  color: var(--color-text-muted, #5C6470);
+  padding: var(--space-1) 0;
+  color: var(--color-text-muted);
   text-decoration: none;
-  font-size: 0.7rem;
+  font-size: var(--text-sm);
   font-weight: 500;
   background: none;
   border: none;
@@ -234,18 +226,32 @@ async function onInstall() {
   -webkit-tap-highlight-color: transparent;
 }
 
+.nav-tab-indicator {
+  position: absolute;
+  top: 0;
+  left: 25%;
+  right: 25%;
+  height: 2px;
+  background: transparent;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  transition: background 0.15s;
+}
+
 .nav-tab:hover,
 .nav-tab:focus-visible {
-  color: var(--color-brand, #0C1E3C);
+  color: var(--color-brand);
 }
 
 .nav-tab.is-active {
-  color: var(--color-brand, #0C1E3C);
-  font-weight: 700;
+  color: var(--color-brand);
+  font-weight: 600;
+}
+
+.nav-tab.is-active .nav-tab-indicator {
+  background: var(--color-brand);
 }
 
 .nav-icon {
-  width: 1.4rem;
-  height: 1.4rem;
+  display: block;
 }
 </style>

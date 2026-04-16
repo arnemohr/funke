@@ -7,7 +7,6 @@
       </hgroup>
       <div class="header-actions">
         <HelpButton @click="help.toggle(activeHelpKey)" />
-        <button v-if="!accessDenied" @click="goToNew">Neue Veranstaltung</button>
       </div>
     </header>
 
@@ -102,6 +101,17 @@
       </table>
     </template>
 
+    <!-- Floating action button — create event -->
+    <button
+      v-if="!loading && !accessDenied && !error"
+      type="button"
+      class="fab"
+      aria-label="Neue Veranstaltung"
+      title="Neue Veranstaltung"
+      @click="goToNew"
+    >
+      <Plus :size="24" aria-hidden="true" />
+    </button>
   </article>
 </template>
 
@@ -109,6 +119,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuth0 } from '@auth0/auth0-vue'
+import { Plus } from 'lucide-vue-next'
 import { adminApi } from '../../services/api'
 import HelpButton from '../../components/help/HelpButton.vue'
 import HelpPanel from '../../components/help/HelpPanel.vue'
@@ -262,6 +273,41 @@ dialog footer {
 .access-denied h3 { color: #dc2626; margin-bottom: 1rem; }
 .access-denied p { margin-bottom: 0.5rem; }
 .access-denied button { margin-top: 1.5rem; }
+
+/* Floating action button — create event */
+.fab {
+  position: fixed;
+  right: var(--space-4);
+  bottom: calc(3.5rem + var(--space-4) + env(safe-area-inset-bottom, 0));
+  z-index: 40;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-brand);
+  color: white;
+  border: none;
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-fab);
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fab:hover,
+.fab:focus-visible {
+  background: var(--color-brand-light);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.fab:active {
+  transform: translateY(0);
+}
 
 @media (max-width: 768px) {
   .filter-nav {

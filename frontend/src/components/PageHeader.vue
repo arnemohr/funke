@@ -8,9 +8,7 @@
         :aria-label="backLabel || 'Zurück'"
         @click.prevent="handleBack"
       >
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <polyline points="15 18 9 12 15 6" />
-        </svg>
+        <ChevronLeft :size="20" aria-hidden="true" />
         <span v-if="backLabel">{{ backLabel }}</span>
       </a>
       <div class="header-actions">
@@ -31,6 +29,7 @@
 
 <script setup>
 import { useRouter } from 'vue-router'
+import { ChevronLeft } from 'lucide-vue-next'
 
 const props = defineProps({
   title: { type: String, default: '' },
@@ -56,7 +55,7 @@ function handleBack() {
 
 <style scoped>
 .page-header {
-  margin-bottom: 1rem;
+  margin-bottom: var(--space-4);
 }
 
 .header-top {
@@ -64,51 +63,54 @@ function handleBack() {
   justify-content: space-between;
   align-items: center;
   min-height: 2.25rem;
-  margin-bottom: 0.5rem;
+  margin-bottom: var(--space-2);
 }
 
 .back-link {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: var(--space-1);
   min-height: 44px;
-  padding: 0.25rem 0.5rem;
-  margin-left: -0.5rem;
-  color: var(--color-text-muted, #5C6470);
+  padding: var(--space-1) var(--space-2);
+  margin-left: calc(var(--space-2) * -1);
+  color: var(--color-text-muted);
   text-decoration: none;
-  font-size: var(--text-sm, 0.875rem);
+  font-size: var(--text-base);
   font-weight: 500;
-  border-radius: var(--pico-border-radius);
+  border-radius: var(--radius-md);
 }
 
 .back-link:hover,
 .back-link:focus-visible {
-  color: var(--color-brand, #0C1E3C);
+  color: var(--color-brand);
+  background: var(--color-bg-muted);
+  outline: none;
 }
 
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--space-1);
   margin-left: auto;
 }
 
 .header-title {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: var(--space-3);
   flex-wrap: wrap;
 }
 
 .header-title h2 {
   margin: 0;
-  font-size: 1.5rem;
+  font-size: var(--text-xl);
   line-height: 1.2;
+  font-weight: 600;
 }
 
 .subtitle {
-  margin: 0.25rem 0 0;
-  color: var(--color-text-muted, #5C6470);
-  font-size: var(--text-sm, 0.875rem);
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-base);
 }
 </style>

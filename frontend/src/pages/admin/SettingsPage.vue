@@ -5,127 +5,164 @@
     </PageHeader>
 
     <!-- Notifications -->
-    <section class="card">
-      <header class="card-header">
-        <h3>Benachrichtigungen</h3>
-      </header>
+    <div class="section-heading">
+      <h3>Benachrichtigungen</h3>
+    </div>
 
-      <p v-if="!pushSupported" class="muted">
-        Push-Benachrichtigungen werden in diesem Browser nicht unterstützt.
-        Öffne die App zum Installieren in einem unterstützten Browser (Chrome, Edge, Firefox, Safari&nbsp;16.4+).
+    <p v-if="!pushSupported" class="description">
+      Push-Benachrichtigungen werden in diesem Browser nicht unterstützt.
+      Öffne die App zum Installieren in einem unterstützten Browser (Chrome, Edge, Firefox, Safari&nbsp;16.4+).
+    </p>
+
+    <template v-else>
+      <p class="description">
+        Du wirst benachrichtigt bei neuen Anmeldungen, Statusänderungen und dem Abschluss der Verlosung.
       </p>
 
-      <template v-else>
-        <!-- Explain what push is for -->
-        <p class="description">
-          Du erhältst Benachrichtigungen bei:
-        </p>
-        <ul class="feature-list">
-          <li>neuen Anmeldungen</li>
-          <li>Änderungen am Veranstaltungsstatus</li>
-          <li>Abschluss der Verlosung</li>
-        </ul>
+      <div class="list-group">
+        <ListItemButton
+          v-if="pushSubscribed"
+          :icon="Bell"
+          @click="handleUnsubscribe"
+        >
+          Push-Benachrichtigungen
+          <template #trailing>
+            <span class="state-pill state-pill--ok">Aktiv</span>
+          </template>
+        </ListItemButton>
 
-        <!-- Active state -->
-        <div v-if="pushSubscribed" class="state-row">
-          <span class="state-ok" aria-hidden="true">●</span>
-          <span>Aktiv</span>
-          <button class="outline secondary" @click="handleUnsubscribe">Deaktivieren</button>
-        </div>
+        <ListItemButton
+          v-else-if="pushPermission === 'denied'"
+          :icon="BellOff"
+          variant="static"
+        >
+          Push-Benachrichtigungen
+          <template #detail>
+            Im Browser blockiert — Seiteneinstellungen öffnen, um Benachrichtigungen zu erlauben
+          </template>
+          <template #trailing>
+            <span class="state-pill state-pill--muted">Blockiert</span>
+          </template>
+        </ListItemButton>
 
-        <!-- Permission denied in browser -->
-        <div v-else-if="pushPermission === 'denied'" class="state-row denied">
-          <div class="state-text">
-            <strong>Benachrichtigungen blockiert</strong>
-            <p class="muted">
-              Die Berechtigung wurde im Browser verweigert. Öffne die Browser-Einstellungen und erlaube Benachrichtigungen für diese Seite, um sie zu aktivieren.
-            </p>
-          </div>
-        </div>
+        <ListItemButton
+          v-else
+          :icon="Bell"
+          @click="handleSubscribe"
+        >
+          Push-Benachrichtigungen
+          <template #trailing>
+            <span class="state-pill state-pill--muted">Inaktiv</span>
+          </template>
+        </ListItemButton>
+      </div>
+    </template>
 
-        <!-- Default (not yet asked or dismissed) -->
-        <div v-else class="state-row">
-          <button class="outline" @click="handleSubscribe">
-            Benachrichtigungen aktivieren
-          </button>
-        </div>
-      </template>
-    </section>
-
-    <!-- App / PWA -->
-    <section class="card">
-      <header class="card-header">
-        <h3>App</h3>
-      </header>
-      <dl class="info-list">
-        <dt>Version</dt>
-        <dd>
+    <!-- App -->
+    <div class="section-heading">
+      <h3>App</h3>
+    </div>
+    <div class="list-group">
+      <ListItemButton
+        :icon="Tag"
+        variant="static"
+      >
+        Version
+        <template #trailing>
           <code
             class="version-code"
-            @click="handleVersionTap"
+            :class="{ 'version-code--active': tapCount > 0 }"
+            @click.stop="handleVersionTap"
             role="button"
             tabindex="0"
+            :aria-label="`Version ${appVersion}`"
             @keydown.enter="handleVersionTap"
             @keydown.space.prevent="handleVersionTap"
           >
             {{ appVersion }}
           </code>
-        </dd>
+        </template>
+      </ListItemButton>
 
-        <dt>Modus</dt>
-        <dd>{{ isStandalone ? 'Installiert (PWA)' : 'Im Browser' }}</dd>
-      </dl>
+      <ListItemButton
+        :icon="isStandalone ? Smartphone : Globe"
+        variant="static"
+      >
+        Modus
+        <template #trailing>
+          <span class="mode-label">{{ isStandalone ? 'Installiert' : 'Im Browser' }}</span>
+        </template>
+      </ListItemButton>
 
-      <div v-if="canInstall" class="state-row">
-        <button class="outline" @click="handleInstall">
-          App installieren
-        </button>
-      </div>
+      <ListItemButton
+        v-if="canInstall"
+        :icon="Download"
+        chevron
+        @click="handleInstall"
+      >
+        App installieren
+      </ListItemButton>
+    </div>
 
-      <p v-else-if="!isStandalone" class="hint">
-        Installation wird vom Browser vorbereitet. Im Browser-Menü findest du „Zum Startbildschirm hinzufügen".
-      </p>
-    </section>
+    <p v-if="!canInstall && !isStandalone" class="hint">
+      Installation wird vom Browser vorbereitet. Im Browser-Menü findest du „Zum Startbildschirm hinzufügen".
+    </p>
 
     <!-- Account -->
-    <section class="card">
-      <header class="card-header">
-        <h3>Konto</h3>
-      </header>
-      <dl class="info-list">
-        <dt>E-Mail</dt>
-        <dd>{{ user?.email || '–' }}</dd>
-      </dl>
-      <div class="state-row">
-        <button class="outline secondary" @click="handleLogout">Abmelden</button>
-      </div>
-    </section>
+    <div class="section-heading">
+      <h3>Konto</h3>
+    </div>
+    <div class="list-group">
+      <ListItemButton
+        :icon="Mail"
+        variant="static"
+      >
+        E-Mail
+        <template #trailing>
+          <span class="email-label">{{ user?.email || '–' }}</span>
+        </template>
+      </ListItemButton>
+      <ListItemButton
+        :icon="LogOut"
+        variant="danger"
+        @click="handleLogout"
+      >
+        Abmelden
+      </ListItemButton>
+    </div>
 
-    <!-- Developer options (only shown when dev mode is on) -->
-    <section v-if="devMode" class="card">
-      <header class="card-header">
+    <!-- Developer options -->
+    <template v-if="devMode">
+      <div class="section-heading">
         <h3>Entwickleroptionen</h3>
-      </header>
-      <p class="muted small">
-        Der „Debug"-Tab ist in der Navigation sichtbar. Tippe erneut auf die Version, um ihn auszublenden.
-      </p>
-      <div class="state-row">
-        <button class="outline secondary" @click="toggleDev">
-          Entwicklermodus deaktivieren
-        </button>
       </div>
-    </section>
+      <p class="description small">
+        Der „Debug"-Tab ist in der Navigation sichtbar. Tippe erneut 5× auf die Version, um ihn auszublenden.
+      </p>
+      <div class="list-group">
+        <ListItemButton
+          :icon="Wrench"
+          @click="toggleDev"
+        >
+          Entwicklermodus deaktivieren
+        </ListItemButton>
+      </div>
+    </template>
   </article>
 </template>
 
 <script setup>
 import { onMounted, ref } from 'vue'
 import { useAuth0 } from '@auth0/auth0-vue'
+import {
+  Bell, BellOff, Tag, Smartphone, Globe, Download, Mail, LogOut, Wrench,
+} from 'lucide-vue-next'
 import { usePushNotifications } from '../../composables/usePushNotifications.js'
 import { useInstallPrompt } from '../../composables/useInstallPrompt.js'
 import { useDevMode } from '../../composables/useDevMode.js'
 import { showToast } from '../../composables/useToast.js'
 import PageHeader from '../../components/PageHeader.vue'
+import ListItemButton from '../../components/ListItemButton.vue'
 
 const { user, logout } = useAuth0()
 const {
@@ -143,14 +180,14 @@ const { enabled: devMode, enable: enableDev, disable: disableDev, toggle: toggle
 const appVersion = __APP_VERSION__ || '0.0.0'
 
 // Hidden dev-mode activation: 5 quick taps on version
-let tapCount = 0
+const tapCount = ref(0)
 let tapTimer = null
 function handleVersionTap() {
-  tapCount += 1
+  tapCount.value += 1
   clearTimeout(tapTimer)
-  tapTimer = setTimeout(() => { tapCount = 0 }, 1500)
-  if (tapCount >= 5) {
-    tapCount = 0
+  tapTimer = setTimeout(() => { tapCount.value = 0 }, 1500)
+  if (tapCount.value >= 5) {
+    tapCount.value = 0
     if (devMode.value) {
       disableDev()
       showToast('Entwicklermodus deaktiviert', 'success')
@@ -208,114 +245,66 @@ function handleLogout() {
   padding-bottom: 2rem;
 }
 
-.card {
-  background: white;
-  border: 1px solid var(--color-border, #DFE2E6);
-  border-radius: var(--pico-border-radius);
-  padding: 1rem;
-  margin-bottom: 0.75rem;
-}
-
-.card-header {
-  margin-bottom: 0.75rem;
-}
-
-.card-header h3 {
-  margin: 0;
-  font-size: 0.95rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--color-text-muted, #5C6470);
-}
-
 .description {
-  margin: 0 0 0.5rem;
-  font-size: var(--text-sm, 0.875rem);
-  color: var(--color-text, #2C3441);
+  margin: 0 0 var(--space-3);
+  padding: 0 var(--space-1);
+  font-size: var(--text-base);
+  color: var(--color-text-muted);
 }
 
-.feature-list {
-  margin: 0 0 1rem;
-  padding-left: 1.25rem;
-  font-size: var(--text-sm, 0.875rem);
-  color: var(--color-text-muted, #5C6470);
+.description.small {
+  font-size: var(--text-sm);
 }
 
-.feature-list li {
-  margin-bottom: 0.15rem;
+.hint {
+  margin: var(--space-2) var(--space-1) 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
 }
 
-.info-list {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.35rem 1rem;
-  margin: 0 0 0.75rem;
+/* State pills in trailing slot */
+.state-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-sm);
+  font-weight: 600;
 }
 
-.info-list dt {
-  font-size: var(--text-xs, 0.75rem);
-  color: var(--color-text-muted, #5C6470);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+.state-pill--ok {
+  background: var(--color-success-bg);
+  color: var(--color-success-text);
 }
 
-.info-list dd {
-  margin: 0;
-  font-size: var(--text-sm, 0.875rem);
+.state-pill--muted {
+  background: var(--color-neutral-bg);
+  color: var(--color-neutral-text);
+}
+
+.mode-label,
+.email-label {
+  font-size: var(--text-base);
+  color: var(--color-text-muted);
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .version-code {
   display: inline-block;
-  padding: 0.1rem 0.35rem;
+  padding: 2px 6px;
   font-family: var(--pico-font-family-monospace, monospace);
-  background: var(--color-bg-muted, #f5f5f5);
-  border-radius: 3px;
+  background: var(--color-bg-muted);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   user-select: none;
+  font-size: var(--text-sm);
+  transition: background 0.15s;
 }
 
-.state-row {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.state-row button {
-  width: auto;
-  margin: 0;
-}
-
-.state-row.denied {
-  align-items: flex-start;
-}
-
-.state-text {
-  flex: 1;
-}
-
-.state-text p {
-  margin: 0.25rem 0 0;
-}
-
-.state-ok {
-  color: #16a34a;
-  font-size: 1.2rem;
-}
-
-.muted {
-  color: var(--color-text-muted, #5C6470);
-  font-size: var(--text-sm, 0.875rem);
-}
-
-.muted.small {
-  font-size: var(--text-xs, 0.75rem);
-  margin-bottom: 0.75rem;
-}
-
-.hint {
-  margin: 0.25rem 0 0;
-  font-size: var(--text-xs, 0.75rem);
-  color: var(--color-text-muted, #5C6470);
+.version-code--active {
+  background: var(--color-brand-subtle);
 }
 </style>

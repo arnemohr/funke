@@ -71,6 +71,78 @@
   --space-6: 32px;
   --space-7: 48px;
   --space-8: 64px;
+
+  /* === Radius & Shadow Scale === */
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-pill: 999px;
+
+  --shadow-card: 0 1px 2px rgba(12, 30, 60, 0.04);
+  --shadow-sticky: 0 -8px 16px -12px rgba(12, 30, 60, 0.12);
+  --shadow-sheet: 0 -12px 32px -12px rgba(12, 30, 60, 0.18);
+  --shadow-fab: 0 6px 16px -4px rgba(12, 30, 60, 0.28);
+
+  /* === Surface Colours === */
+  --color-bg-muted: #f6f7f9;
+  --color-bg-subtle: #fafbfc;
+}
+
+/* === Shared primitives (used by .card, list-group, sheet) === */
+.surface {
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.surface-padded {
+  padding: var(--space-4);
+}
+
+.list-group {
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+}
+
+.section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: var(--space-5) 0 var(--space-2);
+  padding: 0 var(--space-1);
+}
+
+.section-heading h3 {
+  margin: 0;
+  font-size: var(--text-base);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--color-text);
+}
+
+.section-action {
+  background: none;
+  border: none;
+  color: var(--color-brand);
+  font-size: var(--text-base);
+  font-weight: 500;
+  padding: var(--space-1) var(--space-2);
+  min-height: 36px;
+  cursor: pointer;
+  width: auto;
+  margin: 0;
+  border-radius: var(--radius-md);
+}
+
+.section-action:hover,
+.section-action:focus-visible {
+  background: var(--color-bg-muted);
+  outline: none;
 }
 
 /* === Shared Status Badge === */
