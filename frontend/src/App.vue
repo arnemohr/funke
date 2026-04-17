@@ -22,7 +22,7 @@
     <router-view :key="viewKey" />
   </main>
 
-  <!-- Bottom tab bar -->
+  <!-- Bottom tab bar (spec 014: Events / Schaluppe / Bar / Einstellungen) -->
   <nav v-if="showTabBar" class="bottom-nav">
     <a
       href="#"
@@ -34,6 +34,28 @@
       <span class="nav-tab-indicator" aria-hidden="true" />
       <Calendar :size="22" class="nav-icon" aria-hidden="true" />
       <span>Events</span>
+    </a>
+    <a
+      href="#"
+      class="nav-tab"
+      :class="{ 'is-active': isSchaluppeActive }"
+      :aria-current="isSchaluppeActive ? 'page' : undefined"
+      @click.prevent="navTo('/admin/schaluppe')"
+    >
+      <span class="nav-tab-indicator" aria-hidden="true" />
+      <Anchor :size="22" class="nav-icon" aria-hidden="true" />
+      <span>Schaluppe</span>
+    </a>
+    <a
+      href="#"
+      class="nav-tab"
+      :class="{ 'is-active': isBarActive }"
+      :aria-current="isBarActive ? 'page' : undefined"
+      @click.prevent="navTo('/admin/bar')"
+    >
+      <span class="nav-tab-indicator" aria-hidden="true" />
+      <Beer :size="22" class="nav-icon" aria-hidden="true" />
+      <span>Bar</span>
     </a>
     <a
       href="#"
@@ -65,7 +87,7 @@
 import { useAuth0 } from '@auth0/auth0-vue'
 import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { Calendar, Settings, Wrench } from 'lucide-vue-next'
+import { Anchor, Beer, Calendar, Settings, Wrench } from 'lucide-vue-next'
 import ToastContainer from './components/ToastContainer.vue'
 import { useAppUpdate } from './composables/useAppUpdate.js'
 import { useInstallPrompt } from './composables/useInstallPrompt.js'
@@ -87,7 +109,13 @@ const showTabBar = computed(() => isAuthenticated.value && !route.meta?.hideTabB
 const isEventsActive = computed(() =>
   route.path === '/admin/events' || route.path.startsWith('/admin/events/'),
 )
-const isSettingsActive = computed(() => route.path === '/admin/settings')
+const isSchaluppeActive = computed(
+  () => route.path === '/admin/schaluppe' || route.path === '/admin/ship',
+)
+const isBarActive = computed(() => route.path.startsWith('/admin/bar'))
+const isSettingsActive = computed(
+  () => route.path === '/admin/settings' || route.path === '/admin/profile',
+)
 const isDebugActive = computed(() => route.path === '/admin/debug')
 
 function navTo(path) {

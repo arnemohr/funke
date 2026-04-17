@@ -1,9 +1,11 @@
-"""Fahrbericht model — per-tour report (spec 012).
+"""Fahrbericht model — per-Event trip report (spec 014).
 
-1:1 with Tour, co-located under the same DynamoDB partition. Autosaves as a
-DRAFT; a successful submit transitions to SUBMITTED and mutates Bar catalog +
-Ship state. Editable post-submission via `reopen` — re-submissions use delta
-semantics and bump the `version`.
+Direct child of an Event. Autosaves as DRAFT; submit transitions to SUBMITTED
+and mutates Bar catalog + Ship state. Editable post-submission via `reopen` —
+re-submissions use delta semantics and bump `version`.
+
+Absorbs the crew roster + trip-shape fields that used to live on the now-deleted
+Tour entity.
 """
 
 from datetime import datetime, timezone
@@ -26,6 +28,19 @@ class ExpenseLine(BaseModel):
     amount: Decimal = Field(..., ge=0)
 
 
+class CrewRef(BaseModel):
+    """Reference to a crew member slot.
+
+    Always carries a display name for rendering. Optionally carries the id of
+    an AdminUser profile when the crew slot was filled via the autocomplete
+    picker. A stale `admin_user_id` (profile deleted later) is tolerated —
+    the display_name is authoritative.
+    """
+
+    display_name: str = Field(..., min_length=1, max_length=120)
+    admin_user_id: UUID | None = None
+
+
 class FahrberichtBase(BaseModel):
     boarding_fee: Decimal = Decimal("0")
     bar_surcharge: Decimal = Decimal("0")
@@ -37,6 +52,13 @@ class FahrberichtBase(BaseModel):
     cash_amount: Decimal | None = None
     cash_handed_to: str | None = Field(None, max_length=120)
     expenses: list[ExpenseLine] = Field(default_factory=list)
+    # Trip-shape fields (absorbed from the deleted Tour model, spec 014)
+    duration_hours: Decimal | None = Field(None, ge=0, le=48)
+    guest_count: int | None = Field(None, ge=0, le=500)
+    charterer: str | None = Field(None, max_length=200)
+    funker: CrewRef | None = None
+    skipper: CrewRef | None = None
+    crew: list[CrewRef] = Field(default_factory=list)
 
 
 class FahrberichtPatch(BaseModel):
@@ -52,6 +74,12 @@ class FahrberichtPatch(BaseModel):
     cash_amount: Decimal | None = None
     cash_handed_to: str | None = Field(None, max_length=120)
     expenses: list[ExpenseLine] | None = None
+    duration_hours: Decimal | None = Field(None, ge=0, le=48)
+    guest_count: int | None = Field(None, ge=0, le=500)
+    charterer: str | None = Field(None, max_length=200)
+    funker: CrewRef | None = None
+    skipper: CrewRef | None = None
+    crew: list[CrewRef] | None = None
 
 
 class Fahrbericht(FahrberichtBase):
@@ -59,7 +87,7 @@ class Fahrbericht(FahrberichtBase):
 
     model_config = ConfigDict(from_attributes=True)
 
-    tour_id: UUID
+    event_id: UUID
     status: FahrberichtStatus = FahrberichtStatus.DRAFT
     version: int = 0
 

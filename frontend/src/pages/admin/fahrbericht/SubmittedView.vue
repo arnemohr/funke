@@ -10,9 +10,9 @@
     </div>
 
     <div class="grid">
-      <div class="tile"><div class="k">Datum</div><div class="v">{{ tour?.date }}</div></div>
-      <div class="tile"><div class="k">Veranstaltung</div><div class="v">{{ tour?.name || '—' }}</div></div>
-      <div class="tile"><div class="k">Gäste</div><div class="v">{{ tour?.guest_count ?? '—' }}</div></div>
+      <div class="tile"><div class="k">Datum</div><div class="v">{{ dateLabel }}</div></div>
+      <div class="tile"><div class="k">Veranstaltung</div><div class="v">{{ event?.name || '—' }}</div></div>
+      <div class="tile"><div class="k">Gäste</div><div class="v">{{ bericht.guest_count ?? '—' }}</div></div>
       <div class="tile"><div class="k">Soll Umschlag</div><div class="v">€ {{ fmt(bericht.computed?.soll) }}</div></div>
       <div class="tile"><div class="k">Ist Umschlag</div><div class="v">€ {{ fmt(bericht.cash_amount) }}</div></div>
       <div class="tile"><div class="k">Differenz</div><div class="v">€ {{ fmt(bericht.computed?.cash_diff) }}</div></div>
@@ -20,6 +20,7 @@
 
     <div class="actions">
       <button class="primary" type="button" @click="$emit('reopen')">Bearbeiten</button>
+      <a v-if="report" class="ghost-btn" :href="pdfUrl" target="_blank" rel="noopener">PDF öffnen</a>
       <router-link v-if="report" class="ghost-btn" :to="`/admin/reports/${report.id}`">Bericht ansehen</router-link>
     </div>
   </article>
@@ -27,17 +28,28 @@
 
 <script setup>
 import { computed } from 'vue'
+import { adminApi } from '../../../services/api'
 
 const props = defineProps({
-  tour: { type: Object, default: null },
+  event: { type: Object, default: null },
   bericht: { type: Object, required: true },
-  catalog: { type: Object, default: () => ({}) },
   report: { type: Object, default: null },
   warnings: { type: Array, default: () => [] },
 })
 defineEmits(['reopen', 'reapply'])
 
-const submittedAt = computed(() => props.bericht.submitted_at?.slice(0, 16).replace('T', ' ') || '—')
+const submittedAt = computed(
+  () => props.bericht.submitted_at?.slice(0, 16).replace('T', ' ') || '—',
+)
+
+const dateLabel = computed(() => {
+  if (!props.event?.start_at) return '—'
+  return String(props.event.start_at).slice(0, 10)
+})
+
+const pdfUrl = computed(
+  () => (props.report ? adminApi.reports.pdfUrl(props.report.id) : ''),
+)
 
 function fmt(n) { return Number(n || 0).toFixed(2) }
 </script>
@@ -51,7 +63,7 @@ function fmt(n) { return Number(n || 0).toFixed(2) }
 .tile { background: var(--color-bg-muted); padding: 10px; border-radius: 8px; }
 .k { font-size: 11px; text-transform: uppercase; color: var(--color-text-muted); }
 .v { font-size: 16px; font-weight: 700; margin-top: 2px; }
-.actions { display: flex; gap: 8px; margin-top: var(--space-3); }
+.actions { display: flex; gap: 8px; margin-top: var(--space-3); flex-wrap: wrap; }
 .primary { padding: 12px 18px; border: none; background: var(--color-brand); color: #fff; border-radius: var(--radius-md); font-weight: 600; cursor: pointer; }
-.ghost, .ghost-btn { padding: 12px 18px; border: 1.5px solid var(--color-border); background: transparent; border-radius: var(--radius-md); cursor: pointer; text-decoration: none; color: var(--color-text); }
+.ghost, .ghost-btn { padding: 12px 18px; border: 1.5px solid var(--color-border); background: transparent; border-radius: var(--radius-md); cursor: pointer; text-decoration: none; color: var(--color-text); font-weight: 600; }
 </style>

@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<title>Schaluppe Fahrbericht – {{ tour.date }}</title>
+<title>Schaluppe Fahrbericht – {{ event.date }}</title>
 <style>
   @page { size: A4; margin: 1.6cm 1.4cm 1.8cm 1.4cm; }
   * { box-sizing: border-box; }
@@ -37,14 +37,14 @@
 
 <h2>Fahrtinfo</h2>
 <div class="meta-grid">
-  <div><div class="k">Datum</div><div class="v">{{ tour.date }}</div></div>
-  <div><div class="k">Veranstaltung</div><div class="v">{{ tour.name or '—' }}</div></div>
-  <div><div class="k">Dauer</div><div class="v">{{ tour.duration_hours or '—' }} h</div></div>
-  <div><div class="k">Gäste</div><div class="v">{{ tour.guest_count if tour.guest_count is not none else '—' }}</div></div>
-  <div><div class="k">Charterer</div><div class="v">{{ tour.charterer or '—' }}</div></div>
-  <div><div class="k">Funker*in</div><div class="v">{{ tour.funker_name or '—' }}</div></div>
-  <div><div class="k">Skipper</div><div class="v">{{ tour.skipper_name or '—' }}</div></div>
-  <div><div class="k">Crew</div><div class="v">{{ tour.crew_names or '—' }}</div></div>
+  <div><div class="k">Datum</div><div class="v">{{ event.date }}</div></div>
+  <div><div class="k">Veranstaltung</div><div class="v">{{ event.name or '—' }}</div></div>
+  <div><div class="k">Dauer</div><div class="v">{{ event.duration_hours or '—' }} h</div></div>
+  <div><div class="k">Gäste</div><div class="v">{{ event.guest_count if event.guest_count is not none else '—' }}</div></div>
+  <div><div class="k">Charterer</div><div class="v">{{ event.charterer or '—' }}</div></div>
+  <div><div class="k">Funker*in</div><div class="v">{{ event.funker_name or '—' }}</div></div>
+  <div><div class="k">Skipper</div><div class="v">{{ event.skipper_name or '—' }}</div></div>
+  <div><div class="k">Crew</div><div class="v">{{ event.crew_names or '—' }}</div></div>
 </div>
 
 <h2>Kiosk-Einnahmen (8400 / Erlöse Kiosk)</h2>

@@ -1,6 +1,6 @@
 <template>
   <section class="container">
-    <PageHeader title="Bar-Katalog" back>
+    <PageHeader title="Bar">
       <template #actions>
         <button class="primary" type="button" @click="goNew">Neues Getränk</button>
       </template>

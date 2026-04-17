@@ -81,15 +81,8 @@ def get_lottery_runs_table() -> "Table":
 
 
 # ---------------------------------------------------------------------------
-# Schaluppe Fahrbericht tables (specs 010-013)
+# Schaluppe Fahrbericht tables (specs 010-013, flattened in spec 014)
 # ---------------------------------------------------------------------------
-
-
-def get_tours_table() -> "Table":
-    """Tours + Fahrberichte (co-located via pk = TOUR#{id})."""
-    settings = get_settings()
-    dynamodb = get_dynamodb_resource()
-    return dynamodb.Table(f"{settings.dynamodb_table_prefix}-tours")
 
 
 def get_bar_items_table() -> "Table":
@@ -121,13 +114,11 @@ def get_admins_table() -> "Table":
 
 
 # Key prefixes — centralised so services use the same strings everywhere.
-TOUR_PK_PREFIX = "TOUR#"
-TOUR_SK_META = "META"
-TOUR_SK_FAHRBERICHT = "FAHRBERICHT"
-TOUR_SK_REPORT_POINTER = "REPORT"
-TOURS_LIST_PK = "TOURS"
-EVENT_TOUR_PK_PREFIX = "EVENT#"
-EVENT_TOUR_SK = "TOUR"
+# Spec 014: Fahrbericht + Report pointer co-locate under the Event partition
+# in the existing `events` table. No separate Tours table.
+EVENT_PK_PREFIX = "EVENT#"
+EVENT_SK_FAHRBERICHT = "FAHRBERICHT"
+EVENT_SK_REPORT_POINTER = "REPORT"
 
 BAR_PK_PREFIX = "BAR#"
 BAR_SK_META = "META"
@@ -136,7 +127,8 @@ BAR_ADJUSTMENT_SK_PREFIX = "ADJUSTMENT#"
 
 SHIP_PK = "SHIP#schaluppe"
 SHIP_SK_STATE = "STATE"
-SHIP_SK_TOUR_MARKER_PREFIX = "STATE#"
+# Idempotency marker per Fahrbericht submission — keyed by event_id now.
+SHIP_SK_EVENT_MARKER_PREFIX = "STATE#"
 
 REPORT_PK_PREFIX = "REPORT#"
 REPORT_SK_META = "META"

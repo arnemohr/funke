@@ -248,41 +248,10 @@ class DatabaseStack(Stack):
         )
 
         # ---------------------------------------------------------------
-        # Schaluppe Fahrbericht tables (specs 010-013)
+        # Schaluppe Fahrbericht tables (specs 011-014)
+        # Spec 014 dropped the dedicated Tours table — Fahrbericht + Report
+        # pointer rows now live in the existing events_table.
         # ---------------------------------------------------------------
-
-        # Tours table: Tour META + Fahrbericht + Report pointer + event pointer
-        # all share pk = TOUR#{id} or EVENT#{id}; single table keeps the
-        # crew-flow queries fast.
-        self.tours_table = dynamodb.Table(
-            self,
-            "ToursTable",
-            table_name=f"funke-{env_name}-tours",
-            partition_key=dynamodb.Attribute(
-                name="pk",
-                type=dynamodb.AttributeType.STRING,
-            ),
-            sort_key=dynamodb.Attribute(
-                name="sk",
-                type=dynamodb.AttributeType.STRING,
-            ),
-            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
-            removal_policy=removal_policy,
-        )
-
-        # GSI for chronological listing of Tours.
-        self.tours_table.add_global_secondary_index(
-            index_name="list-by-date-index",
-            partition_key=dynamodb.Attribute(
-                name="list_pk",
-                type=dynamodb.AttributeType.STRING,
-            ),
-            sort_key=dynamodb.Attribute(
-                name="list_sk",
-                type=dynamodb.AttributeType.STRING,
-            ),
-            projection_type=dynamodb.ProjectionType.ALL,
-        )
 
         # Bar items table: catalog + consumption ledger rows + adjustments
         self.bar_items_table = dynamodb.Table(

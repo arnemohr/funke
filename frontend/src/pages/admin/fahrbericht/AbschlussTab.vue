@@ -49,7 +49,7 @@ import { showToast } from '../../../composables/useToast'
 
 const props = defineProps({
   bericht: { type: Object, required: true },
-  tour: { type: Object, required: true },
+  event: { type: Object, required: true },
   catalog: { type: Array, required: true },
   catalogMap: { type: Object, required: true },
 })
@@ -70,7 +70,7 @@ const cashHandedTo = computed({
 
 const bookingText = computed(() => buildBookingText({
   bericht: props.bericht,
-  tour: props.tour,
+  event: props.event,
   catalog: props.catalogMap,
 }))
 

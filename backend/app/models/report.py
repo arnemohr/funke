@@ -49,9 +49,9 @@ class ReportVersion(BaseModel):
 
     report_id: UUID
     version: int
-    tour_id: UUID
+    event_id: UUID
     fahrbericht_snapshot: dict
-    tour_snapshot: dict
+    event_snapshot: dict
     bar_catalog_snapshot: dict  # {bar_item_id: {...}}
     kiosk_summary: list[LineItem] = Field(default_factory=list)
     crew_summary: list[LineItem] = Field(default_factory=list)
@@ -68,7 +68,7 @@ class ReportMeta(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID = Field(default_factory=uuid4)
-    tour_id: UUID
+    event_id: UUID
     current_version: int = 0
     finance_recipient: str | None = None
     email_status: EmailStatus = EmailStatus.PENDING

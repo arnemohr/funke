@@ -111,7 +111,7 @@ const routes = [
     component: () => import('../pages/admin/DebugPage.vue'),
     beforeEnter: authGuard,
   },
-  // Schaluppe Fahrbericht (specs 010-013)
+  // Schaluppe Fahrbericht (specs 010-014)
   {
     path: '/admin/profile',
     name: 'admin-profile',
@@ -119,27 +119,7 @@ const routes = [
     beforeEnter: authGuard,
   },
   {
-    path: '/admin/tours',
-    name: 'admin-tours',
-    component: () => import('../pages/admin/TourListPage.vue'),
-    beforeEnter: authGuard,
-  },
-  {
-    path: '/admin/tours/new',
-    name: 'admin-tour-new',
-    component: () => import('../pages/admin/TourCreatePage.vue'),
-    beforeEnter: authGuard,
-    meta: { hideTabBar: true },
-  },
-  {
-    path: '/admin/tours/:id',
-    name: 'admin-tour-detail',
-    component: () => import('../pages/admin/TourDetailPage.vue'),
-    beforeEnter: authGuard,
-    props: true,
-  },
-  {
-    path: '/admin/tours/:tourId/fahrbericht',
+    path: '/admin/events/:eventId/fahrbericht',
     name: 'admin-fahrbericht',
     component: () => import('../pages/admin/FahrberichtPage.vue'),
     beforeEnter: authGuard,
@@ -158,18 +138,18 @@ const routes = [
     component: () => import('../pages/admin/BarItemFormPage.vue'),
     beforeEnter: authGuard,
     props: true,
+    meta: { hideTabBar: true },
   },
   {
-    path: '/admin/ship',
-    name: 'admin-ship',
+    path: '/admin/schaluppe',
+    name: 'admin-schaluppe',
     component: () => import('../pages/admin/ShipStatePage.vue'),
     beforeEnter: authGuard,
   },
+  // Legacy — keep for stale bookmarks until staff migrate.
   {
-    path: '/admin/reports',
-    name: 'admin-reports',
-    component: () => import('../pages/admin/ReportsListPage.vue'),
-    beforeEnter: authGuard,
+    path: '/admin/ship',
+    redirect: '/admin/schaluppe',
   },
   {
     path: '/admin/reports/:id',

@@ -121,20 +121,44 @@
           </dl>
         </section>
 
-        <!-- Schaluppe Tour link (spec 010) -->
+        <!-- Fahrbericht (spec 014) -->
         <div class="section-heading">
-          <h3>Tour &amp; Fahrbericht</h3>
+          <h3>Fahrbericht</h3>
         </div>
         <div class="list-group actions-list">
-          <ListItemButton v-if="tour" chevron @click="$router.push(`/admin/tours/${tour.id}`)">
-            Tour öffnen
-            <template #detail>
-              <span>{{ tourCrewSummary }}</span>
-            </template>
-          </ListItemButton>
-          <ListItemButton v-else chevron @click="createTour">
-            Tour anlegen
-          </ListItemButton>
+          <template v-if="!fahrbericht">
+            <ListItemButton :icon="ClipboardList" chevron @click="startFahrbericht">
+              Fahrbericht starten
+              <template #detail>
+                <span>Crew, Kiosk, Schiff &amp; Kassenabschluss erfassen</span>
+              </template>
+            </ListItemButton>
+          </template>
+          <template v-else-if="fahrbericht.status === 'DRAFT'">
+            <ListItemButton :icon="ClipboardList" chevron @click="openFahrbericht">
+              Fahrbericht bearbeiten
+              <template #trailing>
+                <span class="fb-chip fb-chip--draft">Entwurf</span>
+              </template>
+            </ListItemButton>
+          </template>
+          <template v-else>
+            <ListItemButton :icon="ClipboardList" chevron @click="openFahrbericht">
+              Fahrbericht ansehen
+              <template #trailing>
+                <span class="fb-chip fb-chip--sent">Eingereicht v{{ fahrbericht.version }}</span>
+              </template>
+            </ListItemButton>
+            <ListItemButton v-if="report" :icon="FileDown" @click="openPdf">
+              PDF öffnen
+            </ListItemButton>
+            <ListItemButton v-if="report" :icon="Mail" @click="resendReport">
+              Bericht erneut senden
+              <template v-if="report.email_status" #trailing>
+                <span class="fb-chip" :class="emailStatusClass">{{ emailStatusLabel }}</span>
+              </template>
+            </ListItemButton>
+          </template>
         </div>
 
         <!-- Actions group -->
@@ -378,7 +402,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import {
   HelpCircle, Link2, Send, Copy, FileDown, MoreHorizontal,
-  UserMinus, XCircle, Trash2, Check,
+  UserMinus, XCircle, Trash2, Check, ClipboardList, Mail,
 } from 'lucide-vue-next'
 import { adminApi } from '../../services/api'
 import { useEventActions } from '../../composables/useEventActions.js'
@@ -400,7 +424,8 @@ const props = defineProps({
 
 const event = ref(null)
 const registrations = ref([])
-const tour = ref(null)
+const fahrbericht = ref(null)
+const report = ref(null)
 const loading = ref(true)
 const loadError = ref(null)
 const loadingRegistrations = ref(false)
@@ -408,29 +433,64 @@ const registrationsError = ref(null)
 const activeTab = ref('details')
 const dangerSheetOpen = ref(false)
 
-const tourCrewSummary = computed(() => {
-  if (!tour.value) return ''
-  const parts = []
-  if (tour.value.funker?.display_name) parts.push(`${tour.value.funker.display_name} (Funker)`)
-  if (tour.value.skipper?.display_name) parts.push(`${tour.value.skipper.display_name} (Skipper)`)
-  if (tour.value.crew?.length) parts.push(`+${tour.value.crew.length}`)
-  return parts.join(' · ')
-})
+const EMAIL_STATUS_LABELS = {
+  PENDING: 'Wird versendet',
+  SENT: 'Versendet',
+  FAILED: 'Fehler',
+  SKIPPED_NO_RECIPIENT: 'Kein Empfänger',
+}
+const emailStatusLabel = computed(
+  () => EMAIL_STATUS_LABELS[report.value?.email_status] || '',
+)
+const emailStatusClass = computed(() => ({
+  'fb-chip--sent': report.value?.email_status === 'SENT',
+  'fb-chip--err': report.value?.email_status === 'FAILED',
+  'fb-chip--warn': report.value?.email_status === 'SKIPPED_NO_RECIPIENT',
+  'fb-chip--muted': report.value?.email_status === 'PENDING',
+}))
 
-async function refreshTour() {
+async function refreshFahrbericht() {
   try {
-    tour.value = await adminApi.tours.getForEvent(props.eventId)
+    fahrbericht.value = await adminApi.fahrbericht.get(props.eventId)
   } catch {
-    tour.value = null
+    fahrbericht.value = null
+  }
+  if (fahrbericht.value) {
+    try {
+      report.value = await adminApi.reports.getForEvent(props.eventId)
+    } catch {
+      report.value = null
+    }
+  } else {
+    report.value = null
   }
 }
 
-async function createTour() {
+async function startFahrbericht() {
   try {
-    const created = await adminApi.tours.createForEvent(props.eventId, {})
-    tour.value = created
+    await adminApi.fahrbericht.createDraft(props.eventId)
+    openFahrbericht()
   } catch (err) {
-    showToast(err?.message || 'Tour anlegen fehlgeschlagen', 'error')
+    showToast(err?.message || 'Fahrbericht anlegen fehlgeschlagen', 'error')
+  }
+}
+
+function openFahrbericht() {
+  window.location.href = `/admin/events/${props.eventId}/fahrbericht`
+}
+
+function openPdf() {
+  if (!report.value) return
+  window.open(adminApi.reports.pdfUrl(report.value.id), '_blank', 'noopener')
+}
+
+async function resendReport() {
+  if (!report.value) return
+  try {
+    report.value = await adminApi.reports.resend(report.value.id)
+    showToast('Bericht versendet', 'success')
+  } catch (err) {
+    showToast(err?.message || 'Senden fehlgeschlagen', 'error')
   }
 }
 
@@ -540,7 +600,7 @@ onMounted(async () => {
     ])
     event.value = evt
     registrations.value = regs.items
-    refreshTour()
+    refreshFahrbericht()
   } catch (err) {
     loadError.value = err.message || 'Daten konnten nicht geladen werden'
   } finally {
@@ -756,4 +816,18 @@ dialog footer {
     margin-top: var(--space-2);
   }
 }
+
+/* Fahrbericht status chips (spec 014) */
+.fb-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.fb-chip--draft { background: #f5f5f5; color: #4b5563; }
+.fb-chip--sent { background: #dcfce7; color: #15803d; }
+.fb-chip--err { background: #fdecea; color: #922b21; }
+.fb-chip--warn { background: #fef3c7; color: #b45309; }
+.fb-chip--muted { background: #f5f5f5; color: #6b7280; }
 </style>

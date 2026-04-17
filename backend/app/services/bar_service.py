@@ -198,12 +198,12 @@ class BarService:
     async def apply_consumption(
         self,
         *,
-        tour_id: UUID,
+        event_id: UUID,
         version: int,
         kiosk_tally: dict[UUID, int],
         crew_tally: dict[UUID, int],
     ) -> ConsumptionResult:
-        """First-time consumption application for (tour_id, version)."""
+        """First-time consumption application for (event_id, version)."""
         combined: dict[UUID, int] = defaultdict(int)
         for bid, q in kiosk_tally.items():
             if q:
@@ -213,7 +213,7 @@ class BarService:
                 combined[bid] += q
 
         return await self._apply_delta(
-            tour_id=tour_id,
+            event_id=event_id,
             version=version,
             per_item_delta={bid: -q for bid, q in combined.items()},
             ledger_payload={
@@ -225,7 +225,7 @@ class BarService:
     async def apply_consumption_delta(
         self,
         *,
-        tour_id: UUID,
+        event_id: UUID,
         version: int,
         previous: dict[UUID, int],
         next: dict[UUID, int],
@@ -237,7 +237,7 @@ class BarService:
         }
         per_item = {bid: d for bid, d in per_item.items() if d != 0}
         return await self._apply_delta(
-            tour_id=tour_id,
+            event_id=event_id,
             version=version,
             per_item_delta=per_item,
             ledger_payload={
@@ -249,13 +249,13 @@ class BarService:
     async def _apply_delta(
         self,
         *,
-        tour_id: UUID,
+        event_id: UUID,
         version: int,
         per_item_delta: dict[UUID, int],
         ledger_payload: dict,
     ) -> ConsumptionResult:
         result = ConsumptionResult()
-        ledger_sk = f"{BAR_CONSUMPTION_SK_PREFIX}{tour_id}#v{version}"
+        ledger_sk = f"{BAR_CONSUMPTION_SK_PREFIX}{event_id}#v{version}"
         ts = datetime.now(timezone.utc).isoformat()
 
         for bid, delta in per_item_delta.items():
@@ -267,7 +267,7 @@ class BarService:
                         "sk": ledger_sk,
                         "entity_type": "BarConsumption",
                         "bar_item_id": str(bid),
-                        "tour_id": str(tour_id),
+                        "event_id": str(event_id),
                         "version": version,
                         "delta": delta,
                         "applied_at": ts,

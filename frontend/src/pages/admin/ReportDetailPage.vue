@@ -24,8 +24,8 @@
       </div>
 
       <div class="grid">
-        <div class="tile"><div class="k">Datum</div><div class="v">{{ version.tour_snapshot?.date }}</div></div>
-        <div class="tile"><div class="k">Tour</div><div class="v">{{ version.tour_snapshot?.name || '—' }}</div></div>
+        <div class="tile"><div class="k">Datum</div><div class="v">{{ version.event_snapshot?.date }}</div></div>
+        <div class="tile"><div class="k">Event</div><div class="v">{{ version.event_snapshot?.name || '—' }}</div></div>
         <div class="tile"><div class="k">Empfänger</div><div class="v">{{ meta.finance_recipient || '—' }}</div></div>
         <div class="tile"><div class="k">Soll</div><div class="v">€ {{ fmt(version.totals?.soll) }}</div></div>
         <div class="tile"><div class="k">Ist</div><div class="v">€ {{ fmt(version.totals?.cash_amount) }}</div></div>
@@ -67,7 +67,7 @@
         <button class="ghost" type="button" :disabled="sending" @click="resend">
           {{ sending ? 'Sende…' : 'Erneut senden' }}
         </button>
-        <router-link class="ghost" :to="`/admin/tours/${meta.tour_id}`">Zur Tour</router-link>
+        <router-link class="ghost" :to="`/admin/events/${meta.event_id}`">Zum Event</router-link>
       </div>
     </template>
   </section>

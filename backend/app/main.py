@@ -109,7 +109,6 @@ async def root() -> dict:
 from .api.admin import events as admin_events
 from .api.admin import lottery as admin_lottery
 from .api.admin import push as admin_push
-from .api.admin import tours as admin_tours
 from .api.admin import profile as admin_profile
 from .api.admin import bar_items as admin_bar_items
 from .api.admin import ship as admin_ship
@@ -124,9 +123,7 @@ app.include_router(admin_events.router, prefix="/api/admin/events", tags=["admin
 app.include_router(admin_lottery.router, prefix="/api/admin", tags=["admin-lottery"])
 app.include_router(admin_push.router, prefix="/api/admin", tags=["admin-push"])
 
-# Schaluppe Fahrbericht (specs 010-013)
-for tour_router in admin_tours.routers:
-    app.include_router(tour_router, prefix="/api/admin")
+# Schaluppe Fahrbericht (specs 010-014)
 for profile_router in admin_profile.routers:
     app.include_router(profile_router, prefix="/api/admin")
 app.include_router(admin_bar_items.router, prefix="/api/admin")

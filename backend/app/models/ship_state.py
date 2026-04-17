@@ -94,7 +94,7 @@ class ShipState(BaseModel):
     persennig_status: PersennigStatus | None = None
     general_notes: list[Note] = Field(default_factory=list)
     open_todos: list[Todo] = Field(default_factory=list)
-    last_updated_from_tour_id: UUID | None = None
+    last_updated_from_event_id: UUID | None = None
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 

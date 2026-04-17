@@ -519,41 +519,6 @@ export const adminApi = {
     return request(`/api/admin/crew-suggestions${qs ? `?${qs}` : ''}`, {}, true)
   },
 
-  // -------------------------------------------------------------------- Tours
-  tours: {
-    async list(params = {}) {
-      const qs = new URLSearchParams(params).toString()
-      return request(`/api/admin/tours${qs ? `?${qs}` : ''}`, {}, true)
-    },
-    async create(body) {
-      return request('/api/admin/tours', {
-        method: 'POST',
-        body: JSON.stringify(body),
-      }, true)
-    },
-    async get(id) {
-      return request(`/api/admin/tours/${id}`, {}, true)
-    },
-    async patch(id, body) {
-      return request(`/api/admin/tours/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(body),
-      }, true)
-    },
-    async delete(id) {
-      return request(`/api/admin/tours/${id}`, { method: 'DELETE' }, true)
-    },
-    async getForEvent(eventId) {
-      return request(`/api/admin/events/${eventId}/tour`, {}, true)
-    },
-    async createForEvent(eventId, body = {}) {
-      return request(`/api/admin/events/${eventId}/tour`, {
-        method: 'POST',
-        body: JSON.stringify(body),
-      }, true)
-    },
-  },
-
   // ----------------------------------------------------------------- Bar items
   bar: {
     async list(params = {}) {
@@ -628,37 +593,37 @@ export const adminApi = {
 
   // --------------------------------------------------------------- Fahrbericht
   fahrbericht: {
-    async get(tourId) {
-      return request(`/api/admin/tours/${tourId}/fahrbericht`, {}, true)
+    async get(eventId) {
+      return request(`/api/admin/events/${eventId}/fahrbericht`, {}, true)
     },
-    async createDraft(tourId) {
-      return request(`/api/admin/tours/${tourId}/fahrbericht`, {
+    async createDraft(eventId) {
+      return request(`/api/admin/events/${eventId}/fahrbericht`, {
         method: 'POST',
       }, true)
     },
-    async put(tourId, patch) {
-      return request(`/api/admin/tours/${tourId}/fahrbericht`, {
+    async put(eventId, patch) {
+      return request(`/api/admin/events/${eventId}/fahrbericht`, {
         method: 'PUT',
         body: JSON.stringify(patch),
       }, true)
     },
-    async submit(tourId) {
-      return request(`/api/admin/tours/${tourId}/fahrbericht/submit`, {
+    async submit(eventId) {
+      return request(`/api/admin/events/${eventId}/fahrbericht/submit`, {
         method: 'POST',
       }, true)
     },
-    async reopen(tourId) {
-      return request(`/api/admin/tours/${tourId}/fahrbericht/reopen`, {
+    async reopen(eventId) {
+      return request(`/api/admin/events/${eventId}/fahrbericht/reopen`, {
         method: 'POST',
       }, true)
     },
-    async reapply(tourId) {
-      return request(`/api/admin/tours/${tourId}/fahrbericht/reapply-side-effects`, {
+    async reapply(eventId) {
+      return request(`/api/admin/events/${eventId}/fahrbericht/reapply-side-effects`, {
         method: 'POST',
       }, true)
     },
-    async delete(tourId) {
-      return request(`/api/admin/tours/${tourId}/fahrbericht`, {
+    async delete(eventId) {
+      return request(`/api/admin/events/${eventId}/fahrbericht`, {
         method: 'DELETE',
       }, true)
     },
@@ -666,10 +631,6 @@ export const adminApi = {
 
   // ------------------------------------------------------------------- Reports
   reports: {
-    async list(params = {}) {
-      const qs = new URLSearchParams(params).toString()
-      return request(`/api/admin/reports${qs ? `?${qs}` : ''}`, {}, true)
-    },
     async get(id) {
       return request(`/api/admin/reports/${id}`, {}, true)
     },
@@ -679,8 +640,8 @@ export const adminApi = {
     async resend(id) {
       return request(`/api/admin/reports/${id}/resend`, { method: 'POST' }, true)
     },
-    async getForTour(tourId) {
-      return request(`/api/admin/tours/${tourId}/report`, {}, true)
+    async getForEvent(eventId) {
+      return request(`/api/admin/events/${eventId}/report`, {}, true)
     },
     pdfUrl(id) {
       return `${API_BASE_URL}/api/admin/reports/${id}/pdf`

@@ -85,7 +85,6 @@ class ApiStack(Stack):
                 "ADMINS_TABLE": database_stack.admins_table.table_name,
                 "LOTTERY_RUNS_TABLE": database_stack.lottery_runs_table.table_name,
                 # Schaluppe Fahrbericht (specs 010-013)
-                "TOURS_TABLE": database_stack.tours_table.table_name,
                 "BAR_ITEMS_TABLE": database_stack.bar_items_table.table_name,
                 "SHIP_STATE_TABLE": database_stack.ship_state_table.table_name,
                 "REPORTS_TABLE": database_stack.reports_table.table_name,
@@ -118,7 +117,6 @@ class ApiStack(Stack):
         database_stack.messages_table.grant_read_write_data(self.api_function)
         database_stack.admins_table.grant_read_write_data(self.api_function)
         database_stack.lottery_runs_table.grant_read_write_data(self.api_function)
-        database_stack.tours_table.grant_read_write_data(self.api_function)
         database_stack.bar_items_table.grant_read_write_data(self.api_function)
         database_stack.ship_state_table.grant_read_write_data(self.api_function)
         database_stack.reports_table.grant_read_write_data(self.api_function)

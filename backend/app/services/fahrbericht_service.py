@@ -1,16 +1,18 @@
-"""Fahrbericht service (spec 012).
+"""Fahrbericht service (spec 014).
 
 Owns the DRAFT→SUBMITTED lifecycle and the versioned submission pipeline that
 applies consumption to the bar catalog, updates ship state, and hands off to
 the report service. SUBMITTED reports can be reopened for editing.
+
+The Fahrbericht is a direct child of an Event — `pk = EVENT#{event_id}`,
+`sk = FAHRBERICHT` in the existing events table. Submission does NOT mutate
+Event.status; the two lifecycles are independent.
 """
 
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
-
-from botocore.exceptions import ClientError
 
 from ..models import (
     BarItem,
@@ -22,20 +24,18 @@ from ..models import (
     NoteInput,
     ShipStatusSnapshot,
     SubmitResult,
-    Tour,
-    TourStatus,
 )
-from ..models.fahrbericht import ExpenseLine
+from ..models.fahrbericht import CrewRef, ExpenseLine
 from ..models.ship_state import TodoInput
 from .bar_service import get_bar_service
 from .config import (
-    TOUR_PK_PREFIX,
-    TOUR_SK_FAHRBERICHT,
-    get_tours_table,
+    EVENT_PK_PREFIX,
+    EVENT_SK_FAHRBERICHT,
+    get_events_table,
 )
+from .event_service import get_event_service
 from .logging import get_logger
 from .ship_service import get_ship_service
-from .tour_service import get_tour_service
 
 if TYPE_CHECKING:
     from mypy_boto3_dynamodb.service_resource import Table
@@ -43,15 +43,45 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _crewref_to_item(ref) -> dict | None:
+    """Accept either a CrewRef model or a plain dict.
+
+    `model_copy(update=...)` in `upsert_draft` passes dicts through without
+    re-validation, so we tolerate both shapes here.
+    """
+    if ref is None:
+        return None
+    if isinstance(ref, dict):
+        admin_id = ref.get("admin_user_id")
+        return {
+            "display_name": ref.get("display_name") or "",
+            "admin_user_id": str(admin_id) if admin_id else None,
+        }
+    return {
+        "display_name": ref.display_name,
+        "admin_user_id": str(ref.admin_user_id) if ref.admin_user_id else None,
+    }
+
+
+def _item_to_crewref(raw: dict | None) -> CrewRef | None:
+    if not raw:
+        return None
+    admin_id = raw.get("admin_user_id")
+    return CrewRef(
+        display_name=raw["display_name"],
+        admin_user_id=UUID(admin_id) if admin_id else None,
+    )
+
+
 def _fahrbericht_to_item(bericht: Fahrbericht) -> dict:
     def _dec(d: Decimal | None) -> str | None:
         return str(d) if d is not None else None
 
-    return {
-        "pk": f"{TOUR_PK_PREFIX}{bericht.tour_id}",
-        "sk": TOUR_SK_FAHRBERICHT,
+    item = {
+        "pk": f"{EVENT_PK_PREFIX}{bericht.event_id}",
+        "sk": EVENT_SK_FAHRBERICHT,
         "entity_type": "Fahrbericht",
-        "tour_id": str(bericht.tour_id),
+        "event_id": str(bericht.event_id),
         "status": bericht.status.value,
         "version": bericht.version,
         "boarding_fee": _dec(bericht.boarding_fee),
@@ -73,24 +103,29 @@ def _fahrbericht_to_item(bericht: Fahrbericht) -> dict:
         "report_id": str(bericht.report_id) if bericht.report_id else None,
         "created_at": bericht.created_at.isoformat(),
         "updated_at": bericht.updated_at.isoformat(),
+        "duration_hours": _dec(bericht.duration_hours),
+        "guest_count": bericht.guest_count,
+        "charterer": bericht.charterer,
+        "funker": _crewref_to_item(bericht.funker),
+        "skipper": _crewref_to_item(bericht.skipper),
+        "crew": [_crewref_to_item(c) for c in bericht.crew if c],
     }
+    return item
 
 
 def _item_to_fahrbericht(item: dict) -> Fahrbericht:
     def _dec(v) -> Decimal | None:
-        if v is None:
-            return None
-        return Decimal(v)
+        return None if v is None else Decimal(v)
 
-    def _required_dec(v) -> Decimal:
+    def _req_dec(v) -> Decimal:
         return Decimal(v) if v is not None else Decimal("0")
 
     return Fahrbericht(
-        tour_id=UUID(item["tour_id"]),
+        event_id=UUID(item["event_id"]),
         status=FahrberichtStatus(item["status"]),
         version=int(item.get("version", 0)),
-        boarding_fee=_required_dec(item.get("boarding_fee")),
-        bar_surcharge=_required_dec(item.get("bar_surcharge")),
+        boarding_fee=_req_dec(item.get("boarding_fee")),
+        bar_surcharge=_req_dec(item.get("bar_surcharge")),
         kiosk_tally={UUID(k): int(v) for k, v in (item.get("kiosk_tally") or {}).items()},
         crew_tally={UUID(k): int(v) for k, v in (item.get("crew_tally") or {}).items()},
         applied_kiosk_tally={
@@ -112,6 +147,12 @@ def _item_to_fahrbericht(item: dict) -> Fahrbericht:
         report_id=UUID(item["report_id"]) if item.get("report_id") else None,
         created_at=datetime.fromisoformat(item["created_at"]),
         updated_at=datetime.fromisoformat(item["updated_at"]),
+        duration_hours=_dec(item.get("duration_hours")),
+        guest_count=int(item["guest_count"]) if item.get("guest_count") is not None else None,
+        charterer=item.get("charterer"),
+        funker=_item_to_crewref(item.get("funker")),
+        skipper=_item_to_crewref(item.get("skipper")),
+        crew=[_item_to_crewref(c) for c in item.get("crew") or [] if c],
     )
 
 
@@ -143,28 +184,28 @@ class FahrberichtService:
     @property
     def table(self) -> "Table":
         if self._table is None:
-            self._table = get_tours_table()
+            self._table = get_events_table()
         return self._table
 
-    async def get(self, tour_id: UUID) -> Fahrbericht | None:
+    async def get(self, event_id: UUID) -> Fahrbericht | None:
         resp = self.table.get_item(
-            Key={"pk": f"{TOUR_PK_PREFIX}{tour_id}", "sk": TOUR_SK_FAHRBERICHT},
+            Key={"pk": f"{EVENT_PK_PREFIX}{event_id}", "sk": EVENT_SK_FAHRBERICHT},
         )
         item = resp.get("Item")
         return _item_to_fahrbericht(item) if item else None
 
-    async def create_draft(self, tour_id: UUID) -> Fahrbericht:
-        existing = await self.get(tour_id)
+    async def create_draft(self, event_id: UUID) -> Fahrbericht:
+        existing = await self.get(event_id)
         if existing:
             raise ValueError("fahrbericht_exists")
-        bericht = Fahrbericht(tour_id=tour_id)
+        bericht = Fahrbericht(event_id=event_id)
         self.table.put_item(Item=_fahrbericht_to_item(bericht))
         return bericht
 
-    async def upsert_draft(self, tour_id: UUID, patch: FahrberichtPatch) -> Fahrbericht:
-        existing = await self.get(tour_id)
+    async def upsert_draft(self, event_id: UUID, patch: FahrberichtPatch) -> Fahrbericht:
+        existing = await self.get(event_id)
         if existing is None:
-            existing = Fahrbericht(tour_id=tour_id)
+            existing = Fahrbericht(event_id=event_id)
         if existing.status == FahrberichtStatus.SUBMITTED:
             raise ValueError("fahrbericht_submitted")
         fields = patch.model_dump(exclude_none=True)
@@ -174,18 +215,18 @@ class FahrberichtService:
         self.table.put_item(Item=_fahrbericht_to_item(existing))
         return existing
 
-    async def delete_draft(self, tour_id: UUID) -> None:
-        existing = await self.get(tour_id)
+    async def delete_draft(self, event_id: UUID) -> None:
+        existing = await self.get(event_id)
         if not existing:
             return
         if existing.status == FahrberichtStatus.SUBMITTED:
             raise ValueError("fahrbericht_submitted")
         self.table.delete_item(
-            Key={"pk": f"{TOUR_PK_PREFIX}{tour_id}", "sk": TOUR_SK_FAHRBERICHT},
+            Key={"pk": f"{EVENT_PK_PREFIX}{event_id}", "sk": EVENT_SK_FAHRBERICHT},
         )
 
-    async def reopen(self, tour_id: UUID) -> Fahrbericht:
-        existing = await self.get(tour_id)
+    async def reopen(self, event_id: UUID) -> Fahrbericht:
+        existing = await self.get(event_id)
         if not existing:
             raise ValueError("fahrbericht_not_found")
         if existing.status != FahrberichtStatus.SUBMITTED:
@@ -199,14 +240,18 @@ class FahrberichtService:
         self.table.put_item(Item=_fahrbericht_to_item(updated))
         return updated
 
-    async def submit(self, tour_id: UUID, submitted_by: str | None) -> SubmitResult:
-        existing = await self.get(tour_id)
+    async def submit(
+        self,
+        event_id: UUID,
+        org_id: UUID,
+        submitted_by: str | None,
+    ) -> SubmitResult:
+        existing = await self.get(event_id)
         if not existing:
             raise ValueError("fahrbericht_not_found")
         if existing.status == FahrberichtStatus.SUBMITTED:
             raise ValueError("fahrbericht_already_submitted")
 
-        # Validation
         has_content = (
             any(existing.kiosk_tally.values())
             or any(existing.crew_tally.values())
@@ -218,16 +263,15 @@ class FahrberichtService:
         if existing.cash_amount is not None and not existing.cash_handed_to:
             raise ValueError("fahrbericht_cash_needs_recipient")
 
-        tour_service = get_tour_service()
-        tour = await tour_service.get_tour(tour_id)
-        if not tour:
-            raise ValueError("tour_not_found")
+        event_service = get_event_service()
+        event = await event_service.get_event(org_id, event_id)
+        if not event:
+            raise ValueError("event_not_found")
 
         bar_service = get_bar_service()
         catalog_list = await bar_service.list_bar_items()
         catalog = {b.id: b for b in catalog_list}
 
-        # Unknown bar_item_id → reject.
         for bid in set(existing.kiosk_tally) | set(existing.crew_tally):
             if bid not in catalog:
                 raise ValueError(f"unknown_bar_item:{bid}")
@@ -247,17 +291,16 @@ class FahrberichtService:
         )
         self.table.put_item(Item=_fahrbericht_to_item(updated))
 
-        if first_submit:
-            await tour_service.transition_to_completed(tour_id)
-
-        # Side effects — best-effort.
+        # Side effects — best-effort. Event.status stays as-is (spec 014).
         warnings: list[str] = []
         bar_ok = ship_ok = report_ok = False
+        new_note_ids: list[UUID] = []
+        new_todo_ids: list[UUID] = []
 
         try:
             if first_submit:
                 bar_result = await bar_service.apply_consumption(
-                    tour_id=tour_id,
+                    event_id=event_id,
                     version=new_version,
                     kiosk_tally=existing.kiosk_tally,
                     crew_tally=existing.crew_tally,
@@ -270,15 +313,15 @@ class FahrberichtService:
                 for k, v in existing.crew_tally.items():
                     combined_next[k] = combined_next.get(k, 0) + v
                 bar_result = await bar_service.apply_consumption_delta(
-                    tour_id=tour_id,
+                    event_id=event_id,
                     version=new_version,
                     previous=combined_prev,
                     next=combined_next,
                 )
             warnings.extend(bar_result.warnings)
             bar_ok = True
-        except Exception as exc:  # noqa: BLE001 — pipeline best-effort
-            logger.exception("fahrbericht.submit.bar_failed", extra={"tour_id": str(tour_id)})
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("fahrbericht.submit.bar_failed", extra={"event_id": str(event_id)})
             warnings.append(f"Bar-Update fehlgeschlagen: {exc}")
 
         try:
@@ -287,7 +330,7 @@ class FahrberichtService:
             todo_inputs = [TodoInput(text=t) for t in updated.new_todos]
             if first_submit:
                 _, new_note_ids, new_todo_ids = await ship_service.apply_ship_status(
-                    tour_id=tour_id,
+                    event_id=event_id,
                     version=new_version,
                     snapshot=updated.ship_status,
                     new_notes=note_inputs,
@@ -295,7 +338,7 @@ class FahrberichtService:
                 )
             else:
                 _, new_note_ids, new_todo_ids = await ship_service.apply_ship_status_versioned(
-                    tour_id=tour_id,
+                    event_id=event_id,
                     version=new_version,
                     snapshot=updated.ship_status,
                     previously_applied_note_ids=existing.applied_ship_notes_ids,
@@ -305,24 +348,21 @@ class FahrberichtService:
                 )
             ship_ok = True
         except Exception as exc:  # noqa: BLE001
-            logger.exception("fahrbericht.submit.ship_failed", extra={"tour_id": str(tour_id)})
+            logger.exception("fahrbericht.submit.ship_failed", extra={"event_id": str(event_id)})
             warnings.append(f"Schiff-Update fehlgeschlagen: {exc}")
-            new_note_ids = []
-            new_todo_ids = []
 
         report_id = existing.report_id
         try:
             from .report_service import get_report_service
 
             report_service = get_report_service()
-            meta = await report_service.create_or_update_report(tour_id, new_version)
+            meta = await report_service.create_or_update_report(event_id, new_version, org_id=org_id)
             report_id = meta.id
             report_ok = True
         except Exception as exc:  # noqa: BLE001
-            logger.exception("fahrbericht.submit.report_failed", extra={"tour_id": str(tour_id)})
+            logger.exception("fahrbericht.submit.report_failed", extra={"event_id": str(event_id)})
             warnings.append(f"Berichterstellung fehlgeschlagen: {exc}")
 
-        # Persist applied_* + report_id.
         applied_kiosk = dict(existing.kiosk_tally)
         applied_crew = dict(existing.crew_tally)
         updated = updated.model_copy(
@@ -350,8 +390,8 @@ class FahrberichtService:
             report_ok=report_ok,
         )
 
-    async def reapply_side_effects(self, tour_id: UUID) -> SubmitResult:
-        existing = await self.get(tour_id)
+    async def reapply_side_effects(self, event_id: UUID) -> SubmitResult:
+        existing = await self.get(event_id)
         if not existing or existing.status != FahrberichtStatus.SUBMITTED:
             raise ValueError("fahrbericht_not_submitted")
 
@@ -361,7 +401,6 @@ class FahrberichtService:
         catalog = {b.id: b for b in catalog_list}
 
         warnings: list[str] = []
-        # Bar
         combined_prev = dict(existing.applied_kiosk_tally)
         for k, v in existing.applied_crew_tally.items():
             combined_prev[k] = combined_prev.get(k, 0) + v
@@ -371,14 +410,14 @@ class FahrberichtService:
         try:
             if existing.version <= 1 and combined_prev == combined_next:
                 bar_result = await bar_service.apply_consumption(
-                    tour_id=tour_id,
+                    event_id=event_id,
                     version=existing.version,
                     kiosk_tally=existing.kiosk_tally,
                     crew_tally=existing.crew_tally,
                 )
             else:
                 bar_result = await bar_service.apply_consumption_delta(
-                    tour_id=tour_id,
+                    event_id=event_id,
                     version=existing.version,
                     previous=combined_prev,
                     next=combined_next,
@@ -393,7 +432,7 @@ class FahrberichtService:
             note_inputs = [NoteInput(text=t) for t in existing.new_notes]
             todo_inputs = [TodoInput(text=t) for t in existing.new_todos]
             await ship_service.apply_ship_status_versioned(
-                tour_id=tour_id,
+                event_id=event_id,
                 version=existing.version,
                 snapshot=existing.ship_status,
                 previously_applied_note_ids=existing.applied_ship_notes_ids,
@@ -410,8 +449,9 @@ class FahrberichtService:
             from .report_service import get_report_service
 
             report_service = get_report_service()
-            await report_service.create_or_update_report(tour_id, existing.version)
-            await report_service.send_report_email(existing.report_id) if existing.report_id else None
+            await report_service.create_or_update_report(event_id, existing.version)
+            if existing.report_id:
+                await report_service.send_report_email(existing.report_id)
             report_ok = True
         except Exception as exc:  # noqa: BLE001
             warnings.append(f"Berichterstellung fehlgeschlagen: {exc}")
@@ -430,8 +470,8 @@ class FahrberichtService:
             report_ok=report_ok,
         )
 
-    async def build_response(self, tour_id: UUID) -> FahrberichtResponse | None:
-        bericht = await self.get(tour_id)
+    async def build_response(self, event_id: UUID) -> FahrberichtResponse | None:
+        bericht = await self.get(event_id)
         if not bericht:
             return None
         bar_service = get_bar_service()

@@ -1,4 +1,4 @@
-"""Fahrbericht admin routes (spec 012)."""
+"""Fahrbericht admin routes (spec 014 — keyed by event_id)."""
 
 from uuid import UUID
 
@@ -6,83 +6,97 @@ from fastapi import APIRouter, HTTPException, status
 
 from ...models import FahrberichtPatch, FahrberichtResponse, SubmitResult
 from ...services.auth import CurrentUser
+from ...services.event_service import get_event_service
 from ...services.fahrbericht_service import get_fahrbericht_service
-from ...services.tour_service import get_tour_service
 
-router = APIRouter(prefix="/tours/{tour_id}/fahrbericht", tags=["admin.fahrbericht"])
+router = APIRouter(
+    prefix="/events/{event_id}/fahrbericht",
+    tags=["admin.fahrbericht"],
+)
 
 
-async def _check_access(tour_id: UUID, user: CurrentUser) -> None:
-    tour = await get_tour_service().get_tour(tour_id)
-    if not tour or (user.org_id and str(tour.org_id) != user.org_id):
-        raise HTTPException(404, "tour_not_found")
+def _org_id(user: CurrentUser) -> UUID:
+    if not user.org_id:
+        raise HTTPException(403, "org_id missing")
+    return UUID(user.org_id)
+
+
+async def _check_access(event_id: UUID, user: CurrentUser) -> None:
+    org_id = _org_id(user)
+    event = await get_event_service().get_event(org_id, event_id)
+    if not event:
+        raise HTTPException(404, "event_not_found")
 
 
 @router.get("")
-async def get_fahrbericht(tour_id: UUID, user: CurrentUser) -> FahrberichtResponse:
-    await _check_access(tour_id, user)
-    resp = await get_fahrbericht_service().build_response(tour_id)
+async def get_fahrbericht(event_id: UUID, user: CurrentUser) -> FahrberichtResponse:
+    await _check_access(event_id, user)
+    resp = await get_fahrbericht_service().build_response(event_id)
     if not resp:
         raise HTTPException(404, "not_found")
     return resp
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-async def create_draft(tour_id: UUID, user: CurrentUser) -> FahrberichtResponse:
-    await _check_access(tour_id, user)
+async def create_draft(event_id: UUID, user: CurrentUser) -> FahrberichtResponse:
+    await _check_access(event_id, user)
     try:
-        await get_fahrbericht_service().create_draft(tour_id)
+        await get_fahrbericht_service().create_draft(event_id)
     except ValueError as exc:
         raise HTTPException(409, str(exc))
-    return await get_fahrbericht_service().build_response(tour_id)  # type: ignore[return-value]
+    return await get_fahrbericht_service().build_response(event_id)  # type: ignore[return-value]
 
 
 @router.put("")
 async def upsert_draft(
-    tour_id: UUID,
+    event_id: UUID,
     patch: FahrberichtPatch,
     user: CurrentUser,
 ) -> FahrberichtResponse:
-    await _check_access(tour_id, user)
+    await _check_access(event_id, user)
     try:
-        await get_fahrbericht_service().upsert_draft(tour_id, patch)
+        await get_fahrbericht_service().upsert_draft(event_id, patch)
     except ValueError as exc:
         raise HTTPException(409, str(exc))
-    return await get_fahrbericht_service().build_response(tour_id)  # type: ignore[return-value]
+    return await get_fahrbericht_service().build_response(event_id)  # type: ignore[return-value]
 
 
 @router.delete("", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_draft(tour_id: UUID, user: CurrentUser) -> None:
-    await _check_access(tour_id, user)
+async def delete_draft(event_id: UUID, user: CurrentUser) -> None:
+    await _check_access(event_id, user)
     try:
-        await get_fahrbericht_service().delete_draft(tour_id)
+        await get_fahrbericht_service().delete_draft(event_id)
     except ValueError as exc:
         raise HTTPException(409, str(exc))
 
 
 @router.post("/submit")
-async def submit(tour_id: UUID, user: CurrentUser) -> SubmitResult:
-    await _check_access(tour_id, user)
+async def submit(event_id: UUID, user: CurrentUser) -> SubmitResult:
+    await _check_access(event_id, user)
     try:
-        return await get_fahrbericht_service().submit(tour_id, submitted_by=user.sub)
+        return await get_fahrbericht_service().submit(
+            event_id,
+            org_id=_org_id(user),
+            submitted_by=user.sub,
+        )
     except ValueError as exc:
         raise HTTPException(409, str(exc))
 
 
 @router.post("/reopen")
-async def reopen(tour_id: UUID, user: CurrentUser) -> FahrberichtResponse:
-    await _check_access(tour_id, user)
+async def reopen(event_id: UUID, user: CurrentUser) -> FahrberichtResponse:
+    await _check_access(event_id, user)
     try:
-        await get_fahrbericht_service().reopen(tour_id)
+        await get_fahrbericht_service().reopen(event_id)
     except ValueError as exc:
         raise HTTPException(409, str(exc))
-    return await get_fahrbericht_service().build_response(tour_id)  # type: ignore[return-value]
+    return await get_fahrbericht_service().build_response(event_id)  # type: ignore[return-value]
 
 
 @router.post("/reapply-side-effects")
-async def reapply(tour_id: UUID, user: CurrentUser) -> SubmitResult:
-    await _check_access(tour_id, user)
+async def reapply(event_id: UUID, user: CurrentUser) -> SubmitResult:
+    await _check_access(event_id, user)
     try:
-        return await get_fahrbericht_service().reapply_side_effects(tour_id)
+        return await get_fahrbericht_service().reapply_side_effects(event_id)
     except ValueError as exc:
         raise HTTPException(409, str(exc))

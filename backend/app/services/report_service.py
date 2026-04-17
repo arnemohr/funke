@@ -1,7 +1,11 @@
-"""Closing report service (spec 013).
+"""Closing report service (specs 013 + 014).
 
-Persists per-version snapshots of a Fahrbericht, renders PDFs via WeasyPrint,
-and emails finance. Reuses the existing SMTP pipeline (`email_client.py`).
+Persists per-version snapshots of a Fahrbericht, renders PDFs (WeasyPrint when
+available, fpdf2 fallback), emails finance. Reuses the existing SMTP pipeline
+(`email_client.py`).
+
+Spec 014: Fahrbericht is a direct child of Event — Report pointer row lives at
+`pk = EVENT#{event_id}`, `sk = REPORT` in the events table.
 """
 
 from __future__ import annotations
@@ -21,32 +25,32 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from ..models import (
     BarItem,
     EmailStatus,
+    Event,
     Fahrbericht,
     LineItem,
     ReportMeta,
     ReportResponse,
     ReportTotals,
     ReportVersion,
-    Tour,
 )
 from ..models.report import ExpenseLine as ReportExpenseLine
 from .bar_service import get_bar_service
 from .booking_text import build_booking_text
 from .config import (
+    EVENT_PK_PREFIX,
+    EVENT_SK_REPORT_POINTER,
     REPORT_PK_PREFIX,
     REPORT_SK_META,
     REPORT_SK_VERSION_PREFIX,
     REPORTS_LIST_PK,
-    TOUR_PK_PREFIX,
-    TOUR_SK_REPORT_POINTER,
+    get_events_table,
     get_reports_table,
     get_settings,
-    get_tours_table,
 )
 from .email_client import Attachment, EmailMessage, get_gmail_client
+from .event_service import get_event_service
 from .fahrbericht_service import get_fahrbericht_service
 from .logging import get_logger
-from .tour_service import get_tour_service
 
 if TYPE_CHECKING:
     from mypy_boto3_dynamodb.service_resource import Table
@@ -86,7 +90,7 @@ def _meta_to_item(meta: ReportMeta) -> dict:
         "sk": REPORT_SK_META,
         "entity_type": "ReportMeta",
         "id": str(meta.id),
-        "tour_id": str(meta.tour_id),
+        "event_id": str(meta.event_id),
         "current_version": meta.current_version,
         "finance_recipient": meta.finance_recipient,
         "email_status": meta.email_status.value,
@@ -107,7 +111,7 @@ def _meta_to_item(meta: ReportMeta) -> dict:
 def _item_to_meta(item: dict) -> ReportMeta:
     return ReportMeta(
         id=UUID(item["id"]),
-        tour_id=UUID(item["tour_id"]),
+        event_id=UUID(item["event_id"]),
         current_version=int(item.get("current_version", 0)),
         finance_recipient=item.get("finance_recipient"),
         email_status=EmailStatus(item.get("email_status", "PENDING")),
@@ -131,9 +135,9 @@ def _version_to_item(v: ReportVersion) -> dict:
         "entity_type": "ReportVersion",
         "report_id": str(v.report_id),
         "version": v.version,
-        "tour_id": str(v.tour_id),
+        "event_id": str(v.event_id),
         "fahrbericht_snapshot": v.fahrbericht_snapshot,
-        "tour_snapshot": v.tour_snapshot,
+        "event_snapshot": v.event_snapshot,
         "bar_catalog_snapshot": v.bar_catalog_snapshot,
         "kiosk_summary": [li.model_dump(mode="json") for li in v.kiosk_summary],
         "crew_summary": [li.model_dump(mode="json") for li in v.crew_summary],
@@ -150,9 +154,9 @@ def _item_to_version(item: dict) -> ReportVersion:
     return ReportVersion(
         report_id=UUID(item["report_id"]),
         version=int(item["version"]),
-        tour_id=UUID(item["tour_id"]),
+        event_id=UUID(item["event_id"]),
         fahrbericht_snapshot=item.get("fahrbericht_snapshot") or {},
-        tour_snapshot=item.get("tour_snapshot") or {},
+        event_snapshot=item.get("event_snapshot") or {},
         bar_catalog_snapshot=item.get("bar_catalog_snapshot") or {},
         kiosk_summary=[LineItem(**li) for li in item.get("kiosk_summary") or []],
         crew_summary=[LineItem(**li) for li in item.get("crew_summary") or []],
@@ -174,7 +178,7 @@ def _item_to_version(item: dict) -> ReportVersion:
 class ReportService:
     def __init__(self):
         self._table = None
-        self._tours_table = None
+        self._events_table = None
         self._s3 = None
 
     @property
@@ -184,10 +188,10 @@ class ReportService:
         return self._table
 
     @property
-    def tours_table(self) -> "Table":
-        if self._tours_table is None:
-            self._tours_table = get_tours_table()
-        return self._tours_table
+    def events_table(self) -> "Table":
+        if self._events_table is None:
+            self._events_table = get_events_table()
+        return self._events_table
 
     @property
     def s3(self):
@@ -247,9 +251,9 @@ class ReportService:
         item = resp.get("Item")
         return _item_to_version(item) if item else None
 
-    async def get_report_for_tour(self, tour_id: UUID) -> ReportMeta | None:
-        pointer = self.tours_table.get_item(
-            Key={"pk": f"{TOUR_PK_PREFIX}{tour_id}", "sk": TOUR_SK_REPORT_POINTER},
+    async def get_report_for_event(self, event_id: UUID) -> ReportMeta | None:
+        pointer = self.events_table.get_item(
+            Key={"pk": f"{EVENT_PK_PREFIX}{event_id}", "sk": EVENT_SK_REPORT_POINTER},
         ).get("Item")
         if not pointer:
             return None
@@ -260,19 +264,29 @@ class ReportService:
         return ReportResponse(**meta.model_dump(), versions=versions)
 
     # ------------------------------------------------------- create_or_update
-    async def create_or_update_report(self, tour_id: UUID, version: int) -> ReportMeta:
-        bericht = await get_fahrbericht_service().get(tour_id)
+    async def create_or_update_report(
+        self,
+        event_id: UUID,
+        version: int,
+        *,
+        org_id: UUID | None = None,
+    ) -> ReportMeta:
+        bericht = await get_fahrbericht_service().get(event_id)
         if not bericht:
             raise ValueError("fahrbericht_not_found")
-        tour = await get_tour_service().get_tour(tour_id)
-        if not tour:
-            raise ValueError("tour_not_found")
+
+        # Event lookup: prefer the explicit org_id path (fast GetItem). When the
+        # caller doesn't know it, fall back to a scan by id — used only by the
+        # reapply path for already-persisted reports.
+        event = await _resolve_event(event_id, org_id)
+        if not event:
+            raise ValueError("event_not_found")
 
         bar_service = get_bar_service()
         catalog_list = await bar_service.list_bar_items()
         catalog = {b.id: b for b in catalog_list}
 
-        existing_meta = await self.get_report_for_tour(tour_id)
+        existing_meta = await self.get_report_for_event(event_id)
         report_id = existing_meta.id if existing_meta else uuid4()
         created_at = existing_meta.created_at if existing_meta else datetime.now(timezone.utc)
 
@@ -280,7 +294,7 @@ class ReportService:
         snap_version = _build_version_snapshot(
             report_id=report_id,
             version=version,
-            tour=tour,
+            event=event,
             bericht=bericht,
             catalog=catalog,
         )
@@ -303,7 +317,7 @@ class ReportService:
 
         meta = ReportMeta(
             id=report_id,
-            tour_id=tour_id,
+            event_id=event_id,
             current_version=version,
             finance_recipient=recipient,
             email_status=email_status,
@@ -316,14 +330,14 @@ class ReportService:
         )
         self.table.put_item(Item=_meta_to_item(meta))
 
-        # Pointer row from Tour → Report (idempotent).
+        # Pointer row from Event → Report (idempotent) in the events table.
         try:
-            self.tours_table.put_item(
+            self.events_table.put_item(
                 Item={
-                    "pk": f"{TOUR_PK_PREFIX}{tour_id}",
-                    "sk": TOUR_SK_REPORT_POINTER,
-                    "entity_type": "TourReportPointer",
-                    "tour_id": str(tour_id),
+                    "pk": f"{EVENT_PK_PREFIX}{event_id}",
+                    "sk": EVENT_SK_REPORT_POINTER,
+                    "entity_type": "EventReportPointer",
+                    "event_id": str(event_id),
                     "report_id": str(report_id),
                 },
                 ConditionExpression=(
@@ -373,13 +387,13 @@ class ReportService:
             )
             return
 
-        date_str = version_snap.tour_snapshot.get("date", "")
-        tour_name = version_snap.tour_snapshot.get("name") or "Fahrt"
+        date_str = version_snap.event_snapshot.get("date", "")
+        event_name = version_snap.event_snapshot.get("name") or "Fahrt"
         is_update = meta.current_version >= 2
         subject = (
-            f"Schaluppe Fahrbericht (Aktualisierung v{meta.current_version}) – {date_str} – {tour_name}"
+            f"Schaluppe Fahrbericht (Aktualisierung v{meta.current_version}) – {date_str} – {event_name}"
             if is_update
-            else f"Schaluppe Fahrbericht – {date_str} – {tour_name}"
+            else f"Schaluppe Fahrbericht – {date_str} – {event_name}"
         )
         lead = (
             f"Hallo Finance-Team,\n\nanbei die aktualisierte Version v{meta.current_version} des Fahrberichts der Schaluppe vom {date_str}.\n\n"
@@ -537,20 +551,47 @@ def get_report_service() -> ReportService:
 # ---------------------------------------------------------------------------
 
 
-def _tour_snapshot(tour: Tour) -> dict:
+def _event_snapshot(event: Event, bericht: Fahrbericht) -> dict:
+    """Combined event/trip shape — the snapshot the PDF and email read from.
+
+    Pulls display-facing fields from whichever source owns them now that the
+    Tour entity is gone: Event carries `name` and the trip date; Fahrbericht
+    carries crew, duration, charterer, guest count.
+    """
     return {
-        "id": str(tour.id),
-        "event_id": str(tour.event_id) if tour.event_id else None,
-        "name": tour.name,
-        "date": tour.date.isoformat(),
-        "duration_hours": str(tour.duration_hours) if tour.duration_hours is not None else None,
-        "guest_count": tour.guest_count,
-        "charterer": tour.charterer,
-        "funker_name": tour.funker.display_name if tour.funker else None,
-        "skipper_name": tour.skipper.display_name if tour.skipper else None,
-        "crew_names": ", ".join(c.display_name for c in tour.crew) if tour.crew else None,
-        "status": tour.status.value,
+        "id": str(event.id),
+        "name": event.name,
+        "date": event.start_at.date().isoformat(),
+        "duration_hours": str(bericht.duration_hours) if bericht.duration_hours is not None else None,
+        "guest_count": bericht.guest_count,
+        "charterer": bericht.charterer,
+        "funker_name": bericht.funker.display_name if bericht.funker else None,
+        "skipper_name": bericht.skipper.display_name if bericht.skipper else None,
+        "crew_names": ", ".join(c.display_name for c in bericht.crew) if bericht.crew else None,
+        "status": event.status.value,
     }
+
+
+async def _resolve_event(event_id: UUID, org_id: UUID | None) -> Event | None:
+    """Fetch an Event given an id. Prefers the org-scoped lookup; falls back
+    to a scan by id when the caller doesn't have the org_id handy (reapply
+    path).
+    """
+    svc = get_event_service()
+    if org_id is not None:
+        return await svc.get_event(org_id, event_id)
+    # Slow path — scan. Only hit during manual reapply or legacy callers.
+    from boto3.dynamodb.conditions import Attr
+
+    table = get_events_table()
+    resp = table.scan(FilterExpression=Attr("id").eq(str(event_id)), Limit=1)
+    items = resp.get("Items") or []
+    if not items:
+        return None
+    found_org = items[0].get("org_id")
+    if not found_org:
+        return None
+    return await svc.get_event(UUID(found_org), event_id)
 
 
 def _bar_catalog_snapshot(
@@ -580,7 +621,7 @@ def _build_version_snapshot(
     *,
     report_id: UUID,
     version: int,
-    tour: Tour,
+    event: Event,
     bericht: Fahrbericht,
     catalog: dict[UUID, BarItem],
 ) -> ReportVersion:
@@ -636,14 +677,14 @@ def _build_version_snapshot(
         cash_diff=cash - soll,
     )
 
-    booking_text = build_booking_text(bericht, tour, catalog)
+    booking_text = build_booking_text(bericht, event, catalog)
 
     return ReportVersion(
         report_id=report_id,
         version=version,
-        tour_id=tour.id,
+        event_id=event.id,
         fahrbericht_snapshot=json.loads(bericht.model_dump_json()),
-        tour_snapshot=_tour_snapshot(tour),
+        event_snapshot=_event_snapshot(event, bericht),
         bar_catalog_snapshot=_bar_catalog_snapshot(bericht, catalog),
         kiosk_summary=kiosk_summary,
         crew_summary=crew_summary,
@@ -661,7 +702,7 @@ def _render_html(snap: ReportVersion) -> str:
     context: dict[str, Any] = {
         "version": snap.version,
         "generated_at": snap.generated_at.strftime("%Y-%m-%d %H:%M UTC"),
-        "tour": snap.tour_snapshot,
+        "event": snap.event_snapshot,
         "kiosk_summary": snap.kiosk_summary,
         "crew_summary": snap.crew_summary,
         "expenses_summary": snap.expenses_summary,
@@ -764,18 +805,18 @@ def _snapshot_to_pdf_fpdf(snap: "ReportVersion") -> bytes:
     pdf.set_text_color(0, 0, 0)
     pdf.ln(3)
 
-    tour = snap.tour_snapshot or {}
+    event_info = snap.event_snapshot or {}
     subhead("Fahrtinfo")
-    kv("Datum", str(tour.get("date") or "-"))
-    kv("Veranstaltung", str(tour.get("name") or "-"))
-    kv("Dauer", f"{tour.get('duration_hours') or '-'} h")
-    gc = tour.get("guest_count")
+    kv("Datum", str(event_info.get("date") or "-"))
+    kv("Veranstaltung", str(event_info.get("name") or "-"))
+    kv("Dauer", f"{event_info.get('duration_hours') or '-'} h")
+    gc = event_info.get("guest_count")
     kv("Gaeste", str(gc if gc is not None else "-"))
-    kv("Charterer", str(tour.get("charterer") or "-"))
-    kv("Funker*in", str(tour.get("funker_name") or "-"))
-    kv("Skipper", str(tour.get("skipper_name") or "-"))
-    if tour.get("crew_names"):
-        kv("Crew", str(tour["crew_names"]))
+    kv("Charterer", str(event_info.get("charterer") or "-"))
+    kv("Funker*in", str(event_info.get("funker_name") or "-"))
+    kv("Skipper", str(event_info.get("skipper_name") or "-"))
+    if event_info.get("crew_names"):
+        kv("Crew", str(event_info["crew_names"]))
 
     subhead("Kiosk-Einnahmen (8400)")
     if snap.kiosk_summary:

@@ -1,13 +1,14 @@
-"""Booking-text builder for Leasy / NetXp (spec 012).
+"""Booking-text builder for Leasy / NetXp (spec 012, updated in spec 014).
 
-Single source of truth — mirrored by the frontend for live preview but
-authoritative version lives here.
+Single source of truth — mirrored by the frontend for live preview but the
+authoritative version lives here. Reads display fields off the Event (name,
+date) and trip-shape fields off the Fahrbericht (funker, guest_count).
 """
 
 from decimal import Decimal
 from uuid import UUID
 
-from ..models import BarItem, Fahrbericht, Tour
+from ..models import BarItem, Event, Fahrbericht
 
 
 def _fmt(amount: Decimal) -> str:
@@ -16,7 +17,7 @@ def _fmt(amount: Decimal) -> str:
 
 def build_booking_text(
     bericht: Fahrbericht,
-    tour: Tour,
+    event: Event,
     bar_catalog: dict[UUID, BarItem],
 ) -> str:
     kiosk_lines: list[str] = []
@@ -48,12 +49,13 @@ def build_booking_text(
     cash = bericht.cash_amount or Decimal("0")
     diff = cash - soll
 
-    funker = tour.funker.display_name if tour.funker else "—"
+    funker = bericht.funker.display_name if bericht.funker else "—"
+    guest_count = bericht.guest_count if bericht.guest_count is not None else "?"
 
     parts = [
         "KASSENBUCH-EINGANG:",
-        f"Datum: {tour.date.isoformat()}",
-        f"Veranstaltung: {tour.name or ''} ({tour.guest_count if tour.guest_count is not None else '?'} Gäste)",
+        f"Datum: {event.start_at.date().isoformat()}",
+        f"Veranstaltung: {event.name} ({guest_count} Gäste)",
         f"Funker*in: {funker}",
         "",
         "EINNAHMEN (8400 / Erlöse Kiosk):",

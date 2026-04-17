@@ -1,20 +1,27 @@
 /**
- * Client-side booking-text renderer (spec 012).
+ * Client-side booking-text renderer (spec 012, updated in spec 014).
  *
- * Mirrors `backend/app/services/booking_text.py` for instant preview. If the
- * formats ever diverge, the backend version is authoritative.
+ * Mirrors `backend/app/services/booking_text.py` for instant preview. Reads
+ * display fields off the Event (name, start_at) and trip-shape fields off the
+ * Fahrbericht (funker, guest_count). If the formats ever diverge, the backend
+ * is authoritative.
  */
 
 function fmt(n) {
   return Number(n || 0).toFixed(2)
 }
 
-export function buildBookingText({ bericht, tour, catalog }) {
+function eventDateString(event) {
+  if (!event?.start_at) return ''
+  return String(event.start_at).slice(0, 10)
+}
+
+export function buildBookingText({ bericht, event, catalog }) {
   const kioskLines = []
   let kioskTotal = 0
-  for (const [bid, qty] of Object.entries(bericht.kiosk_tally || {})) {
+  for (const [bid, qty] of Object.entries(bericht?.kiosk_tally || {})) {
     if (!qty) continue
-    const bar = catalog[bid]
+    const bar = catalog?.[bid]
     if (!bar) continue
     const total = qty * Number(bar.kb)
     kioskTotal += total
@@ -23,30 +30,32 @@ export function buildBookingText({ bericht, tour, catalog }) {
 
   const crewLines = []
   let crewCost = 0
-  for (const [bid, qty] of Object.entries(bericht.crew_tally || {})) {
+  for (const [bid, qty] of Object.entries(bericht?.crew_tally || {})) {
     if (!qty) continue
-    const bar = catalog[bid]
+    const bar = catalog?.[bid]
     if (!bar) continue
     const total = qty * Number(bar.ek)
     crewCost += total
     crewLines.push(`  ${bar.name} × ${qty} = € ${fmt(total)}`)
   }
 
-  const expensesTotal = (bericht.expenses || []).reduce(
+  const expensesTotal = (bericht?.expenses || []).reduce(
     (s, e) => s + Number(e.amount || 0),
     0,
   )
-  const boarding = Number(bericht.boarding_fee || 0)
-  const surcharge = Number(bericht.bar_surcharge || 0)
+  const boarding = Number(bericht?.boarding_fee || 0)
+  const surcharge = Number(bericht?.bar_surcharge || 0)
   const soll = kioskTotal + boarding + surcharge
-  const cash = Number(bericht.cash_amount || 0)
+  const cash = Number(bericht?.cash_amount || 0)
   const diff = cash - soll
 
-  const funker = tour?.funker?.display_name || '—'
+  const funker = bericht?.funker?.display_name || '—'
+  const guestCount = bericht?.guest_count ?? '?'
+
   const parts = [
     'KASSENBUCH-EINGANG:',
-    `Datum: ${tour?.date || ''}`,
-    `Veranstaltung: ${tour?.name || ''} (${tour?.guest_count ?? '?'} Gäste)`,
+    `Datum: ${eventDateString(event)}`,
+    `Veranstaltung: ${event?.name || ''} (${guestCount} Gäste)`,
     `Funker*in: ${funker}`,
     '',
     'EINNAHMEN (8400 / Erlöse Kiosk):',

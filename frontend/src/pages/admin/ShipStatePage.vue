@@ -1,6 +1,6 @@
 <template>
   <section class="container">
-    <PageHeader title="Schiff-Status" back />
+    <PageHeader title="Schaluppe" />
     <article v-if="loading" aria-busy="true">Laden…</article>
     <template v-else-if="state">
       <div class="tiles">

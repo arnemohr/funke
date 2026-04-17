@@ -27,6 +27,7 @@ from .event import (
 )
 from .fahrbericht import (
     ComputedTotals,
+    CrewRef,
     Fahrbericht,
     FahrberichtPatch,
     FahrberichtResponse,
@@ -70,7 +71,6 @@ from .ship_state import (
     Todo,
     TodoInput,
 )
-from .tour import CrewRef, Tour, TourCreate, TourPatch, TourResponse, TourStatus
 
 __all__ = [
     # Admin
@@ -102,13 +102,6 @@ __all__ = [
     "RegistrationResponse",
     "RegistrationStatus",
     "RegistrationUpdate",
-    # Tour (spec 010)
-    "CrewRef",
-    "Tour",
-    "TourCreate",
-    "TourPatch",
-    "TourResponse",
-    "TourStatus",
     # Bar + Ship (spec 011)
     "BarItem",
     "BarItemCategory",
@@ -128,8 +121,9 @@ __all__ = [
     "ShipStatusSnapshot",
     "Todo",
     "TodoInput",
-    # Fahrbericht (spec 012)
+    # Fahrbericht (specs 012 + 014)
     "ComputedTotals",
+    "CrewRef",
     "Fahrbericht",
     "FahrberichtPatch",
     "FahrberichtResponse",

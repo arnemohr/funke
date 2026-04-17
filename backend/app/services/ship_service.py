@@ -26,7 +26,7 @@ from ..models import (
 from .config import (
     SHIP_PK,
     SHIP_SK_STATE,
-    SHIP_SK_TOUR_MARKER_PREFIX,
+    SHIP_SK_EVENT_MARKER_PREFIX,
     get_ship_state_table,
 )
 from .logging import get_logger
@@ -54,8 +54,8 @@ def _ship_to_item(state: ShipState) -> dict:
         "persennig_status": state.persennig_status.value if state.persennig_status else None,
         "general_notes": [_note_to_item(n) for n in state.general_notes],
         "open_todos": [_todo_to_item(t) for t in state.open_todos],
-        "last_updated_from_tour_id": (
-            str(state.last_updated_from_tour_id) if state.last_updated_from_tour_id else None
+        "last_updated_from_event_id": (
+            str(state.last_updated_from_event_id) if state.last_updated_from_event_id else None
         ),
         "updated_at": state.updated_at.isoformat(),
     }
@@ -117,8 +117,8 @@ def _item_to_ship(item: dict | None) -> ShipState:
             )
             for t in item.get("open_todos") or []
         ],
-        last_updated_from_tour_id=(
-            UUID(item["last_updated_from_tour_id"]) if item.get("last_updated_from_tour_id") else None
+        last_updated_from_event_id=(
+            UUID(item["last_updated_from_event_id"]) if item.get("last_updated_from_event_id") else None
         ),
         updated_at=datetime.fromisoformat(item["updated_at"]) if item.get("updated_at") else datetime.now(timezone.utc),
     )
@@ -227,14 +227,14 @@ class ShipService:
     async def apply_ship_status(
         self,
         *,
-        tour_id: UUID,
+        event_id: UUID,
         version: int,
         snapshot: ShipStatusSnapshot,
         new_notes: list[NoteInput],
         new_todos: list[TodoInput],
     ) -> tuple[ShipState, list[UUID], list[UUID]]:
         """First-submission path. Returns new state + appended note/todo ids."""
-        if self._marker_exists(tour_id, version):
+        if self._marker_exists(event_id, version):
             state = await self.get_state()
             return state, [], []
 
@@ -251,18 +251,18 @@ class ShipService:
                 **snapshot_fields,
                 "general_notes": [*state.general_notes, *notes_to_add],
                 "open_todos": [*state.open_todos, *todos_to_add],
-                "last_updated_from_tour_id": tour_id,
+                "last_updated_from_event_id": event_id,
                 "updated_at": datetime.now(timezone.utc),
             },
         )
         self.table.put_item(Item=_ship_to_item(state))
-        self._write_marker(tour_id, version)
+        self._write_marker(event_id, version)
         return state, [n.id for n in notes_to_add], [t.id for t in todos_to_add]
 
     async def apply_ship_status_versioned(
         self,
         *,
-        tour_id: UUID,
+        event_id: UUID,
         version: int,
         snapshot: ShipStatusSnapshot,
         previously_applied_note_ids: list[UUID],
@@ -270,7 +270,7 @@ class ShipService:
         new_notes: list[NoteInput],
         new_todos: list[TodoInput],
     ) -> tuple[ShipState, list[UUID], list[UUID]]:
-        if self._marker_exists(tour_id, version):
+        if self._marker_exists(event_id, version):
             state = await self.get_state()
             return state, previously_applied_note_ids, previously_applied_todo_ids
 
@@ -308,12 +308,12 @@ class ShipService:
                 **snapshot_fields,
                 "general_notes": [*kept_notes, *appended_notes],
                 "open_todos": [*kept_todos, *appended_todos],
-                "last_updated_from_tour_id": tour_id,
+                "last_updated_from_event_id": event_id,
                 "updated_at": datetime.now(timezone.utc),
             },
         )
         self.table.put_item(Item=_ship_to_item(state))
-        self._write_marker(tour_id, version)
+        self._write_marker(event_id, version)
 
         applied_note_ids = [n.id for n in state.general_notes if n.id in (
             set(previously_applied_note_ids) | {n.id for n in appended_notes}
@@ -324,20 +324,20 @@ class ShipService:
         return state, applied_note_ids, applied_todo_ids
 
     # ------------------------------------------------------------- Helpers
-    def _marker_exists(self, tour_id: UUID, version: int) -> bool:
+    def _marker_exists(self, event_id: UUID, version: int) -> bool:
         resp = self.table.get_item(
-            Key={"pk": SHIP_PK, "sk": f"{SHIP_SK_TOUR_MARKER_PREFIX}{tour_id}#v{version}"},
+            Key={"pk": SHIP_PK, "sk": f"{SHIP_SK_EVENT_MARKER_PREFIX}{event_id}#v{version}"},
         )
         return "Item" in resp
 
-    def _write_marker(self, tour_id: UUID, version: int) -> None:
+    def _write_marker(self, event_id: UUID, version: int) -> None:
         try:
             self.table.put_item(
                 Item={
                     "pk": SHIP_PK,
-                    "sk": f"{SHIP_SK_TOUR_MARKER_PREFIX}{tour_id}#v{version}",
+                    "sk": f"{SHIP_SK_EVENT_MARKER_PREFIX}{event_id}#v{version}",
                     "entity_type": "ShipApplyMarker",
-                    "tour_id": str(tour_id),
+                    "event_id": str(event_id),
                     "version": version,
                     "applied_at": datetime.now(timezone.utc).isoformat(),
                 },

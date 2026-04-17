@@ -1,6 +1,6 @@
 <template>
   <section class="container">
-    <PageHeader :title="pageTitle" :back="`/admin/tours/${tourId}`">
+    <PageHeader :title="pageTitle" :back="`/admin/events/${eventId}`">
       <template #chip>
         <span v-if="bericht" :class="['chip', statusClass]">
           {{ bericht.status === 'DRAFT' ? 'Entwurf' : 'Eingereicht v' + bericht.version }}
@@ -14,9 +14,8 @@
     <article v-if="loading" aria-busy="true">Laden…</article>
     <template v-else-if="bericht && isReadOnly">
       <SubmittedView
-        :tour="tour"
+        :event="event"
         :bericht="bericht"
-        :catalog="catalogMap"
         :report="report"
         :warnings="submitWarnings"
         @reopen="reopen"
@@ -34,14 +33,14 @@
         >{{ t.label }}</button>
       </nav>
 
-      <FahrtTab v-show="activeTab === 'fahrt'" v-model:bericht="bericht" v-model:tour="tour" @save="scheduleSave" @save-tour="saveTour" />
+      <FahrtTab v-show="activeTab === 'fahrt'" v-model:bericht="bericht" :event="event" @save="scheduleSave" />
       <KioskTab v-show="activeTab === 'kiosk'" v-model:bericht="bericht" :catalog="catalog" @save="scheduleSave" />
       <CrewTab v-show="activeTab === 'crew'" v-model:bericht="bericht" :catalog="catalog" @save="scheduleSave" />
       <SchiffTab v-show="activeTab === 'schiff'" v-model:bericht="bericht" @save="scheduleSave" />
       <AbschlussTab
         v-show="activeTab === 'abschluss'"
         v-model:bericht="bericht"
-        :tour="tour"
+        :event="event"
         :catalog="catalog"
         :catalog-map="catalogMap"
         @save="scheduleSave"
@@ -55,7 +54,7 @@
 
 <script setup>
 import { computed as vueComputed, onMounted, onUnmounted, ref } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
+import { useRoute } from 'vue-router'
 import PageHeader from '../../components/PageHeader.vue'
 import FahrtTab from './fahrbericht/FahrtTab.vue'
 import KioskTab from './fahrbericht/KioskTab.vue'
@@ -68,8 +67,7 @@ import { adminApi } from '../../services/api'
 import { showToast } from '../../composables/useToast'
 
 const route = useRoute()
-const router = useRouter()
-const tourId = route.params.tourId
+const eventId = route.params.eventId
 
 const tabs = [
   { value: 'fahrt', label: 'Fahrt' },
@@ -81,7 +79,7 @@ const tabs = [
 const activeTab = ref('fahrt')
 
 const bericht = ref(null)
-const tour = ref(null)
+const event = ref(null)
 const catalog = ref([])
 const report = ref(null)
 const submitWarnings = ref([])
@@ -92,10 +90,8 @@ let saveTimer = null
 const catalogMap = vueComputed(() => Object.fromEntries(catalog.value.map(b => [b.id, b])))
 
 const isReadOnly = vueComputed(() => bericht.value?.status === 'SUBMITTED')
-
 const statusClass = vueComputed(() => (bericht.value?.status === 'SUBMITTED' ? 'chip-ok' : 'chip-muted'))
-
-const pageTitle = vueComputed(() => tour.value?.name || 'Fahrbericht')
+const pageTitle = vueComputed(() => event.value?.name || 'Fahrbericht')
 
 const computed = vueComputed(() => bericht.value?.computed || {
   kiosk_total: 0, crew_cost: 0, expenses_total: 0, soll: 0, cash_diff: 0,
@@ -111,15 +107,15 @@ const saveLabel = vueComputed(() => {
 async function load() {
   loading.value = true
   try {
-    tour.value = await adminApi.tours.get(tourId)
+    event.value = await adminApi.getEvent(eventId)
     catalog.value = (await adminApi.bar.list({ active: true })).items || []
     try {
-      bericht.value = await adminApi.fahrbericht.get(tourId)
+      bericht.value = await adminApi.fahrbericht.get(eventId)
     } catch {
-      bericht.value = await adminApi.fahrbericht.createDraft(tourId)
+      bericht.value = await adminApi.fahrbericht.createDraft(eventId)
     }
     try {
-      report.value = await adminApi.reports.getForTour(tourId)
+      report.value = await adminApi.reports.getForEvent(eventId)
     } catch {
       report.value = null
     }
@@ -150,8 +146,14 @@ async function flushSave() {
       cash_amount: bericht.value.cash_amount != null ? String(bericht.value.cash_amount) : null,
       cash_handed_to: bericht.value.cash_handed_to,
       expenses: bericht.value.expenses,
+      duration_hours: bericht.value.duration_hours != null ? String(bericht.value.duration_hours) : null,
+      guest_count: bericht.value.guest_count,
+      charterer: bericht.value.charterer,
+      funker: bericht.value.funker,
+      skipper: bericht.value.skipper,
+      crew: bericht.value.crew,
     }
-    bericht.value = await adminApi.fahrbericht.put(tourId, patch)
+    bericht.value = await adminApi.fahrbericht.put(eventId, patch)
     saveStatus.value = 'saved'
     setTimeout(() => { if (saveStatus.value === 'saved') saveStatus.value = '' }, 2500)
   } catch (e) {
@@ -160,19 +162,11 @@ async function flushSave() {
   }
 }
 
-async function saveTour(patch) {
-  try {
-    tour.value = await adminApi.tours.patch(tourId, patch)
-  } catch (e) {
-    showToast(e?.message || 'Tour-Update fehlgeschlagen', 'error')
-  }
-}
-
 async function submit() {
   await flushSave()
   if (!confirm('Fahrbericht einreichen? Dies aktualisiert Bar-Bestand und Schiff-Status und verschickt den Bericht an Finance.')) return
   try {
-    const result = await adminApi.fahrbericht.submit(tourId)
+    const result = await adminApi.fahrbericht.submit(eventId)
     bericht.value = result.fahrbericht
     submitWarnings.value = result.warnings || []
     if (submitWarnings.value.length) {
@@ -181,7 +175,7 @@ async function submit() {
       showToast('Fahrbericht erfolgreich eingereicht', 'success')
     }
     try {
-      report.value = await adminApi.reports.getForTour(tourId)
+      report.value = await adminApi.reports.getForEvent(eventId)
     } catch {
       report.value = null
     }
@@ -192,7 +186,7 @@ async function submit() {
 
 async function reopen() {
   try {
-    bericht.value = await adminApi.fahrbericht.reopen(tourId)
+    bericht.value = await adminApi.fahrbericht.reopen(eventId)
     activeTab.value = 'fahrt'
   } catch (e) {
     showToast(e?.message || 'Wieder öffnen fehlgeschlagen', 'error')
@@ -201,12 +195,12 @@ async function reopen() {
 
 async function reapply() {
   try {
-    const result = await adminApi.fahrbericht.reapply(tourId)
+    const result = await adminApi.fahrbericht.reapply(eventId)
     submitWarnings.value = result.warnings || []
     if (!submitWarnings.value.length) {
       showToast('Seiteneffekte erneut angewendet', 'success')
     }
-    report.value = await adminApi.reports.getForTour(tourId)
+    report.value = await adminApi.reports.getForEvent(eventId)
   } catch (e) {
     showToast(e?.message || 'Fehler', 'error')
   }
