@@ -62,11 +62,12 @@
       class="nav-tab"
       :class="{ 'is-active': isSettingsActive }"
       :aria-current="isSettingsActive ? 'page' : undefined"
+      aria-label="Einstellungen"
       @click.prevent="navTo('/admin/settings')"
     >
       <span class="nav-tab-indicator" aria-hidden="true" />
-      <Settings :size="22" class="nav-icon" aria-hidden="true" />
-      <span>Einstellungen</span>
+      <MoreHorizontal :size="22" class="nav-icon" aria-hidden="true" />
+      <span>Mehr</span>
     </a>
     <a
       v-if="devMode"
@@ -87,7 +88,7 @@
 import { useAuth0 } from '@auth0/auth0-vue'
 import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { Anchor, Beer, Calendar, Settings, Wrench } from 'lucide-vue-next'
+import { Anchor, Beer, Calendar, MoreHorizontal, Wrench } from 'lucide-vue-next'
 import ToastContainer from './components/ToastContainer.vue'
 import { useAppUpdate } from './composables/useAppUpdate.js'
 import { useInstallPrompt } from './composables/useInstallPrompt.js'
