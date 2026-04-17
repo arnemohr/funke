@@ -211,9 +211,9 @@ async function onInstall() {
   border-color: rgba(255, 255, 255, 0.6);
 }
 
-/* Bottom-nav spacing */
+/* Bottom-nav spacing — leave room for the taller nav + home-indicator */
 .has-bottom-nav {
-  padding-bottom: 4.5rem;
+  padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0));
 }
 
 /* Bottom navigation bar */
@@ -226,10 +226,14 @@ async function onInstall() {
   display: flex;
   justify-content: space-around;
   align-items: stretch;
-  height: 3.5rem;
+  /* Content sits in a 3.75rem band, home-indicator padded below,
+     plus side insets so rounded corners don't clip the outer tabs. */
+  min-height: 3.75rem;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  padding-left: env(safe-area-inset-left, 0);
+  padding-right: env(safe-area-inset-right, 0);
   background: var(--color-surface-raised);
   border-top: 1px solid var(--color-border);
-  padding-bottom: env(safe-area-inset-bottom, 0);
   box-shadow: 0 -1px 3px rgba(12, 30, 60, 0.03);
 }
 
@@ -241,8 +245,9 @@ async function onInstall() {
   justify-content: center;
   gap: 2px;
   flex: 1;
-  min-height: 44px;
-  padding: var(--space-1) 0;
+  min-width: 0;
+  min-height: 3.75rem;
+  padding: 0.4rem 0 0.55rem;
   color: var(--color-text-muted);
   text-decoration: none;
   font-size: var(--text-sm);

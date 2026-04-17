@@ -211,7 +211,14 @@ class FahrberichtService:
         fields = patch.model_dump(exclude_none=True)
         if fields:
             fields["updated_at"] = datetime.now(timezone.utc)
-            existing = existing.model_copy(update=fields)
+            # `patch.model_dump` leaves nested submodels as plain dicts.
+            # `model_copy(update=...)` just assigns them raw, so we'd end up
+            # with e.g. `bericht.ship_status` as a dict and the serializer
+            # would crash trying to call `.model_dump` on it. Round-trip
+            # through `model_validate` to coerce everything back to the
+            # proper submodel types.
+            merged = {**existing.model_dump(mode="python"), **fields}
+            existing = Fahrbericht.model_validate(merged)
         self.table.put_item(Item=_fahrbericht_to_item(existing))
         return existing
 

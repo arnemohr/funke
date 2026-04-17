@@ -70,31 +70,51 @@ defineEmits(['increment', 'decrement'])
   font-size: 10px;
   color: var(--color-text-muted);
 }
-.counter-row__counter { display: flex; align-items: center; gap: 4px; }
+.counter-row__counter { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+/* Explicit reset so Pico CSS button defaults (padding, min-width, auto
+   height) don't stretch these circles into ovals. */
 .cbtn {
-  width: 32px;
-  height: 32px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  padding: 0;
+  margin: 0;
   border: 1.5px solid var(--color-border);
   background: #fff;
   border-radius: 50%;
+  font-family: inherit;
   font-size: 20px;
+  font-weight: 600;
   line-height: 1;
-  cursor: pointer;
   color: var(--color-text);
-  font-weight: 300;
+  cursor: pointer;
   user-select: none;
-  transition: transform .1s;
+  transition: transform .1s, background .12s, border-color .12s;
+  -webkit-tap-highlight-color: transparent;
 }
-.cbtn:active { transform: scale(.9); }
-.cbtn:disabled { opacity: 0.4; cursor: not-allowed; }
+.cbtn:hover:not(:disabled) { background: var(--color-bg-muted); }
+.cbtn:active:not(:disabled) { transform: scale(.92); }
+.cbtn:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
+.cbtn:disabled { opacity: 0.35; cursor: not-allowed; }
+
 .cbtn--minus { color: #c0392b; border-color: #f0c0bb; }
+.cbtn--minus:hover:not(:disabled) { background: #fdecea; border-color: #e8a59e; }
 .cbtn--plus { color: #27ae60; border-color: #a8dbb8; }
+.cbtn--plus:hover:not(:disabled) { background: #eafaf0; border-color: #86c99c; }
+
 .cval {
-  min-width: 32px;
+  min-width: 28px;
   text-align: center;
   font-size: 16px;
   font-weight: 700;
   color: var(--color-text);
+  font-variant-numeric: tabular-nums;
 }
 .cval--nonzero { color: var(--color-brand, #2d8c7c); }
 </style>
