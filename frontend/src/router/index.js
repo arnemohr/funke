@@ -111,6 +111,73 @@ const routes = [
     component: () => import('../pages/admin/DebugPage.vue'),
     beforeEnter: authGuard,
   },
+  // Schaluppe Fahrbericht (specs 010-013)
+  {
+    path: '/admin/profile',
+    name: 'admin-profile',
+    component: () => import('../pages/admin/ProfilePage.vue'),
+    beforeEnter: authGuard,
+  },
+  {
+    path: '/admin/tours',
+    name: 'admin-tours',
+    component: () => import('../pages/admin/TourListPage.vue'),
+    beforeEnter: authGuard,
+  },
+  {
+    path: '/admin/tours/new',
+    name: 'admin-tour-new',
+    component: () => import('../pages/admin/TourCreatePage.vue'),
+    beforeEnter: authGuard,
+    meta: { hideTabBar: true },
+  },
+  {
+    path: '/admin/tours/:id',
+    name: 'admin-tour-detail',
+    component: () => import('../pages/admin/TourDetailPage.vue'),
+    beforeEnter: authGuard,
+    props: true,
+  },
+  {
+    path: '/admin/tours/:tourId/fahrbericht',
+    name: 'admin-fahrbericht',
+    component: () => import('../pages/admin/FahrberichtPage.vue'),
+    beforeEnter: authGuard,
+    props: true,
+    meta: { hideTabBar: true },
+  },
+  {
+    path: '/admin/bar',
+    name: 'admin-bar',
+    component: () => import('../pages/admin/BarCatalogPage.vue'),
+    beforeEnter: authGuard,
+  },
+  {
+    path: '/admin/bar/:id',
+    name: 'admin-bar-item',
+    component: () => import('../pages/admin/BarItemFormPage.vue'),
+    beforeEnter: authGuard,
+    props: true,
+  },
+  {
+    path: '/admin/ship',
+    name: 'admin-ship',
+    component: () => import('../pages/admin/ShipStatePage.vue'),
+    beforeEnter: authGuard,
+  },
+  {
+    path: '/admin/reports',
+    name: 'admin-reports',
+    component: () => import('../pages/admin/ReportsListPage.vue'),
+    beforeEnter: authGuard,
+  },
+  {
+    path: '/admin/reports/:id',
+    name: 'admin-report-detail',
+    component: () => import('../pages/admin/ReportDetailPage.vue'),
+    beforeEnter: authGuard,
+    props: true,
+  },
 ]
 
 export const router = createRouter({

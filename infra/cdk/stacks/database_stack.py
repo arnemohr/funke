@@ -246,3 +246,105 @@ class DatabaseStack(Stack):
             ),
             projection_type=dynamodb.ProjectionType.ALL,
         )
+
+        # ---------------------------------------------------------------
+        # Schaluppe Fahrbericht tables (specs 010-013)
+        # ---------------------------------------------------------------
+
+        # Tours table: Tour META + Fahrbericht + Report pointer + event pointer
+        # all share pk = TOUR#{id} or EVENT#{id}; single table keeps the
+        # crew-flow queries fast.
+        self.tours_table = dynamodb.Table(
+            self,
+            "ToursTable",
+            table_name=f"funke-{env_name}-tours",
+            partition_key=dynamodb.Attribute(
+                name="pk",
+                type=dynamodb.AttributeType.STRING,
+            ),
+            sort_key=dynamodb.Attribute(
+                name="sk",
+                type=dynamodb.AttributeType.STRING,
+            ),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            removal_policy=removal_policy,
+        )
+
+        # GSI for chronological listing of Tours.
+        self.tours_table.add_global_secondary_index(
+            index_name="list-by-date-index",
+            partition_key=dynamodb.Attribute(
+                name="list_pk",
+                type=dynamodb.AttributeType.STRING,
+            ),
+            sort_key=dynamodb.Attribute(
+                name="list_sk",
+                type=dynamodb.AttributeType.STRING,
+            ),
+            projection_type=dynamodb.ProjectionType.ALL,
+        )
+
+        # Bar items table: catalog + consumption ledger rows + adjustments
+        self.bar_items_table = dynamodb.Table(
+            self,
+            "BarItemsTable",
+            table_name=f"funke-{env_name}-bar-items",
+            partition_key=dynamodb.Attribute(
+                name="pk",
+                type=dynamodb.AttributeType.STRING,
+            ),
+            sort_key=dynamodb.Attribute(
+                name="sk",
+                type=dynamodb.AttributeType.STRING,
+            ),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            removal_policy=removal_policy,
+        )
+
+        # Ship state table (singleton pk = SHIP#schaluppe) + tour markers.
+        self.ship_state_table = dynamodb.Table(
+            self,
+            "ShipStateTable",
+            table_name=f"funke-{env_name}-ship-state",
+            partition_key=dynamodb.Attribute(
+                name="pk",
+                type=dynamodb.AttributeType.STRING,
+            ),
+            sort_key=dynamodb.Attribute(
+                name="sk",
+                type=dynamodb.AttributeType.STRING,
+            ),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            removal_policy=removal_policy,
+        )
+
+        # Reports table: META + VERSION#{n} rows per report
+        self.reports_table = dynamodb.Table(
+            self,
+            "ReportsTable",
+            table_name=f"funke-{env_name}-reports",
+            partition_key=dynamodb.Attribute(
+                name="pk",
+                type=dynamodb.AttributeType.STRING,
+            ),
+            sort_key=dynamodb.Attribute(
+                name="sk",
+                type=dynamodb.AttributeType.STRING,
+            ),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            removal_policy=removal_policy,
+        )
+
+        # GSI for newest-first report listing.
+        self.reports_table.add_global_secondary_index(
+            index_name="reports-by-date-index",
+            partition_key=dynamodb.Attribute(
+                name="list_pk",
+                type=dynamodb.AttributeType.STRING,
+            ),
+            sort_key=dynamodb.Attribute(
+                name="list_sk",
+                type=dynamodb.AttributeType.STRING,
+            ),
+            projection_type=dynamodb.ProjectionType.ALL,
+        )

@@ -109,6 +109,12 @@ async def root() -> dict:
 from .api.admin import events as admin_events
 from .api.admin import lottery as admin_lottery
 from .api.admin import push as admin_push
+from .api.admin import tours as admin_tours
+from .api.admin import profile as admin_profile
+from .api.admin import bar_items as admin_bar_items
+from .api.admin import ship as admin_ship
+from .api.admin import fahrbericht as admin_fahrbericht
+from .api.admin import reports as admin_reports
 from .api.public import registrations as public_registrations
 from .api.public import cancellations as public_cancellations
 from .api.public import confirmations as public_confirmations
@@ -117,6 +123,17 @@ from .api.public import confirmations as public_confirmations
 app.include_router(admin_events.router, prefix="/api/admin/events", tags=["admin-events"])
 app.include_router(admin_lottery.router, prefix="/api/admin", tags=["admin-lottery"])
 app.include_router(admin_push.router, prefix="/api/admin", tags=["admin-push"])
+
+# Schaluppe Fahrbericht (specs 010-013)
+for tour_router in admin_tours.routers:
+    app.include_router(tour_router, prefix="/api/admin")
+for profile_router in admin_profile.routers:
+    app.include_router(profile_router, prefix="/api/admin")
+app.include_router(admin_bar_items.router, prefix="/api/admin")
+app.include_router(admin_ship.router, prefix="/api/admin")
+app.include_router(admin_fahrbericht.router, prefix="/api/admin")
+for reports_router in admin_reports.routers:
+    app.include_router(reports_router, prefix="/api/admin")
 
 # Register public routers
 app.include_router(public_registrations.router, prefix="/api/public", tags=["public"])

@@ -14,6 +14,7 @@ from aws_cdk import aws_apigatewayv2 as apigwv2
 from aws_cdk import aws_apigatewayv2_integrations as integrations
 from aws_cdk import aws_lambda as lambda_
 from aws_cdk import aws_logs as logs
+from aws_cdk import aws_s3 as s3
 from aws_cdk.aws_lambda_python_alpha import PythonFunction
 from constructs import Construct
 
@@ -30,6 +31,7 @@ class ApiStack(Stack):
         env_name: str,
         database_stack: DatabaseStack,
         domain_name: str | None = None,
+        reports_bucket_name: str | None = None,
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -37,6 +39,20 @@ class ApiStack(Stack):
         self.env_name = env_name
         self.domain_name = domain_name
         removal_policy = RemovalPolicy.DESTROY if env_name == "dev" else RemovalPolicy.RETAIN
+
+        # Closing report PDF storage (spec 013). Created alongside the API so
+        # the Lambda can own the env-var wiring + IAM grants without cross-stack
+        # references. Private, encrypted, versioned in prod.
+        self.reports_bucket = s3.Bucket(
+            self,
+            "ReportsBucket",
+            bucket_name=f"funke-{env_name}-reports",
+            removal_policy=removal_policy,
+            auto_delete_objects=env_name == "dev",
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            encryption=s3.BucketEncryption.S3_MANAGED,
+            versioned=env_name != "dev",
+        )
 
         # Log groups for Lambda functions
         api_log_group = logs.LogGroup(
@@ -68,6 +84,13 @@ class ApiStack(Stack):
                 "MESSAGES_TABLE": database_stack.messages_table.table_name,
                 "ADMINS_TABLE": database_stack.admins_table.table_name,
                 "LOTTERY_RUNS_TABLE": database_stack.lottery_runs_table.table_name,
+                # Schaluppe Fahrbericht (specs 010-013)
+                "TOURS_TABLE": database_stack.tours_table.table_name,
+                "BAR_ITEMS_TABLE": database_stack.bar_items_table.table_name,
+                "SHIP_STATE_TABLE": database_stack.ship_state_table.table_name,
+                "REPORTS_TABLE": database_stack.reports_table.table_name,
+                "REPORTS_S3_BUCKET": self.reports_bucket.bucket_name,
+                "FINANCE_REPORT_INBOX": os.environ.get("FINANCE_REPORT_INBOX", ""),
                 "LOG_LEVEL": "DEBUG" if env_name == "dev" else "INFO",
                 # Auth0 configuration
                 "AUTH0_DOMAIN": self.node.try_get_context("auth0_domain") or "",
@@ -95,6 +118,11 @@ class ApiStack(Stack):
         database_stack.messages_table.grant_read_write_data(self.api_function)
         database_stack.admins_table.grant_read_write_data(self.api_function)
         database_stack.lottery_runs_table.grant_read_write_data(self.api_function)
+        database_stack.tours_table.grant_read_write_data(self.api_function)
+        database_stack.bar_items_table.grant_read_write_data(self.api_function)
+        database_stack.ship_state_table.grant_read_write_data(self.api_function)
+        database_stack.reports_table.grant_read_write_data(self.api_function)
+        self.reports_bucket.grant_read_write(self.api_function)
 
         # Determine CORS origins
         if env_name == "dev":

@@ -499,6 +499,196 @@ export const adminApi = {
       method: 'DELETE',
     }, true)
   },
+
+  // ------------------------------------------------------------------ Profile
+  async getProfile() {
+    return request('/api/admin/me', {}, true)
+  },
+  async updateProfile(patch) {
+    return request('/api/admin/me', {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }, true)
+  },
+  async listCrewSuggestions({ role, q, limit = 10 } = {}) {
+    const params = new URLSearchParams()
+    if (role) params.set('role', role)
+    if (q) params.set('q', q)
+    if (limit) params.set('limit', String(limit))
+    const qs = params.toString()
+    return request(`/api/admin/crew-suggestions${qs ? `?${qs}` : ''}`, {}, true)
+  },
+
+  // -------------------------------------------------------------------- Tours
+  tours: {
+    async list(params = {}) {
+      const qs = new URLSearchParams(params).toString()
+      return request(`/api/admin/tours${qs ? `?${qs}` : ''}`, {}, true)
+    },
+    async create(body) {
+      return request('/api/admin/tours', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }, true)
+    },
+    async get(id) {
+      return request(`/api/admin/tours/${id}`, {}, true)
+    },
+    async patch(id, body) {
+      return request(`/api/admin/tours/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }, true)
+    },
+    async delete(id) {
+      return request(`/api/admin/tours/${id}`, { method: 'DELETE' }, true)
+    },
+    async getForEvent(eventId) {
+      return request(`/api/admin/events/${eventId}/tour`, {}, true)
+    },
+    async createForEvent(eventId, body = {}) {
+      return request(`/api/admin/events/${eventId}/tour`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }, true)
+    },
+  },
+
+  // ----------------------------------------------------------------- Bar items
+  bar: {
+    async list(params = {}) {
+      const qs = new URLSearchParams(params).toString()
+      return request(`/api/admin/bar-items${qs ? `?${qs}` : ''}`, {}, true)
+    },
+    async create(body) {
+      return request('/api/admin/bar-items', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }, true)
+    },
+    async get(id) {
+      return request(`/api/admin/bar-items/${id}`, {}, true)
+    },
+    async patch(id, body) {
+      return request(`/api/admin/bar-items/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }, true)
+    },
+    async delete(id) {
+      return request(`/api/admin/bar-items/${id}`, { method: 'DELETE' }, true)
+    },
+    async adjustStock(id, body) {
+      return request(`/api/admin/bar-items/${id}/adjust-stock`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }, true)
+    },
+    async seed() {
+      return request('/api/admin/bar-items/seed', { method: 'POST' }, true)
+    },
+  },
+
+  // -------------------------------------------------------------------- Ship
+  ship: {
+    async getState() {
+      return request('/api/admin/ship/state', {}, true)
+    },
+    async patchState(body) {
+      return request('/api/admin/ship/state', {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }, true)
+    },
+    async addNote(text) {
+      return request('/api/admin/ship/notes', {
+        method: 'POST',
+        body: JSON.stringify({ text }),
+      }, true)
+    },
+    async removeNote(noteId) {
+      return request(`/api/admin/ship/notes/${noteId}`, { method: 'DELETE' }, true)
+    },
+    async addTodo(text) {
+      return request('/api/admin/ship/todos', {
+        method: 'POST',
+        body: JSON.stringify({ text }),
+      }, true)
+    },
+    async patchTodo(todoId, body) {
+      return request(`/api/admin/ship/todos/${todoId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }, true)
+    },
+    async removeTodo(todoId) {
+      return request(`/api/admin/ship/todos/${todoId}`, { method: 'DELETE' }, true)
+    },
+  },
+
+  // --------------------------------------------------------------- Fahrbericht
+  fahrbericht: {
+    async get(tourId) {
+      return request(`/api/admin/tours/${tourId}/fahrbericht`, {}, true)
+    },
+    async createDraft(tourId) {
+      return request(`/api/admin/tours/${tourId}/fahrbericht`, {
+        method: 'POST',
+      }, true)
+    },
+    async put(tourId, patch) {
+      return request(`/api/admin/tours/${tourId}/fahrbericht`, {
+        method: 'PUT',
+        body: JSON.stringify(patch),
+      }, true)
+    },
+    async submit(tourId) {
+      return request(`/api/admin/tours/${tourId}/fahrbericht/submit`, {
+        method: 'POST',
+      }, true)
+    },
+    async reopen(tourId) {
+      return request(`/api/admin/tours/${tourId}/fahrbericht/reopen`, {
+        method: 'POST',
+      }, true)
+    },
+    async reapply(tourId) {
+      return request(`/api/admin/tours/${tourId}/fahrbericht/reapply-side-effects`, {
+        method: 'POST',
+      }, true)
+    },
+    async delete(tourId) {
+      return request(`/api/admin/tours/${tourId}/fahrbericht`, {
+        method: 'DELETE',
+      }, true)
+    },
+  },
+
+  // ------------------------------------------------------------------- Reports
+  reports: {
+    async list(params = {}) {
+      const qs = new URLSearchParams(params).toString()
+      return request(`/api/admin/reports${qs ? `?${qs}` : ''}`, {}, true)
+    },
+    async get(id) {
+      return request(`/api/admin/reports/${id}`, {}, true)
+    },
+    async getVersion(id, version) {
+      return request(`/api/admin/reports/${id}/versions/${version}`, {}, true)
+    },
+    async resend(id) {
+      return request(`/api/admin/reports/${id}/resend`, { method: 'POST' }, true)
+    },
+    async getForTour(tourId) {
+      return request(`/api/admin/tours/${tourId}/report`, {}, true)
+    },
+    pdfUrl(id) {
+      return `${API_BASE_URL}/api/admin/reports/${id}/pdf`
+    },
+    versionPdfUrl(id, version) {
+      return `${API_BASE_URL}/api/admin/reports/${id}/versions/${version}/pdf`
+    },
+  },
 }
 
 export default { publicApi, adminApi }

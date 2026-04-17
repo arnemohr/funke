@@ -4,6 +4,28 @@
       <template #title>Einstellungen</template>
     </PageHeader>
 
+    <!-- Schaluppe -->
+    <div class="section-heading">
+      <h3>Schaluppe</h3>
+    </div>
+    <div class="list-group">
+      <ListItemButton :icon="User" chevron @click="$router.push('/admin/profile')">
+        Mein Profil &amp; Crew-Rollen
+      </ListItemButton>
+      <ListItemButton :icon="Anchor" chevron @click="$router.push('/admin/tours')">
+        Touren
+      </ListItemButton>
+      <ListItemButton :icon="Beer" chevron @click="$router.push('/admin/bar')">
+        Bar-Katalog
+      </ListItemButton>
+      <ListItemButton :icon="Ship" chevron @click="$router.push('/admin/ship')">
+        Schiff-Status
+      </ListItemButton>
+      <ListItemButton :icon="FileText" chevron @click="$router.push('/admin/reports')">
+        Fahrberichte
+      </ListItemButton>
+    </div>
+
     <!-- Notifications -->
     <div class="section-heading">
       <h3>Benachrichtigungen</h3>
@@ -156,6 +178,7 @@ import { onMounted, ref } from 'vue'
 import { useAuth0 } from '@auth0/auth0-vue'
 import {
   Bell, BellOff, Tag, Smartphone, Globe, Download, Mail, LogOut, Wrench,
+  User, Anchor, Beer, Ship, FileText,
 } from 'lucide-vue-next'
 import { usePushNotifications } from '../../composables/usePushNotifications.js'
 import { useInstallPrompt } from '../../composables/useInstallPrompt.js'

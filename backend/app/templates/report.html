@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Schaluppe Fahrbericht – {{ tour.date }}</title>
+<style>
+  @page { size: A4; margin: 1.6cm 1.4cm 1.8cm 1.4cm; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif; color: #1e1e1e; font-size: 10pt; line-height: 1.45; }
+  header { border-bottom: 2px solid #1a2744; padding-bottom: 8pt; margin-bottom: 14pt; }
+  header h1 { font-size: 16pt; color: #1a2744; margin: 0; }
+  header .sub { font-size: 9pt; color: #666; margin-top: 2pt; }
+  h2 { font-size: 10pt; text-transform: uppercase; letter-spacing: 1.2pt; color: #2d8c7c; border-bottom: 1pt solid #2d8c7c; padding-bottom: 2pt; margin-top: 14pt; margin-bottom: 6pt; }
+  .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6pt 14pt; margin-bottom: 8pt; }
+  .meta-grid .k { color: #888; font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.5pt; }
+  .meta-grid .v { font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 4pt 6pt; border-bottom: 1px solid #e0e0d8; }
+  th { font-weight: 700; font-size: 9pt; color: #666; text-transform: uppercase; letter-spacing: 0.4pt; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.total td { font-weight: 700; border-top: 2px solid #999; border-bottom: none; padding-top: 6pt; }
+  pre.booking { background: #1a1a2e; color: #a0f0c0; font-family: 'Courier New', Menlo, monospace; font-size: 9pt; padding: 10pt 12pt; border-radius: 4pt; white-space: pre-wrap; line-height: 1.55; }
+  .tile-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6pt; margin-top: 4pt; }
+  .tile { border: 1px solid #d8d8d0; border-radius: 4pt; padding: 6pt 8pt; }
+  .tile .label { font-size: 8pt; color: #888; text-transform: uppercase; letter-spacing: 0.5pt; }
+  .tile .value { font-size: 12pt; font-weight: 700; margin-top: 2pt; }
+  footer { margin-top: 18pt; padding-top: 8pt; border-top: 1px solid #d8d8d0; font-size: 8pt; color: #888; display: flex; justify-content: space-between; }
+  .diff-ok { color: #27ae60; }
+  .diff-bad { color: #c0392b; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚓ Schaluppe Fahrbericht</h1>
+  <div class="sub">Verein für mobile Machenschaften e.V. &nbsp;·&nbsp; Version {{ version }} &nbsp;·&nbsp; generiert {{ generated_at }}</div>
+</header>
+
+<h2>Fahrtinfo</h2>
+<div class="meta-grid">
+  <div><div class="k">Datum</div><div class="v">{{ tour.date }}</div></div>
+  <div><div class="k">Veranstaltung</div><div class="v">{{ tour.name or '—' }}</div></div>
+  <div><div class="k">Dauer</div><div class="v">{{ tour.duration_hours or '—' }} h</div></div>
+  <div><div class="k">Gäste</div><div class="v">{{ tour.guest_count if tour.guest_count is not none else '—' }}</div></div>
+  <div><div class="k">Charterer</div><div class="v">{{ tour.charterer or '—' }}</div></div>
+  <div><div class="k">Funker*in</div><div class="v">{{ tour.funker_name or '—' }}</div></div>
+  <div><div class="k">Skipper</div><div class="v">{{ tour.skipper_name or '—' }}</div></div>
+  <div><div class="k">Crew</div><div class="v">{{ tour.crew_names or '—' }}</div></div>
+</div>
+
+<h2>Kiosk-Einnahmen (8400 / Erlöse Kiosk)</h2>
+{% if kiosk_summary %}
+<table>
+  <thead><tr><th>Getränk</th><th class="num">Menge</th><th class="num">€ / Einheit</th><th class="num">Summe</th></tr></thead>
+  <tbody>
+    {% for line in kiosk_summary %}
+      <tr><td>{{ line.bar_item_name }}</td><td class="num">{{ line.qty }}</td><td class="num">{{ fmt(line.unit_price) }}</td><td class="num">{{ fmt(line.line_total) }}</td></tr>
+    {% endfor %}
+    <tr class="total"><td colspan="3">Summe Kiosk</td><td class="num">{{ fmt(totals.kiosk_total) }}</td></tr>
+  </tbody>
+</table>
+{% else %}
+<p style="color:#888;">— keine Kiosk-Einnahmen —</p>
+{% endif %}
+
+<h2>Crew-Verköstigung (4220 / Wareneinsatz)</h2>
+{% if crew_summary %}
+<table>
+  <thead><tr><th>Getränk</th><th class="num">Menge</th><th class="num">€ / Einheit (EK)</th><th class="num">Summe</th></tr></thead>
+  <tbody>
+    {% for line in crew_summary %}
+      <tr><td>{{ line.bar_item_name }}</td><td class="num">{{ line.qty }}</td><td class="num">{{ fmt(line.unit_price) }}</td><td class="num">{{ fmt(line.line_total) }}</td></tr>
+    {% endfor %}
+    <tr class="total"><td colspan="3">Crew-Wareneinsatz</td><td class="num">{{ fmt(totals.crew_cost) }}</td></tr>
+  </tbody>
+</table>
+{% else %}
+<p style="color:#888;">— keine Crew-Verköstigung —</p>
+{% endif %}
+
+{% if expenses_summary %}
+<h2>Ausgaben während Fahrt</h2>
+<table>
+  <thead><tr><th>Beschreibung</th><th class="num">Betrag</th></tr></thead>
+  <tbody>
+    {% for e in expenses_summary %}
+      <tr><td>{{ e.description }}</td><td class="num">{{ fmt(e.amount) }}</td></tr>
+    {% endfor %}
+    <tr class="total"><td>Summe Ausgaben</td><td class="num">{{ fmt(totals.expenses_total) }}</td></tr>
+  </tbody>
+</table>
+{% endif %}
+
+<h2>Kassenabgleich</h2>
+<table>
+  <tr><td>Soll Kiosk + Umlagen</td><td class="num">{{ fmt(totals.soll) }}</td></tr>
+  <tr><td>Ist (Bargeld Umschlag)</td><td class="num">{{ fmt(totals.cash_amount) if totals.cash_amount is not none else '—' }}</td></tr>
+  <tr class="total">
+    <td>Differenz</td>
+    <td class="num {{ 'diff-ok' if totals.cash_diff_ok else 'diff-bad' }}">{{ '+' if totals.cash_diff_signed_positive else '' }}{{ fmt(totals.cash_diff) }}</td>
+  </tr>
+</table>
+
+<h2>Buchungstext</h2>
+<pre class="booking">{{ booking_text }}</pre>
+
+<h2>Ship-Status am Ende der Fahrt</h2>
+<div class="tile-grid">
+  {% for tile in ship_tiles %}
+    <div class="tile"><div class="label">{{ tile.label }}</div><div class="value">{{ tile.value }}</div></div>
+  {% endfor %}
+</div>
+
+{% if new_notes or new_todos %}
+<h2>Notizen &amp; Todos</h2>
+{% if new_notes %}
+<p style="margin-bottom:4pt"><strong>Notizen</strong></p>
+<ul>{% for n in new_notes %}<li>{{ n }}</li>{% endfor %}</ul>
+{% endif %}
+{% if new_todos %}
+<p style="margin-bottom:4pt"><strong>Offene Todos</strong></p>
+<ul>{% for t in new_todos %}<li>{{ t }}</li>{% endfor %}</ul>
+{% endif %}
+{% endif %}
+
+<footer>
+  <span>Vertraulich — nur für internen Gebrauch</span>
+  <span>Report {{ report_id_short }} · v{{ version }}</span>
+</footer>
+</body>
+</html>

@@ -12,11 +12,25 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class AdminRole(str, Enum):
-    """Admin role levels."""
+    """Admin role levels (access control)."""
 
     OWNER = "Owner"
     ADMIN = "Admin"
     VIEWER = "Viewer"
+
+
+class CrewRole(str, Enum):
+    """Operational roles a user can fulfil on the Schaluppe (spec 010).
+
+    Orthogonal to AdminRole. A user may declare which boat-side jobs they can
+    do; the Tour crew-picker uses this for autocomplete filtering.
+    """
+
+    FUNKER = "FUNKER"
+    SKIPPER = "SKIPPER"
+    BARCREW = "BARCREW"
+    BOARDING = "BOARDING"
+    ALLROUNDER = "ALLROUNDER"
 
 
 class AdminUser(BaseModel):
@@ -29,6 +43,8 @@ class AdminUser(BaseModel):
     email: EmailStr
     role: AdminRole
     auth0_user_id: str | None = None  # Auth0 sub claim
+    display_name: str | None = None  # Shown in the crew picker; defaults to email local-part
+    crew_roles: set[CrewRole] = Field(default_factory=set)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     last_login_at: datetime | None = None
     invited_at: datetime | None = None

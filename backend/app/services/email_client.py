@@ -9,12 +9,13 @@ Provides:
 import secrets
 import smtplib
 from email.header import Header
+from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr
 from functools import lru_cache
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from pydantic_settings import BaseSettings
 
 from .logging import get_logger
@@ -44,6 +45,16 @@ def get_email_settings() -> EmailSettings:
     return EmailSettings()
 
 
+class Attachment(BaseModel):
+    """Binary email attachment (spec 013 — PDF Fahrberichte)."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    filename: str
+    content: bytes
+    content_type: str = "application/pdf"
+
+
 class EmailMessage(BaseModel):
     """Email message data structure."""
 
@@ -54,6 +65,7 @@ class EmailMessage(BaseModel):
     reply_to: str | None = None
     in_reply_to: str | None = None  # Message-ID of parent email for threading
     message_id: str | None = None  # Custom Message-ID (auto-generated if not provided)
+    attachments: list[Attachment] = []
 
 
 class EmailResult(BaseModel):
@@ -76,13 +88,31 @@ class SmtpClient:
         """Create a MIME message from EmailMessage."""
         settings = get_email_settings()
 
+        # Build the text/alternative body first.
         if email.body_html:
-            msg = MIMEMultipart("alternative")
-            msg.attach(MIMEText(email.body_text, "plain", "utf-8"))
-            msg.attach(MIMEText(email.body_html, "html", "utf-8"))
+            body = MIMEMultipart("alternative")
+            body.attach(MIMEText(email.body_text, "plain", "utf-8"))
+            body.attach(MIMEText(email.body_html, "html", "utf-8"))
         else:
-            msg = MIMEMultipart()
-            msg.attach(MIMEText(email.body_text, "plain", "utf-8"))
+            body = MIMEMultipart()
+            body.attach(MIMEText(email.body_text, "plain", "utf-8"))
+
+        if email.attachments:
+            # Wrap the body + attachments in a `mixed` multipart so clients
+            # render the body and surface attachments as discrete files.
+            msg: MIMEMultipart = MIMEMultipart("mixed")
+            msg.attach(body)
+            for att in email.attachments:
+                subtype = att.content_type.split("/", 1)[-1] or "octet-stream"
+                part = MIMEApplication(att.content, _subtype=subtype, name=att.filename)
+                part.add_header(
+                    "Content-Disposition",
+                    "attachment",
+                    filename=att.filename,
+                )
+                msg.attach(part)
+        else:
+            msg = body
 
         # Set headers
         msg["To"] = email.to

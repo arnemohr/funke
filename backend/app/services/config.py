@@ -23,6 +23,10 @@ class DynamoDBSettings(BaseSettings):
     dynamodb_endpoint_url: str | None = None  # For local development
     base_url: str = "http://localhost:5173"  # Frontend base URL
 
+    # Spec 013: closing report delivery
+    finance_report_inbox: str | None = None
+    reports_s3_bucket: str | None = None
+
     class Config:
         env_prefix = ""
         case_sensitive = False
@@ -74,3 +78,67 @@ def get_lottery_runs_table() -> "Table":
     settings = get_settings()
     dynamodb = get_dynamodb_resource()
     return dynamodb.Table(f"{settings.dynamodb_table_prefix}-lottery-runs")
+
+
+# ---------------------------------------------------------------------------
+# Schaluppe Fahrbericht tables (specs 010-013)
+# ---------------------------------------------------------------------------
+
+
+def get_tours_table() -> "Table":
+    """Tours + Fahrberichte (co-located via pk = TOUR#{id})."""
+    settings = get_settings()
+    dynamodb = get_dynamodb_resource()
+    return dynamodb.Table(f"{settings.dynamodb_table_prefix}-tours")
+
+
+def get_bar_items_table() -> "Table":
+    """Bar catalog + consumption + adjustment ledger rows."""
+    settings = get_settings()
+    dynamodb = get_dynamodb_resource()
+    return dynamodb.Table(f"{settings.dynamodb_table_prefix}-bar-items")
+
+
+def get_ship_state_table() -> "Table":
+    """Ship state (singleton) + per-tour idempotency markers."""
+    settings = get_settings()
+    dynamodb = get_dynamodb_resource()
+    return dynamodb.Table(f"{settings.dynamodb_table_prefix}-ship-state")
+
+
+def get_reports_table() -> "Table":
+    """Closing reports (META + VERSION rows)."""
+    settings = get_settings()
+    dynamodb = get_dynamodb_resource()
+    return dynamodb.Table(f"{settings.dynamodb_table_prefix}-reports")
+
+
+def get_admins_table() -> "Table":
+    """Admin users + organization metadata (used by spec 010 profile + crew roles)."""
+    settings = get_settings()
+    dynamodb = get_dynamodb_resource()
+    return dynamodb.Table(f"{settings.dynamodb_table_prefix}-admins")
+
+
+# Key prefixes — centralised so services use the same strings everywhere.
+TOUR_PK_PREFIX = "TOUR#"
+TOUR_SK_META = "META"
+TOUR_SK_FAHRBERICHT = "FAHRBERICHT"
+TOUR_SK_REPORT_POINTER = "REPORT"
+TOURS_LIST_PK = "TOURS"
+EVENT_TOUR_PK_PREFIX = "EVENT#"
+EVENT_TOUR_SK = "TOUR"
+
+BAR_PK_PREFIX = "BAR#"
+BAR_SK_META = "META"
+BAR_CONSUMPTION_SK_PREFIX = "CONSUMPTION#"
+BAR_ADJUSTMENT_SK_PREFIX = "ADJUSTMENT#"
+
+SHIP_PK = "SHIP#schaluppe"
+SHIP_SK_STATE = "STATE"
+SHIP_SK_TOUR_MARKER_PREFIX = "STATE#"
+
+REPORT_PK_PREFIX = "REPORT#"
+REPORT_SK_META = "META"
+REPORT_SK_VERSION_PREFIX = "VERSION#"
+REPORTS_LIST_PK = "REPORTS"

@@ -1,4 +1,5 @@
 # Node / frontend
+.claude/worktrees
 node_modules/
 dist/
 build/

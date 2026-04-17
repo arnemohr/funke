@@ -121,6 +121,22 @@
           </dl>
         </section>
 
+        <!-- Schaluppe Tour link (spec 010) -->
+        <div class="section-heading">
+          <h3>Tour &amp; Fahrbericht</h3>
+        </div>
+        <div class="list-group actions-list">
+          <ListItemButton v-if="tour" chevron @click="$router.push(`/admin/tours/${tour.id}`)">
+            Tour öffnen
+            <template #detail>
+              <span>{{ tourCrewSummary }}</span>
+            </template>
+          </ListItemButton>
+          <ListItemButton v-else chevron @click="createTour">
+            Tour anlegen
+          </ListItemButton>
+        </div>
+
         <!-- Actions group -->
         <div class="list-group actions-list">
           <ListItemButton
@@ -384,12 +400,39 @@ const props = defineProps({
 
 const event = ref(null)
 const registrations = ref([])
+const tour = ref(null)
 const loading = ref(true)
 const loadError = ref(null)
 const loadingRegistrations = ref(false)
 const registrationsError = ref(null)
 const activeTab = ref('details')
 const dangerSheetOpen = ref(false)
+
+const tourCrewSummary = computed(() => {
+  if (!tour.value) return ''
+  const parts = []
+  if (tour.value.funker?.display_name) parts.push(`${tour.value.funker.display_name} (Funker)`)
+  if (tour.value.skipper?.display_name) parts.push(`${tour.value.skipper.display_name} (Skipper)`)
+  if (tour.value.crew?.length) parts.push(`+${tour.value.crew.length}`)
+  return parts.join(' · ')
+})
+
+async function refreshTour() {
+  try {
+    tour.value = await adminApi.tours.getForEvent(props.eventId)
+  } catch {
+    tour.value = null
+  }
+}
+
+async function createTour() {
+  try {
+    const created = await adminApi.tours.createForEvent(props.eventId, {})
+    tour.value = created
+  } catch (err) {
+    showToast(err?.message || 'Tour anlegen fehlgeschlagen', 'error')
+  }
+}
 
 // Micro-interaction: brief checkmark after successful copy
 const linkCopied = ref(false)
@@ -497,6 +540,7 @@ onMounted(async () => {
     ])
     event.value = evt
     registrations.value = regs.items
+    refreshTour()
   } catch (err) {
     loadError.value = err.message || 'Daten konnten nicht geladen werden'
   } finally {

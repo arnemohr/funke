@@ -109,6 +109,70 @@ export function formatRegistrationStatus(status) {
 }
 
 /**
+ * Translate Tour status to German (spec 010).
+ */
+export function formatTourStatus(status) {
+  const labels = {
+    PLANNED: 'Geplant',
+    IN_PROGRESS: 'Läuft',
+    COMPLETED: 'Abgeschlossen',
+    ARCHIVED: 'Archiviert',
+  }
+  return labels[status] || status
+}
+
+/**
+ * Translate Fahrbericht status to German (spec 012).
+ */
+export function formatFahrberichtStatus(status) {
+  const labels = { DRAFT: 'Entwurf', SUBMITTED: 'Eingereicht' }
+  return labels[status] || status
+}
+
+/**
+ * Translate Report email status to German (spec 013).
+ */
+export function formatEmailStatus(status) {
+  const labels = {
+    PENDING: 'Wird versendet',
+    SENT: 'Versendet',
+    FAILED: 'Fehler',
+    SKIPPED_NO_RECIPIENT: 'Kein Empfänger',
+  }
+  return labels[status] || status
+}
+
+/**
+ * Translate a CrewRole to German.
+ */
+export function formatCrewRole(role) {
+  const labels = {
+    FUNKER: 'Funker*in',
+    SKIPPER: 'Skipper',
+    BARCREW: 'Bar-Crew',
+    BOARDING: 'Boarding',
+    ALLROUNDER: 'Allrounder',
+  }
+  return labels[role] || role
+}
+
+/**
+ * Translate a BarItem category to German.
+ */
+export function formatBarCategory(cat) {
+  const labels = {
+    BIER_FASS: 'Bier vom Faß',
+    BIER_FLASCHE: 'Flaschenbier',
+    ALKOHOLFREI: 'Alkoholfrei',
+    SEKT_WEIN: 'Sekt & Wein',
+    SOFTES: 'Softes',
+    HARTES: 'Hartes',
+    SHOTS: 'Shots',
+  }
+  return labels[cat] || cat
+}
+
+/**
  * Convert a datetime-local input value (Berlin wall-clock time) to UTC ISO string.
  * Used when submitting event forms.
  */
