@@ -249,9 +249,29 @@ class DatabaseStack(Stack):
 
         # ---------------------------------------------------------------
         # Schaluppe Fahrbericht tables (specs 011-014)
-        # Spec 014 dropped the dedicated Tours table — Fahrbericht + Report
-        # pointer rows now live in the existing events_table.
+        # Spec 014 deprecated the Tours table — Fahrbericht + Report pointer
+        # rows now live in events_table. The table resource remains here
+        # transiently: CloudFormation can only drop it after all cross-stack
+        # importers (api_stack's IAM grant export) are gone. Keep the table
+        # but STOP referencing it from api_stack; a follow-up deploy will
+        # remove the resource cleanly once the dangling export is cleared.
+        # TODO(spec014-cleanup): delete this block in the next deploy cycle.
         # ---------------------------------------------------------------
+        self.tours_table = dynamodb.Table(
+            self,
+            "ToursTable",
+            table_name=f"funke-{env_name}-tours",
+            partition_key=dynamodb.Attribute(
+                name="pk",
+                type=dynamodb.AttributeType.STRING,
+            ),
+            sort_key=dynamodb.Attribute(
+                name="sk",
+                type=dynamodb.AttributeType.STRING,
+            ),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            removal_policy=removal_policy,
+        )
 
         # Bar items table: catalog + consumption ledger rows + adjustments
         self.bar_items_table = dynamodb.Table(
