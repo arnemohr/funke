@@ -67,7 +67,7 @@
     >
       <span class="nav-tab-indicator" aria-hidden="true" />
       <MoreHorizontal :size="22" class="nav-icon" aria-hidden="true" />
-      <span>Mehr</span>
+      <span>Krams</span>
     </a>
     <a
       v-if="devMode"
