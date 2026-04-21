@@ -693,7 +693,7 @@ def _message_to_item(message: Message) -> dict:
         # GSI uses registration_id directly
 
     if message.email_message_id:
-        item["message_id"] = message.email_message_id
+        item["email_message_id"] = message.email_message_id
 
     if message.in_reply_to:
         item["in_reply_to"] = message.in_reply_to

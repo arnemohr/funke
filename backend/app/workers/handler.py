@@ -274,17 +274,42 @@ async def process_email_queue() -> dict:
 
                 send_time = datetime.now(timezone.utc)
 
+                logger.info(
+                    "SMTP send result",
+                    extra={
+                        "to": recipient,
+                        "success": result.success,
+                        "smtp_message_id": result.message_id,
+                        "error": result.error,
+                    },
+                )
+
                 if result.success:
-                    messages_table.update_item(
-                        Key={"pk": item["pk"], "sk": item["sk"]},
-                        UpdateExpression="SET #status = :sent, sent_at = :now, email_message_id = :mid",
-                        ExpressionAttributeNames={"#status": "status"},
-                        ExpressionAttributeValues={
-                            ":sent": MessageStatus.SENT.value,
-                            ":now": send_time.isoformat(),
-                            ":mid": result.message_id,
-                        },
-                    )
+                    if result.message_id:
+                        messages_table.update_item(
+                            Key={"pk": item["pk"], "sk": item["sk"]},
+                            UpdateExpression="SET #status = :sent, sent_at = :now, email_message_id = :mid",
+                            ExpressionAttributeNames={"#status": "status"},
+                            ExpressionAttributeValues={
+                                ":sent": MessageStatus.SENT.value,
+                                ":now": send_time.isoformat(),
+                                ":mid": result.message_id,
+                            },
+                        )
+                    else:
+                        messages_table.update_item(
+                            Key={"pk": item["pk"], "sk": item["sk"]},
+                            UpdateExpression="SET #status = :sent, sent_at = :now",
+                            ExpressionAttributeNames={"#status": "status"},
+                            ExpressionAttributeValues={
+                                ":sent": MessageStatus.SENT.value,
+                                ":now": send_time.isoformat(),
+                            },
+                        )
+                        logger.warning(
+                            "SMTP send succeeded but no Message-ID returned",
+                            extra={"to": recipient, "subject": subject},
+                        )
                     sent += 1
                     logger.info(
                         "Queued email sent",
@@ -484,16 +509,27 @@ async def retry_failed_emails() -> dict:
                 result = await gmail_client.send_email(gmail_message)
 
                 if result.success:
-                    messages_table.update_item(
-                        Key={"pk": item["pk"], "sk": item["sk"]},
-                        UpdateExpression="SET #status = :sent, sent_at = :now, email_message_id = :mid",
-                        ExpressionAttributeNames={"#status": "status"},
-                        ExpressionAttributeValues={
-                            ":sent": MessageStatus.SENT.value,
-                            ":now": now.isoformat(),
-                            ":mid": result.message_id,
-                        },
-                    )
+                    if result.message_id:
+                        messages_table.update_item(
+                            Key={"pk": item["pk"], "sk": item["sk"]},
+                            UpdateExpression="SET #status = :sent, sent_at = :now, email_message_id = :mid",
+                            ExpressionAttributeNames={"#status": "status"},
+                            ExpressionAttributeValues={
+                                ":sent": MessageStatus.SENT.value,
+                                ":now": now.isoformat(),
+                                ":mid": result.message_id,
+                            },
+                        )
+                    else:
+                        messages_table.update_item(
+                            Key={"pk": item["pk"], "sk": item["sk"]},
+                            UpdateExpression="SET #status = :sent, sent_at = :now",
+                            ExpressionAttributeNames={"#status": "status"},
+                            ExpressionAttributeValues={
+                                ":sent": MessageStatus.SENT.value,
+                                ":now": now.isoformat(),
+                            },
+                        )
                     succeeded += 1
                 else:
                     messages_table.update_item(

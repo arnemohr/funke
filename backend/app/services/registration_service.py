@@ -322,8 +322,8 @@ class RegistrationService:
             return None, "Email already registered for this event"
 
         # Validate group size
-        if registration_data.group_size > 10:
-            return None, "Group size cannot exceed 10"
+        if registration_data.group_size > 5:
+            return None, "Group size cannot exceed 5"
 
         # Late signups go straight to waitlist
         if is_late_signup:

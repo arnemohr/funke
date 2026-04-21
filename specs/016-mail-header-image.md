@@ -1,0 +1,1 @@
+We optionally would like to also add an image to the event. This image should be always rendered as hero in 

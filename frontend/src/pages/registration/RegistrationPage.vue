@@ -17,7 +17,7 @@
       <header class="page-header">
         <div>
           <h2>{{ event.name }}</h2>
-          <p v-if="event.description">{{ event.description }}</p>
+          <p v-if="event.description" class="event-description">{{ event.description }}</p>
         </div>
         <HelpButton @click="help.toggle('registration-page')" />
       </header>
@@ -98,7 +98,7 @@
               required
               :disabled="submitting"
             >
-              <option v-for="n in 10" :key="n" :value="n">
+              <option v-for="n in 5" :key="n" :value="n">
                 {{ n }} {{ n === 1 ? 'Person' : 'Personen' }}
               </option>
             </select>
@@ -360,6 +360,10 @@ onMounted(loadEvent)
   justify-content: space-between;
   align-items: flex-start;
   gap: 1rem;
+}
+
+.event-description {
+  white-space: pre-line;
 }
 
 dl {

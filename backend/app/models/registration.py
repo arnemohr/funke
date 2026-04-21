@@ -38,7 +38,7 @@ class RegistrationCreate(BaseModel):
     email: EmailStr
     phone: str | None = Field(None, max_length=50)
     notes: str | None = Field(None, max_length=500)
-    group_size: int = Field(default=1, ge=1, le=10)
+    group_size: int = Field(default=1, ge=1, le=5)
 
     @field_validator("email")
     @classmethod

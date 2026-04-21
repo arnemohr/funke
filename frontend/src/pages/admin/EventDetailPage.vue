@@ -117,7 +117,7 @@
             <dd>{{ event.reminder_schedule_days?.join(', ') || 'Keine' }} Tage vorher</dd>
 
             <dt v-if="event.description">Beschreibung</dt>
-            <dd v-if="event.description">{{ event.description }}</dd>
+            <dd v-if="event.description" class="event-description">{{ event.description }}</dd>
           </dl>
         </section>
 
@@ -612,6 +612,10 @@ onMounted(async () => {
 <style scoped>
 .event-detail-page {
   padding-bottom: 8rem;
+}
+
+.event-description {
+  white-space: pre-line;
 }
 
 /* Tabs */
