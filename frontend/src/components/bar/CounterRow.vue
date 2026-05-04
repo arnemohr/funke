@@ -42,7 +42,7 @@ defineEmits(['increment', 'decrement'])
   grid-template-columns: 1fr auto auto;
   gap: 8px;
   align-items: center;
-  background: #fff;
+  background: var(--color-surface-raised);
   border: 1.5px solid var(--color-border);
   border-radius: var(--radius-md);
   padding: 10px 12px;
@@ -86,7 +86,7 @@ defineEmits(['increment', 'decrement'])
   padding: 0;
   margin: 0;
   border: 1.5px solid var(--color-border);
-  background: #fff;
+  background: var(--color-surface-raised);
   border-radius: 50%;
   font-family: inherit;
   font-size: 20px;
@@ -103,10 +103,10 @@ defineEmits(['increment', 'decrement'])
 .cbtn:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
 .cbtn:disabled { opacity: 0.35; cursor: not-allowed; }
 
-.cbtn--minus { color: #c0392b; border-color: #f0c0bb; }
-.cbtn--minus:hover:not(:disabled) { background: #fdecea; border-color: #e8a59e; }
-.cbtn--plus { color: #27ae60; border-color: #a8dbb8; }
-.cbtn--plus:hover:not(:disabled) { background: #eafaf0; border-color: #86c99c; }
+.cbtn--minus { color: var(--color-danger-text); border-color: var(--color-danger-text); }
+.cbtn--minus:hover:not(:disabled) { background: var(--color-danger-bg); border-color: var(--color-danger-text); }
+.cbtn--plus { color: var(--color-success-text); border-color: var(--color-success-text); }
+.cbtn--plus:hover:not(:disabled) { background: var(--color-success-bg); border-color: var(--color-success-text); }
 
 .cval {
   min-width: 28px;

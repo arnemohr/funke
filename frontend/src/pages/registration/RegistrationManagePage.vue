@@ -473,8 +473,8 @@ onMounted(loadRegistration)
 
 <style scoped>
 .event-info-bar {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-border);
   border-radius: var(--pico-border-radius);
   padding: 0.75rem 1rem;
   margin-bottom: 1.5rem;
@@ -492,7 +492,7 @@ onMounted(loadRegistration)
 }
 
 .event-meta {
-  color: #64748b;
+  color: var(--color-text-muted);
   font-size: 0.9em;
 }
 
@@ -504,39 +504,39 @@ onMounted(loadRegistration)
 }
 
 .status-banner.success {
-  background: var(--pico-color-green-50, #f0fff4);
+  background: var(--color-success-bg);
 }
 .status-banner.success h2 {
-  color: var(--pico-color-green-600, #2f855a);
+  color: var(--color-success-text);
 }
 
 .status-banner.action-needed {
-  background: #fffbeb;
-  border: 2px solid #f59e0b;
+  background: var(--color-warning-bg);
+  border: 2px solid var(--color-warning-text);
 }
 .status-banner.action-needed h2 {
-  color: #92400e;
+  color: var(--color-warning-text);
 }
 .status-banner.action-needed p {
-  color: #78350f;
+  color: var(--color-warning-text);
 }
 
 .status-banner.cancelled {
-  background: #fef2f2;
+  background: var(--color-danger-bg);
 }
 .status-banner.cancelled h2 {
-  color: #dc2626;
+  color: var(--color-danger-text);
 }
 
 .status-banner.neutral {
-  background: #f5f5f5;
+  background: var(--color-surface-sunken);
 }
 
 .status-banner.info {
-  background: var(--color-info-bg, #dbeafe);
+  background: var(--color-info-bg);
 }
 .status-banner.info h2 {
-  color: var(--color-info-text, #1d4ed8);
+  color: var(--color-info-text);
 }
 
 .waitlist-hint {
@@ -551,11 +551,11 @@ onMounted(loadRegistration)
 }
 
 .status-banner.success .status-icon {
-  color: var(--pico-color-green-600, #2f855a);
+  color: var(--color-success-text);
 }
 
 .registration-details {
-  background: white;
+  background: var(--color-surface-raised);
   padding: 1rem;
   border-radius: var(--pico-border-radius);
   margin-bottom: 1.5rem;
@@ -578,13 +578,13 @@ onMounted(loadRegistration)
 
 .hint-text {
   font-size: 0.875rem;
-  color: #64748b;
+  color: var(--color-text-muted);
   margin-bottom: 1rem;
 }
 
 .hint-warning {
-  color: #92400e;
-  background: #fef3c7;
+  color: var(--color-warning-text);
+  background: var(--color-warning-bg);
   padding: 0.5rem 0.75rem;
   border-radius: var(--pico-border-radius);
 }
@@ -616,8 +616,8 @@ onMounted(loadRegistration)
 
 .remove-btn {
   padding: 0.5rem 0.75rem;
-  color: #dc2626;
-  border-color: #dc2626;
+  color: var(--color-danger-text);
+  border-color: var(--color-danger-text);
   flex-shrink: 0;
   margin-bottom: 0;
 }
@@ -639,7 +639,7 @@ onMounted(loadRegistration)
 .secondary-actions {
   margin-top: 2rem;
   padding-top: 1rem;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--color-border);
 }
 
 .cancel-btn {
@@ -655,25 +655,25 @@ onMounted(loadRegistration)
 }
 
 .warning-box {
-  background: #fef3c7;
+  background: var(--color-warning-bg);
   padding: 0.75rem;
   border-radius: var(--pico-border-radius);
-  color: #92400e;
+  color: var(--color-warning-text);
   font-size: 0.9em;
 }
 
 .error {
-  color: var(--pico-color-red-500, #dc3545);
+  color: var(--color-danger-text);
   padding: 0.75rem;
-  background: var(--pico-color-red-50, #fff5f5);
+  background: var(--color-danger-bg);
   border-radius: var(--pico-border-radius);
   margin-bottom: 1rem;
 }
 
 .success-msg {
-  color: #16a34a;
+  color: var(--color-success-text);
   padding: 0.75rem;
-  background: #f0fff4;
+  background: var(--color-success-bg);
   border-radius: var(--pico-border-radius);
   margin-bottom: 1rem;
 }
@@ -685,7 +685,7 @@ onMounted(loadRegistration)
 
 .group-list li {
   padding: 0.5rem 0;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .group-list li:last-child {

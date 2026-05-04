@@ -19,6 +19,7 @@ export function useEventActions({ event, registrations, refreshEvent, refreshReg
   // --- Loading states ---
   const publishing = ref(false)
   const closingRegistration = ref(false)
+  const reopeningRegistration = ref(false)
   const completing = ref(false)
   const togglingPromotedId = ref(null)
 
@@ -73,6 +74,19 @@ export function useEventActions({ event, registrations, refreshEvent, refreshReg
       showToast(err.message || 'Anmeldung konnte nicht geschlossen werden', 'error')
     } finally {
       closingRegistration.value = false
+    }
+  }
+
+  async function reopenRegistration(evt) {
+    reopeningRegistration.value = true
+    try {
+      const updated = await adminApi.reopenRegistration(evt.id)
+      event.value = updated
+      showToast('Anmeldung wieder geöffnet', 'success')
+    } catch (err) {
+      showToast(err.message || 'Anmeldung konnte nicht wieder geöffnet werden', 'error')
+    } finally {
+      reopeningRegistration.value = false
     }
   }
 
@@ -271,6 +285,7 @@ export function useEventActions({ event, registrations, refreshEvent, refreshReg
     // Loading states
     publishing,
     closingRegistration,
+    reopeningRegistration,
     completing,
     togglingPromotedId,
 
@@ -303,6 +318,7 @@ export function useEventActions({ event, registrations, refreshEvent, refreshReg
     // Handlers
     publishEvent,
     closeRegistration,
+    reopenRegistration,
     completeEvent,
     showCloneModal,
     handleClone,

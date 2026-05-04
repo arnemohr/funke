@@ -16,7 +16,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from ...models import (
@@ -26,6 +26,7 @@ from ...models import (
     EventStatus,
     EventUpdate,
     Registration,
+    RegistrationAdminPatch,
     RegistrationStatus,
 )
 from ...services.auth import AdminRole, CurrentUser, require_role
@@ -317,6 +318,32 @@ async def close_registration(
         )
 
     log_admin_action("event.close_registration", user.email, str(event_id))
+
+    return await _event_to_response(event)
+
+
+@router.post(
+    "/{event_id}/reopen-registration",
+    response_model=EventResponse,
+    dependencies=[Depends(require_role([AdminRole.OWNER, AdminRole.ADMIN]))],
+)
+async def reopen_registration(
+    event_id: UUID,
+    user: CurrentUser,
+) -> EventResponse:
+    """Reopen registration for an event (REGISTRATION_CLOSED -> OPEN)."""
+    org_id = _get_org_id(user)
+
+    event_service = get_event_service()
+    event = await event_service.reopen_registration(org_id, event_id)
+
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Event not found or cannot reopen registration (not in REGISTRATION_CLOSED status)",
+        )
+
+    log_admin_action("event.reopen_registration", user.email, str(event_id))
 
     return await _event_to_response(event)
 
@@ -818,26 +845,44 @@ async def toggle_promoted(
     return _registration_to_response(registration)
 
 
-class AdminUpdateGroupMembersRequest(BaseModel):
-    """Request body for admin group member name editing."""
-
-    group_members: list[str]
+_PATCH_ERROR_STATUS = {
+    "not_found": (status.HTTP_404_NOT_FOUND, "Registration not found"),
+    "frozen_registration": (
+        status.HTTP_400_BAD_REQUEST,
+        "Registration is frozen (CANCELLED or CHECKED_IN)",
+    ),
+    "frozen_event": (status.HTTP_400_BAD_REQUEST, "Event is completed"),
+    "invalid_group_size": (
+        status.HTTP_400_BAD_REQUEST,
+        "group_size cannot grow and must be ≥ 1",
+    ),
+    "invalid_group_members": (
+        status.HTTP_400_BAD_REQUEST,
+        "group_members payload is inconsistent with group_size",
+    ),
+    "update_failed": (
+        status.HTTP_500_INTERNAL_SERVER_ERROR,
+        "Failed to update registration",
+    ),
+}
 
 
 @router.put(
-    "/{event_id}/registrations/{registration_id}/group-members",
+    "/{event_id}/registrations/{registration_id}",
     response_model=RegistrationResponse,
     dependencies=[Depends(require_role([AdminRole.OWNER, AdminRole.ADMIN]))],
 )
-async def admin_update_group_members(
+async def update_registration(
     event_id: UUID,
     registration_id: UUID,
-    body: AdminUpdateGroupMembersRequest,
+    patch: RegistrationAdminPatch,
     user: CurrentUser,
-) -> RegistrationResponse:
-    """Admin: edit group member names for a registration.
+):
+    """Admin: partial update of a single registration (spec 018).
 
-    Only edits names — does not change group_size.
+    Replaces the prior ``…/group-members`` endpoint. Returns 409 with the
+    current ``RegistrationResponse`` body when an optimistic-concurrency
+    check fails.
     """
     org_id = _get_org_id(user)
 
@@ -846,25 +891,37 @@ async def admin_update_group_members(
     if not event:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Event not found",
+            detail="Registration not found",
         )
 
     registration_service = get_registration_service()
-    registration = await registration_service.admin_update_group_members(
-        event_id, registration_id, body.group_members,
+    registration, error = await registration_service.admin_update_registration(
+        event_id, registration_id, patch,
     )
 
-    if not registration:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Registration not found or invalid group member names",
-        )
+    if error == "conflict":
+        current = await registration_service.get_registration(event_id, registration_id)
+        body = {
+            "detail": "conflict",
+            "registration": _registration_to_response(current).model_dump(mode="json")
+            if current
+            else None,
+        }
+        return JSONResponse(status_code=status.HTTP_409_CONFLICT, content=body)
 
+    if error:
+        code, detail = _PATCH_ERROR_STATUS.get(
+            error, (status.HTTP_400_BAD_REQUEST, "Invalid update"),
+        )
+        raise HTTPException(status_code=code, detail=detail)
+
+    assert registration is not None  # for type-checkers; service contract
+    changed_fields = sorted(patch.model_dump(exclude_unset=True).keys())
     log_admin_action(
-        "registration.update_group_members",
+        "registration.update",
         user.email,
-        str(event_id),
-        {"registration_id": str(registration_id)},
+        str(registration_id),
+        {"event_id": str(event_id), "changed_fields": changed_fields},
     )
 
     return _registration_to_response(registration)
@@ -878,7 +935,18 @@ async def export_registrations_pdf(
     event_id: UUID,
     user: CurrentUser,
 ) -> StreamingResponse:
-    """Export boarding list as PDF with guest names and signature column."""
+    """Export boarding list as PDF with disclaimer + single-column signature grid.
+
+    Layout per page (A4 portrait):
+    - Header block: title, ``Datum / Ort/Fahrt / Seite`` row, two-paragraph
+      liability disclaimer.
+    - Single-column table with Nr | Name | Unterschrift / Signature, sized so
+      the signature has the bulk of the page width.
+
+    Empty cells beyond the guest list render as blank numbered rows ready to
+    sign manually. One additional fully-blank page is always appended for
+    crew or last-minute walk-ons; numbering continues across pages.
+    """
     from fpdf import FPDF
 
     org_id = _get_org_id(user)
@@ -907,65 +975,157 @@ async def export_registrations_pdf(
             guests.append(reg.name)
             guests.extend(f"(Gast {i + 2} von {reg.name})" for i in range(reg.group_size - 1))
 
-    # Build PDF
-    pdf = FPDF(orientation="P", unit="mm", format="A4")
-    pdf.set_auto_page_break(auto=True, margin=20)
-    pdf.add_page()
+    guests.sort(key=str.casefold)
 
-    # Title
-    pdf.set_font("Helvetica", "B", 18)
-    pdf.cell(0, 10, "Boardingzettel", new_x="LMARGIN", new_y="NEXT", align="C")
-    pdf.set_font("Helvetica", "", 12)
-    pdf.cell(0, 8, event.name, new_x="LMARGIN", new_y="NEXT", align="C")
+    # Layout constants ------------------------------------------------------
+    PAGE_WIDTH = 210  # A4 portrait
+    LEFT_MARGIN = 12
+    RIGHT_MARGIN = 12
+    BOTTOM_MARGIN = 14
+    TABLE_WIDTH = PAGE_WIDTH - LEFT_MARGIN - RIGHT_MARGIN  # 186
+
+    COL_NR = 12
+    COL_NAME = 64
+    COL_SIG = TABLE_WIDTH - COL_NR - COL_NAME  # 110
+    HEADER_HEIGHT = 9
+    ROW_HEIGHT = 12
+    ROWS_PER_PAGE = 17
+
+    DISCLAIMER_PARA_1 = (
+        "Mit meiner Unterschrift erkläre ich als Mitglied oder Gast eines Mitgliedes "
+        "des Verein für mobile Machenschaften e.V. oder Gast eines Charterers der "
+        "Schaluppe persönlich eingeladen worden zu sein, eine Sicherheitseinweisung "
+        "erhalten zu haben und über mögliche Risiken und Gefahren während des "
+        "Aufenthalts aufgeklärt worden zu sein."
+    )
+    DISCLAIMER_PARA_2 = (
+        '"Hiermit stelle ich im gesetzlich weitest möglichen Umfang die/den '
+        "Schiffsführer*in und den/die Schiffscharterin*er von der Haftung frei. "
+        "Die Freistellung gilt auch für von mir mitgeführte Kinder. Insbesondere "
+        'ist eine Haftung wegen einfacher Fahrlässigkeit ausgeschlossen."'
+    )
+
+    # Compute pages: at least one for guests, plus one fully-blank page.
+    guest_count = len(guests)
+    pages_for_guests = max(1, (guest_count + ROWS_PER_PAGE - 1) // ROWS_PER_PAGE)
+    total_pages = pages_for_guests + 1
+
     event_date = event.start_at.astimezone(ZoneInfo("Europe/Berlin")).strftime("%d.%m.%Y %H:%M")
-    location = event.location or ""
-    subtitle = f"{event_date}  {location}".strip() if location else event_date
-    pdf.cell(0, 7, subtitle, new_x="LMARGIN", new_y="NEXT", align="C")
-    pdf.cell(0, 4, f"{len(guests)} Passagiere", new_x="LMARGIN", new_y="NEXT", align="C")
-    pdf.ln(6)
+    event_name = event.name
+    event_location = event.location or "-"
+    ort_fahrt = f"{event_location} ({event_name})" if event.location else event_name
 
-    # Table header
-    col_nr = 12
-    col_name = 108
-    col_sig = 50
-    pdf.set_font("Helvetica", "B", 10)
-    pdf.set_fill_color(230, 230, 230)
-    pdf.cell(col_nr, 8, "#", border=1, fill=True, align="C")
-    pdf.cell(col_name, 8, "Name", border=1, fill=True)
-    pdf.cell(col_sig, 8, "Unterschrift", border=1, fill=True)
-    pdf.ln()
+    pdf = FPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_margins(LEFT_MARGIN, 12, RIGHT_MARGIN)
+    pdf.set_auto_page_break(auto=False)  # manual layout
 
-    # Table rows
-    pdf.set_font("Helvetica", "", 10)
-    row_height = 10
-    for i, name in enumerate(guests, 1):
-        # Check if we need a new page
-        if pdf.get_y() + row_height > pdf.h - 20:
-            pdf.add_page()
-            pdf.set_font("Helvetica", "B", 10)
-            pdf.set_fill_color(230, 230, 230)
-            pdf.cell(col_nr, 8, "#", border=1, fill=True, align="C")
-            pdf.cell(col_name, 8, "Name", border=1, fill=True)
-            pdf.cell(col_sig, 8, "Unterschrift", border=1, fill=True)
-            pdf.ln()
-            pdf.set_font("Helvetica", "", 10)
+    def _render_header(page_num: int) -> None:
+        pdf.set_y(12)
+        pdf.set_font("Helvetica", "B", 16)
+        pdf.cell(0, 9, "Boardingzettel", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(2)
 
-        pdf.cell(col_nr, row_height, str(i), border=1, align="C")
-        pdf.cell(col_name, row_height, name, border=1)
-        pdf.cell(col_sig, row_height, "", border=1)
+        pdf.set_font("Helvetica", "", 10)
+        col_w = TABLE_WIDTH / 3
+        pdf.cell(col_w, 6, f"Datum: {event_date}", border=0)
+        pdf.cell(col_w, 6, f"Ort/Fahrt: {ort_fahrt}", border=0)
+        pdf.cell(
+            col_w, 6, f"Seite: {page_num}/{total_pages}",
+            border=0, align="R", new_x="LMARGIN", new_y="NEXT",
+        )
+        pdf.ln(3)
+
+        pdf.set_font("Helvetica", "", 8.5)
+        pdf.multi_cell(TABLE_WIDTH, 3.8, DISCLAIMER_PARA_1, border=0)
+        pdf.ln(1.5)
+        pdf.set_font("Helvetica", "I", 8.5)
+        pdf.multi_cell(TABLE_WIDTH, 3.8, DISCLAIMER_PARA_2, border=0)
+        pdf.ln(4)
+
+    def _render_table_header() -> None:
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.set_fill_color(230, 230, 230)
+        pdf.cell(COL_NR, HEADER_HEIGHT, "Nr", border=1, fill=True, align="C")
+        pdf.cell(COL_NAME, HEADER_HEIGHT, "Name", border=1, fill=True)
+        pdf.cell(COL_SIG, HEADER_HEIGHT, "Unterschrift / Signature",
+                 border=1, fill=True, align="C")
         pdf.ln()
+
+    def _render_row(num: int, name: str) -> None:
+        pdf.set_font("Helvetica", "", 10)
+        pdf.cell(COL_NR, ROW_HEIGHT, str(num), border=1, align="C")
+        pdf.cell(COL_NAME, ROW_HEIGHT, name, border=1)
+        pdf.cell(COL_SIG, ROW_HEIGHT, "", border=1)
+        pdf.ln()
+
+    for page_idx in range(total_pages):
+        pdf.add_page()
+        _render_header(page_idx + 1)
+        _render_table_header()
+
+        page_offset = page_idx * ROWS_PER_PAGE
+        for row_idx in range(ROWS_PER_PAGE):
+            entry_idx = page_offset + row_idx
+            name = guests[entry_idx] if entry_idx < guest_count else ""
+            _render_row(entry_idx + 1, name)
+
+            if pdf.get_y() + ROW_HEIGHT > pdf.h - BOTTOM_MARGIN:
+                break
 
     log_admin_action("registrations.export", user.email, str(event_id))
 
     pdf_bytes = pdf.output()
-    umlaut_map = str.maketrans({'ä': 'ae', 'ö': 'oe', 'ü': 'ue', 'Ä': 'Ae', 'Ö': 'Oe', 'Ü': 'Ue', 'ß': 'ss'})
-    safe_name = event.name.translate(umlaut_map).replace(' ', '_').encode('ascii', 'replace').decode('ascii')
+    filename_map = str.maketrans(
+        {"ä": "ae", "ö": "oe", "ü": "ue", "Ä": "Ae", "Ö": "Oe", "Ü": "Ue", "ß": "ss"},
+    )
+    safe_name = (
+        event.name.translate(filename_map)
+        .replace(" ", "_")
+        .encode("ascii", "replace")
+        .decode("ascii")
+    )
     filename = f"boardingzettel_{safe_name}.pdf"
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get(
+    "/{event_id}/registrations/{registration_id}",
+    response_model=RegistrationResponse,
+    dependencies=[Depends(require_role([AdminRole.OWNER, AdminRole.ADMIN, AdminRole.VIEWER]))],
+)
+async def get_registration(
+    event_id: UUID,
+    registration_id: UUID,
+    user: CurrentUser,
+) -> RegistrationResponse:
+    """Admin: fetch a single registration for the detail page (spec 018).
+
+    Registered after the literal ``/registrations/export`` route so the UUID
+    path param does not shadow it.
+    """
+    org_id = _get_org_id(user)
+
+    event_service = get_event_service()
+    event = await event_service.get_event(org_id, event_id)
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Registration not found",
+        )
+
+    registration_service = get_registration_service()
+    registration = await registration_service.get_registration(event_id, registration_id)
+    if not registration:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Registration not found",
+        )
+
+    return _registration_to_response(registration)
 
 
 class CustomMessageResponse(BaseModel):

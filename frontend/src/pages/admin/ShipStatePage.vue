@@ -172,13 +172,13 @@ onMounted(load)
 <style scoped>
 .container { max-width: 720px; margin: 0 auto; padding: var(--space-4); }
 .tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-2); }
-.tile { border: 1.5px solid var(--color-border); background: #fff; border-radius: var(--radius-md); padding: 10px; }
+.tile { border: 1.5px solid var(--color-border); background: var(--color-surface-raised); border-radius: var(--radius-md); padding: 10px; }
 .k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); }
 .v { font-size: 18px; font-weight: 700; margin: 2px 0 6px; }
 .tile input, .tile select { width: 100%; padding: 6px 8px; border: 1px solid var(--color-border); border-radius: 6px; font-size: var(--text-sm); }
 .section-title { font-size: var(--text-sm); text-transform: uppercase; color: var(--color-text-muted); margin: var(--space-5) 0 var(--space-2); }
 .empty { color: var(--color-text-muted); padding: var(--space-3); text-align: center; }
-.todo-row { display: flex; gap: 8px; align-items: center; padding: 8px; background: #fff; border: 1px solid var(--color-border); border-radius: var(--radius-md); margin-bottom: 4px; }
+.todo-row { display: flex; gap: 8px; align-items: center; padding: 8px; background: var(--color-surface-raised); border: 1px solid var(--color-border); border-radius: var(--radius-md); margin-bottom: 4px; }
 .todo-row span.done { text-decoration: line-through; color: var(--color-text-muted); }
 .muted { color: var(--color-text-muted); font-size: var(--text-sm); margin-left: auto; }
 .row-add { display: flex; gap: 8px; margin-top: var(--space-2); }

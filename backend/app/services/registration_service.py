@@ -20,6 +20,7 @@ from ..models import (
     Event,
     EventStatus,
     Registration,
+    RegistrationAdminPatch,
     RegistrationCreate,
     RegistrationStatus,
 )
@@ -1392,55 +1393,158 @@ class RegistrationService:
             logger.error("Failed to update group members", extra={"error": str(e)})
             return None, "Failed to update group members"
 
-    async def admin_update_group_members(
+    async def admin_update_registration(
         self,
         event_id: UUID,
         registration_id: UUID,
-        group_members: list[str],
-    ) -> Registration | None:
-        """Admin: update group member names for a registration.
+        patch: RegistrationAdminPatch,
+    ) -> tuple[Registration | None, str | None]:
+        """Admin: partial update of a single registration (spec 018).
 
-        Only edits names — does not change group_size.
+        Returns ``(registration, None)`` on success, ``(None, error_code)`` otherwise.
+        Error codes: ``not_found``, ``frozen_registration``, ``frozen_event``,
+        ``invalid_group_size``, ``invalid_group_members``, ``conflict``,
+        ``update_failed``.
 
-        Args:
-            event_id: Event ID.
-            registration_id: Registration ID.
-            group_members: Updated list of group member names.
-
-        Returns:
-            Updated registration, or None on failure.
+        Capacity is intentionally local: this method does NOT increment
+        ``freed_spots`` or trigger waitlist promotion (see spec § Capacity behaviour).
         """
+        from .event_service import get_event_service
+
         registration = await self.get_registration(event_id, registration_id)
-        if not registration:
-            return None
+        if not registration or registration.event_id != event_id:
+            return None, "not_found"
 
-        if len(group_members) > registration.group_size:
-            return None
+        if registration.status in (
+            RegistrationStatus.CANCELLED,
+            RegistrationStatus.CHECKED_IN,
+        ):
+            return None, "frozen_registration"
 
-        stripped = [name.strip() for name in group_members]
-        if any(not name for name in stripped):
-            return None
+        event_service = get_event_service()
+        event = await event_service.get_event_by_id(event_id)
+        if not event:
+            return None, "not_found"
+        if event.status == EventStatus.COMPLETED:
+            return None, "frozen_event"
+
+        target_name = registration.name if patch.name is None else patch.name
+        target_phone = registration.phone if patch.phone is None else patch.phone
+        target_notes = registration.notes if patch.notes is None else patch.notes
+        target_group_size = registration.group_size
+        target_group_members: list[str] | None = registration.group_members
+
+        if patch.group_members is not None and patch.group_size is not None:
+            if len(patch.group_members) != patch.group_size:
+                return None, "invalid_group_members"
+            target_group_members = patch.group_members
+            target_group_size = patch.group_size
+        elif patch.group_members is not None:
+            if len(patch.group_members) > registration.group_size:
+                return None, "invalid_group_members"
+            target_group_members = patch.group_members
+            target_group_size = len(patch.group_members)
+        elif patch.group_size is not None:
+            target_group_size = patch.group_size
+            if registration.group_members is not None:
+                target_group_members = registration.group_members[: patch.group_size]
+
+        if target_group_size < 1 or target_group_size > registration.group_size:
+            return None, "invalid_group_size"
+
+        set_parts: list[str] = []
+        remove_parts: list[str] = []
+        expr_values: dict = {}
+        expr_names: dict = {}
+        changed_fields: list[str] = []
+
+        if target_name != registration.name:
+            set_parts.append("#n = :name")
+            expr_names["#n"] = "name"
+            expr_values[":name"] = target_name
+            changed_fields.append("name")
+
+        if target_phone != registration.phone:
+            if not target_phone:
+                remove_parts.append("phone")
+            else:
+                set_parts.append("phone = :phone")
+                expr_values[":phone"] = target_phone
+            changed_fields.append("phone")
+
+        if target_notes != registration.notes:
+            if not target_notes:
+                remove_parts.append("notes")
+            else:
+                set_parts.append("notes = :notes")
+                expr_values[":notes"] = target_notes
+            changed_fields.append("notes")
+
+        if target_group_size != registration.group_size:
+            set_parts.append("group_size = :group_size")
+            expr_values[":group_size"] = target_group_size
+            changed_fields.append("group_size")
+
+        if target_group_members != registration.group_members:
+            if target_group_members is None:
+                remove_parts.append("group_members")
+            else:
+                set_parts.append("group_members = :group_members")
+                expr_values[":group_members"] = target_group_members
+            changed_fields.append("group_members")
+
+        if not changed_fields:
+            return registration, None
+
+        update_clauses: list[str] = []
+        if set_parts:
+            update_clauses.append("SET " + ", ".join(set_parts))
+        if remove_parts:
+            update_clauses.append("REMOVE " + ", ".join(remove_parts))
+        update_expression = " ".join(update_clauses)
+
+        expr_names["#s"] = "status"
+        expr_values[":cur_status"] = registration.status.value
+        if registration.responded_at is None:
+            condition_expr = "#s = :cur_status AND attribute_not_exists(responded_at)"
+        else:
+            condition_expr = "#s = :cur_status AND responded_at = :cur_responded"
+            expr_values[":cur_responded"] = registration.responded_at.isoformat()
 
         try:
-            response_data = self.registrations_table.update_item(
+            response = self.registrations_table.update_item(
                 Key={
                     "pk": f"EVENT#{event_id}",
                     "sk": f"REG#{registration_id}",
                 },
-                UpdateExpression="SET group_members = :group_members",
-                ExpressionAttributeValues={
-                    ":group_members": stripped,
-                },
+                UpdateExpression=update_expression,
+                ConditionExpression=condition_expr,
+                ExpressionAttributeNames=expr_names,
+                ExpressionAttributeValues=expr_values,
                 ReturnValues="ALL_NEW",
             )
-            return _item_to_registration(response_data["Attributes"])
+            updated = _item_to_registration(response["Attributes"])
+            logger.info(
+                "Registration admin-updated",
+                extra={
+                    "registration_id": str(registration_id),
+                    "event_id": str(event_id),
+                    "changed_fields": changed_fields,
+                },
+            )
+            return updated, None
 
         except ClientError as e:
+            if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                return None, "conflict"
             logger.error(
-                "Failed to admin-update group members",
-                extra={"error": str(e), "registration_id": str(registration_id)},
+                "Failed to admin-update registration",
+                extra={
+                    "error": str(e),
+                    "registration_id": str(registration_id),
+                },
             )
-            return None
+            return None, "update_failed"
 
     async def _increment_freed_spots(self, event_id: UUID, spots: int) -> None:
         """Atomically increment freed_spots counter on the event.

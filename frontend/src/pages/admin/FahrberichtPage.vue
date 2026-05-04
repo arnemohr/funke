@@ -216,10 +216,10 @@ onUnmounted(() => clearTimeout(saveTimer))
 .tab { padding: 10px 14px; border: none; background: transparent; cursor: pointer; color: var(--color-text-muted); border-bottom: 3px solid transparent; font-size: var(--text-sm); white-space: nowrap; }
 .tab.active { color: var(--color-brand); border-bottom-color: var(--color-brand); font-weight: 600; }
 .chip { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; }
-.chip-ok { background: #dcfce7; color: #15803d; }
-.chip-muted { background: #f5f5f5; color: #4b5563; }
-.save-indicator { font-size: 11px; color: var(--color-text-muted); padding: 2px 8px; border-radius: 999px; background: #f5f5f5; }
-.save-indicator.saving { color: #6b7280; }
-.save-indicator.saved { color: #15803d; background: #dcfce7; }
-.save-indicator.error { color: #c0392b; background: #fdecea; }
+.chip-ok { background: var(--color-success-bg); color: var(--color-success-text); }
+.chip-muted { background: var(--color-neutral-bg); color: var(--color-neutral-text); }
+.save-indicator { font-size: 11px; color: var(--color-text-muted); padding: 2px 8px; border-radius: 999px; background: var(--color-neutral-bg); }
+.save-indicator.saving { color: var(--color-text-muted); }
+.save-indicator.saved { color: var(--color-success-text); background: var(--color-success-bg); }
+.save-indicator.error { color: var(--color-danger-text); background: var(--color-danger-bg); }
 </style>

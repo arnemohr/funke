@@ -2,6 +2,8 @@
    Brand derived from mobilemachenschaften.de, updated to 2026 design language */
 
 :root {
+  color-scheme: light;
+
   /* === Brand Palette (derived from Verein für mobile Machenschaften) === */
   --color-brand: #0C1E3C;           /* Deep navy — anchor colour, nautical heritage */
   --color-brand-light: #1A3A5C;     /* Lighter navy for hover states */
@@ -11,9 +13,12 @@
   --color-accent-subtle: #FEF0E6;   /* Accent tint for highlights */
   --color-surface: #FAFAF8;         /* Warm off-white — 2026: no clinical whites */
   --color-surface-raised: #FFFFFF;  /* Cards, modals — still pure white for contrast */
+  --color-surface-sunken: #F5F5F5;  /* Receded surfaces (input echoes, muted boxes) */
   --color-text: #1A1A1A;            /* Near-black for body text */
   --color-text-muted: #5C6470;      /* Warm grey for secondary text */
   --color-border: #DFE2E6;          /* Warm neutral border */
+  --color-info-subtle-bg: #E8F5F2;  /* Tealish infobox background */
+  --color-info-subtle-text: #1A4A40;
 
   /* Override Pico CSS primary with brand navy */
   --pico-primary: var(--color-brand);
@@ -86,6 +91,111 @@
   /* === Surface Colours === */
   --color-bg-muted: #f6f7f9;
   --color-bg-subtle: #fafbfc;
+}
+
+/* === Dark Theme ===
+   Navy-anchored palette matching brand; status colours tuned for ≥ 4.5:1
+   contrast on the dark surface. */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Brand */
+  --color-brand: #7FA7DF;
+  --color-brand-light: #A3BFE8;
+  --color-brand-subtle: #17243B;
+  --color-accent: #F08A4A;
+  --color-accent-hover: #F5A373;
+  --color-accent-subtle: #2A1B10;
+
+  /* Surface */
+  --color-surface: #0F1B2D;
+  --color-surface-raised: #1A253A;
+  --color-surface-sunken: #0B1422;
+  --color-text: #E5E9EF;
+  --color-text-muted: #9AA3B2;
+  --color-border: #263449;
+
+  /* Pico overrides */
+  --pico-primary: #7FA7DF;
+  --pico-primary-hover: #A3BFE8;
+  --pico-primary-focus: rgba(127, 167, 223, 0.35);
+  --pico-primary-inverse: #0F1B2D;
+
+  /* Status — light text on dark-tinted backgrounds */
+  --color-success-text: #4ADE80;
+  --color-success-bg: #052E1A;
+  --color-warning-text: #FBBF24;
+  --color-warning-bg: #3A2A06;
+  --color-danger-text: #F87171;
+  --color-danger-bg: #450A0A;
+  --color-info-text: #93C5FD;
+  --color-info-bg: #0F2444;
+  --color-neutral-text: #CBD5E1;
+  --color-neutral-bg: #2A3445;
+  --color-purple-text: #C4B5FD;
+  --color-purple-bg: #2A1E50;
+  --color-indigo-text: #A5B4FC;
+  --color-indigo-bg: #1E1F52;
+  --color-event-confirmed-text: #6EE7B7;
+  --color-event-confirmed-bg: #052E20;
+  --color-info-subtle-bg: #0E2A26;
+  --color-info-subtle-text: #7FD1C1;
+
+  /* Surfaces */
+  --color-bg-muted: #162133;
+  --color-bg-subtle: #111B2C;
+
+  /* Shadows — blacken for depth on dark */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-sticky: 0 -8px 16px -12px rgba(0, 0, 0, 0.6);
+  --shadow-sheet: 0 -12px 32px -12px rgba(0, 0, 0, 0.7);
+  --shadow-fab: 0 6px 16px -4px rgba(0, 0, 0, 0.6);
+}
+
+/* Smooth cross-fade on theme change; suppressed on boot and for users
+   who prefer reduced motion. */
+html:not(.theme-transitions-off) body,
+html:not(.theme-transitions-off) article,
+html:not(.theme-transitions-off) .list-group,
+html:not(.theme-transitions-off) .surface,
+html:not(.theme-transitions-off) input,
+html:not(.theme-transitions-off) textarea,
+html:not(.theme-transitions-off) select,
+html:not(.theme-transitions-off) button {
+  transition: background-color 200ms ease, color 200ms ease, border-color 200ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html body,
+  html article,
+  html .list-group,
+  html .surface,
+  html input,
+  html textarea,
+  html select,
+  html button {
+    transition: none !important;
+  }
+}
+
+::selection {
+  background: var(--color-brand-subtle);
+  color: var(--color-text);
+}
+
+:focus-visible {
+  outline-color: var(--color-brand);
+}
+
+@media print {
+  [data-theme="dark"] {
+    --color-surface: #fff;
+    --color-surface-raised: #fff;
+    --color-surface-sunken: #f5f5f5;
+    --color-text: #000;
+    --color-text-muted: #444;
+    --color-border: #ccc;
+  }
 }
 
 /* === Shared primitives (used by .card, list-group, sheet) === */
@@ -210,6 +320,31 @@
   --pico-primary-inverse: #fff;
 }
 
+[data-theme="dark"] .btn-danger {
+  --pico-primary: #F87171;
+  --pico-primary-hover: #FCA5A5;
+  --pico-primary-focus: rgba(248, 113, 113, 0.35);
+  --pico-primary-inverse: #0F1B2D;
+}
+
+[data-theme="dark"] .btn-danger[disabled] {
+  --pico-primary: #7F2A2A;
+  --pico-primary-hover: #7F2A2A;
+}
+
+[data-theme="dark"] .btn-danger.outline {
+  --pico-primary: #F87171;
+  --pico-primary-hover: #F87171;
+  --pico-primary-focus: rgba(248, 113, 113, 0.35);
+}
+
+[data-theme="dark"] .btn-success {
+  --pico-primary: #4ADE80;
+  --pico-primary-hover: #6EE7B7;
+  --pico-primary-focus: rgba(74, 222, 128, 0.35);
+  --pico-primary-inverse: #0F1B2D;
+}
+
 /* === Shared Error/Success Messages === */
 .error-message {
   color: var(--color-danger-text);
@@ -322,10 +457,10 @@
   -webkit-overflow-scrolling: touch;
   /* Soft scroll-hint shadow on the right when content overflows */
   background:
-    linear-gradient(to right, var(--color-surface-raised) 30%, rgba(255, 255, 255, 0)) left center no-repeat,
-    linear-gradient(to left, var(--color-surface-raised) 30%, rgba(255, 255, 255, 0)) right center no-repeat,
-    linear-gradient(to right, rgba(12, 30, 60, 0.12), rgba(12, 30, 60, 0)) left center no-repeat,
-    linear-gradient(to left, rgba(12, 30, 60, 0.12), rgba(12, 30, 60, 0)) right center no-repeat;
+    linear-gradient(to right, var(--color-surface-raised) 30%, transparent) left center no-repeat,
+    linear-gradient(to left, var(--color-surface-raised) 30%, transparent) right center no-repeat,
+    linear-gradient(to right, rgba(12, 30, 60, 0.12), transparent) left center no-repeat,
+    linear-gradient(to left, rgba(12, 30, 60, 0.12), transparent) right center no-repeat;
   background-size: 20px 100%, 20px 100%, 8px 100%, 8px 100%;
   background-attachment: local, local, scroll, scroll;
 }

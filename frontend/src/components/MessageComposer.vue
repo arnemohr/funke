@@ -299,9 +299,9 @@ legend {
 }
 
 .success {
-  color: #16a34a;
+  color: var(--color-success-text);
   padding: 1rem;
-  background: #f0fdf4;
+  background: var(--color-success-bg);
   border-radius: var(--pico-border-radius);
   margin-bottom: 1rem;
 }

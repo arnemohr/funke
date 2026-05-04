@@ -205,8 +205,8 @@ async function handleConfirm() {
 }
 
 .card {
-  background: white;
-  border: 1px solid var(--color-border, #DFE2E6);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
   border-radius: var(--pico-border-radius);
   padding: 1rem;
   margin-bottom: 1rem;
@@ -285,9 +285,9 @@ async function handleConfirm() {
 }
 
 .error {
-  color: var(--pico-color-red-500, #dc3545);
+  color: var(--color-danger-text);
   padding: 1rem;
-  background: var(--pico-color-red-50, #fff5f5);
+  background: var(--color-danger-bg);
   border-radius: var(--pico-border-radius);
   margin-bottom: 1rem;
 }
@@ -302,8 +302,8 @@ async function handleConfirm() {
   gap: 0.75rem;
   padding: 0.75rem 1rem;
   padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0));
-  background: white;
-  border-top: 1px solid var(--color-border, #DFE2E6);
+  background: var(--color-surface-raised);
+  border-top: 1px solid var(--color-border);
 }
 
 .sticky-footer button {

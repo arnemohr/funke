@@ -92,7 +92,9 @@ async function request(endpoint, options = {}, requiresAuth = false) {
       if (parseErr.message === errorMessage) throw parseErr
       // Ignore JSON parse errors
     }
-    throw new Error(errorMessage)
+    const err = new Error(errorMessage)
+    err.status = response.status
+    throw err
   }
 
   // Handle empty responses
@@ -307,6 +309,17 @@ export const adminApi = {
   },
 
   /**
+   * Reopen registration for an event (REGISTRATION_CLOSED -> OPEN).
+   * @param {string} eventId - Event ID
+   * @returns {Promise<object>} Updated event
+   */
+  async reopenRegistration(eventId) {
+    return request(`/api/admin/events/${eventId}/reopen-registration`, {
+      method: 'POST',
+    }, true)
+  },
+
+  /**
    * Complete an event (CONFIRMED -> COMPLETED).
    * @param {string} eventId - Event ID
    * @returns {Promise<object>} Updated event
@@ -466,7 +479,7 @@ export const adminApi = {
   },
 
   /**
-   * Admin: update group member names.
+   * Admin: delete a single registration permanently.
    */
   async deleteRegistration(eventId, registrationId) {
     return request(`/api/admin/events/${eventId}/registrations/${registrationId}`, {
@@ -474,11 +487,66 @@ export const adminApi = {
     }, true)
   },
 
-  async updateGroupMembers(eventId, registrationId, groupMembers) {
-    return request(`/api/admin/events/${eventId}/registrations/${registrationId}/group-members`, {
+  /**
+   * Admin: fetch a single registration for the detail page (spec 018).
+   */
+  async getAdminRegistration(eventId, registrationId) {
+    return request(`/api/admin/events/${eventId}/registrations/${registrationId}`, {}, true)
+  },
+
+  /**
+   * Admin: partial update of a single registration (spec 018).
+   *
+   * Accepts a `patch` object with any subset of:
+   *   { name, phone, notes, group_size, group_members }
+   *
+   * Throws on non-OK responses. On 409 (concurrency conflict), the thrown
+   * Error carries `.status === 409` and `.data === { detail, registration }`
+   * so callers can rehydrate their form from the embedded current state.
+   */
+  async updateAdminRegistration(eventId, registrationId, patch) {
+    const url = `${API_BASE_URL}/api/admin/events/${eventId}/registrations/${registrationId}`
+    const token = await getAccessToken()
+    if (!token) {
+      await auth0.loginWithRedirect({ appState: { targetUrl: window.location.pathname } })
+      throw new Error('Sitzung abgelaufen. Du wirst zur Anmeldung weitergeleitet.')
+    }
+
+    const response = await fetch(url, {
       method: 'PUT',
-      body: JSON.stringify({ group_members: groupMembers }),
-    }, true)
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(patch),
+    })
+
+    if (response.status === 409) {
+      const data = await response.json().catch(() => ({}))
+      const err = new Error('Die Anmeldung wurde zwischenzeitlich aktualisiert.')
+      err.status = 409
+      err.data = data
+      throw err
+    }
+
+    if (!response.ok) {
+      let detail = `Request failed with status ${response.status}`
+      try {
+        const body = await response.json()
+        if (Array.isArray(body.detail)) {
+          detail = body.detail.map(e => `${e.loc?.join('.')}: ${e.msg}`).join(', ')
+        } else if (body.detail) {
+          detail = body.detail
+        }
+      } catch {
+        // Ignore JSON parse errors
+      }
+      const err = new Error(detail)
+      err.status = response.status
+      throw err
+    }
+
+    return response.json()
   },
 
   // Push notification endpoints

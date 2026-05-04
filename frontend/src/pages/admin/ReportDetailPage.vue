@@ -151,9 +151,9 @@ onMounted(loadMeta)
 .versions { display: flex; gap: 8px; align-items: center; margin-bottom: var(--space-2); }
 .versions select { padding: 6px 8px; border: 1.5px solid var(--color-border); border-radius: 6px; }
 .muted { color: var(--color-text-muted); font-size: var(--text-sm); }
-.warn-banner { background: #fef3c7; border-left: 4px solid #e8a020; padding: 10px 14px; border-radius: 8px; margin-bottom: var(--space-3); color: #7a4e00; font-size: var(--text-sm); }
+.warn-banner { background: var(--color-warning-bg); border-left: 4px solid var(--color-warning-text); padding: 10px 14px; border-radius: 8px; margin-bottom: var(--space-3); color: var(--color-warning-text); font-size: var(--text-sm); }
 .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-2); margin-bottom: var(--space-4); }
-.tile { background: #fff; border: 1.5px solid var(--color-border); padding: 10px; border-radius: var(--radius-md); }
+.tile { background: var(--color-surface-raised); border: 1.5px solid var(--color-border); padding: 10px; border-radius: var(--radius-md); }
 .k { font-size: 11px; text-transform: uppercase; color: var(--color-text-muted); }
 .v { font-size: 16px; font-weight: 700; margin-top: 2px; }
 .section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--color-brand); border-bottom: 2px solid var(--color-brand); padding-bottom: 4px; margin: var(--space-4) 0 var(--space-2); }
@@ -165,9 +165,9 @@ onMounted(loadMeta)
 .primary { background: var(--color-brand); color: #fff; border: none; }
 .ghost { background: transparent; border: 1.5px solid var(--color-border); color: var(--color-text); }
 .badge { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
-.badge-ok { background: #dcfce7; color: #15803d; }
-.badge-err { background: #fdecea; color: #922b21; }
-.badge-warn { background: #fef3c7; color: #b45309; }
-.badge-muted { background: #f5f5f5; color: #6b7280; }
+.badge-ok { background: var(--color-success-bg); color: var(--color-success-text); }
+.badge-err { background: var(--color-danger-bg); color: var(--color-danger-text); }
+.badge-warn { background: var(--color-warning-bg); color: var(--color-warning-text); }
+.badge-muted { background: var(--color-neutral-bg); color: var(--color-neutral-text); }
 @media (max-width: 520px) { .grid { grid-template-columns: 1fr 1fr; } }
 </style>

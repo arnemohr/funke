@@ -46,6 +46,7 @@ from .message import (
 )
 from .registration import (
     Registration,
+    RegistrationAdminPatch,
     RegistrationCreate,
     RegistrationResponse,
     RegistrationStatus,
@@ -98,6 +99,7 @@ __all__ = [
     "MessageType",
     # Registration
     "Registration",
+    "RegistrationAdminPatch",
     "RegistrationCreate",
     "RegistrationResponse",
     "RegistrationStatus",

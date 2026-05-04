@@ -173,9 +173,9 @@ onMounted(loadRegistration)
 
 <style scoped>
 .error {
-  color: var(--pico-color-red-500, #dc3545);
+  color: var(--color-danger-text);
   padding: 1rem;
-  background: var(--pico-color-red-50, #fff5f5);
+  background: var(--color-danger-bg);
   border-radius: var(--pico-border-radius);
   margin-bottom: 1rem;
 }
@@ -183,23 +183,23 @@ onMounted(loadRegistration)
 .success {
   text-align: center;
   padding: 2rem;
-  background: var(--pico-color-green-50, #f0fff4);
+  background: var(--color-success-bg);
   border-radius: var(--pico-border-radius);
 }
 
 .success h2 {
-  color: var(--pico-color-green-600, #2f855a);
+  color: var(--color-success-text);
 }
 
 .already-cancelled {
   text-align: center;
   padding: 2rem;
-  background: #f5f5f5;
+  background: var(--color-surface-sunken);
   border-radius: var(--pico-border-radius);
 }
 
 .registration-details {
-  background: white;
+  background: var(--color-surface-raised);
   padding: 1rem;
   border-radius: var(--pico-border-radius);
   margin: 1rem 0;
@@ -218,8 +218,8 @@ onMounted(loadRegistration)
 
 .warning {
   padding: 1rem;
-  background: var(--pico-color-yellow-50, #fffbeb);
-  border: 1px solid var(--pico-color-yellow-200, #fde68a);
+  background: var(--color-warning-bg);
+  border: 1px solid var(--color-warning-text);
   border-radius: var(--pico-border-radius);
   margin: 1rem 0;
 }
@@ -244,12 +244,12 @@ onMounted(loadRegistration)
 }
 
 .button.secondary {
-  background: #f1f5f9;
-  color: #334155;
-  border: 1px solid #cbd5e1;
+  background: var(--color-bg-muted);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
 }
 
 .button.secondary:hover {
-  background: #e2e8f0;
+  background: var(--color-border);
 }
 </style>

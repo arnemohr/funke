@@ -264,13 +264,13 @@ dialog footer {
 .access-denied {
   text-align: center;
   padding: 3rem 2rem;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  background: var(--color-danger-bg);
+  border: 1px solid var(--color-danger-text);
   border-radius: var(--pico-border-radius);
-  color: #991b1b;
+  color: var(--color-danger-text);
 }
 
-.access-denied h3 { color: #dc2626; margin-bottom: 1rem; }
+.access-denied h3 { color: var(--color-danger-text); margin-bottom: 1rem; }
 .access-denied p { margin-bottom: 0.5rem; }
 .access-denied button { margin-top: 1.5rem; }
 

@@ -100,6 +100,14 @@ const routes = [
     meta: { hideTabBar: true },
   },
   {
+    path: '/admin/events/:eventId/registrations/:registrationId',
+    name: 'admin-registration-detail',
+    component: () => import('../pages/admin/RegistrationDetailPage.vue'),
+    beforeEnter: authGuard,
+    props: true,
+    meta: { hideTabBar: true },
+  },
+  {
     path: '/admin/settings',
     name: 'admin-settings',
     component: () => import('../pages/admin/SettingsPage.vue'),

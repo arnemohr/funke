@@ -130,13 +130,13 @@ input { padding: 10px 12px; border: 1.5px solid var(--color-border); border-radi
 .expense-row { display: grid; grid-template-columns: 1fr 90px auto; gap: 8px; margin-bottom: 6px; align-items: center; }
 .icon-btn { background: transparent; border: none; color: var(--color-danger-text, #c0392b); cursor: pointer; font-size: 18px; }
 .ghost { background: transparent; border: 1.5px dashed var(--color-border); padding: 10px; border-radius: var(--radius-md); cursor: pointer; color: var(--color-text-muted); width: 100%; }
-.sum-card { background: #fff; border: 1.5px solid var(--color-border); border-radius: var(--radius-md); padding: 14px; margin-bottom: var(--space-2); }
+.sum-card { background: var(--color-surface-raised); border: 1.5px solid var(--color-border); border-radius: var(--radius-md); padding: 14px; margin-bottom: var(--space-2); }
 .sum-line { display: flex; justify-content: space-between; padding: 6px 0; font-size: var(--text-base); border-bottom: 1px solid var(--color-bg-muted); }
 .sum-line:last-child { border: none; }
 .sum-line.total { font-weight: 700; padding-top: 10px; margin-top: 6px; border-top: 2px solid var(--color-border); }
-.pos { color: #15803d; font-weight: 700; }
-.neg { color: #c0392b; font-weight: 700; }
-.warn { color: #d97706; font-weight: 700; }
+.pos { color: var(--color-success-text); font-weight: 700; }
+.neg { color: var(--color-danger-text); font-weight: 700; }
+.warn { color: var(--color-warning-text); font-weight: 700; }
 .booking { background: #1a1a2e; color: #a0f0c0; border-radius: 8px; padding: 14px; font-family: 'Courier New', monospace; font-size: 12px; line-height: 1.7; white-space: pre-wrap; margin: 8px 0; }
 .submit-btn { margin-top: var(--space-4); padding: 14px; background: var(--color-brand); color: #fff; border: none; border-radius: var(--radius-md); font-weight: 700; font-size: var(--text-base); cursor: pointer; }
 @media (max-width: 520px) { .row { grid-template-columns: 1fr; } }

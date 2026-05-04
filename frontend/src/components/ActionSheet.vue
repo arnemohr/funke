@@ -122,7 +122,7 @@ watch(() => props.open, (isOpen) => {
 }
 
 .sheet-cancel:hover {
-  background: #eef0f3;
+  background: var(--color-border);
 }
 
 /* Enter/leave: panel slides up, backdrop fades */

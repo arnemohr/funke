@@ -94,7 +94,7 @@ onMounted(load)
 .empty { text-align: center; color: var(--color-text-muted); padding: var(--space-6); }
 .stock-line { display: block; margin-top: 2px; font-size: 11px; color: var(--color-text-muted); }
 .badge { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
-.badge.warn { background: #fef3c7; color: #b45309; }
-.badge.muted { background: #f5f5f5; color: #9ca3af; }
+.badge.warn { background: var(--color-warning-bg); color: var(--color-warning-text); }
+.badge.muted { background: var(--color-neutral-bg); color: var(--color-neutral-text); }
 .ghost { background: transparent; border: 1.5px dashed var(--color-border); padding: 8px 14px; border-radius: var(--radius-md); cursor: pointer; color: var(--color-text-muted); font-size: var(--text-sm); }
 </style>

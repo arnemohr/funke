@@ -29,6 +29,7 @@ EVENT_STATUS_TRANSITIONS: dict[EventStatus, list[EventStatus]] = {
     EventStatus.DRAFT: [EventStatus.OPEN, EventStatus.CANCELLED],
     EventStatus.OPEN: [EventStatus.REGISTRATION_CLOSED, EventStatus.CANCELLED],
     EventStatus.REGISTRATION_CLOSED: [
+        EventStatus.OPEN,
         EventStatus.LOTTERY_PENDING,
         EventStatus.CONFIRMED,
         EventStatus.CANCELLED,

@@ -56,6 +56,50 @@ class RegistrationUpdate(BaseModel):
     group_size: int | None = Field(None, ge=1, le=10)
 
 
+class RegistrationAdminPatch(BaseModel):
+    """Partial-update payload for admin single-registration edits (spec 018)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(None, max_length=200)
+    phone: str | None = Field(None, max_length=50)
+    notes: str | None = Field(None, max_length=500)
+    group_size: int | None = Field(None, ge=1)
+    group_members: list[str] | None = None
+
+    @field_validator("name")
+    @classmethod
+    def _strip_name(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("name must not be empty")
+        return stripped
+
+    @field_validator("phone", "notes")
+    @classmethod
+    def _strip_clearable(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        return v.strip()
+
+    @field_validator("group_members")
+    @classmethod
+    def _strip_members(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return v
+        cleaned: list[str] = []
+        for entry in v:
+            stripped = entry.strip()
+            if not stripped:
+                raise ValueError("group_members entries must be non-empty")
+            if len(stripped) > 200:
+                raise ValueError("group_members entries must be at most 200 characters")
+            cleaned.append(stripped)
+        return cleaned
+
+
 class Registration(BaseModel):
     """Full registration model with all fields."""
 

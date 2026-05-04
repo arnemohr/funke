@@ -208,6 +208,7 @@
       <div v-show="activeTab === 'registrations'" class="tab-content">
         <RegistrationTable
           :registrations="registrations"
+          :event-id="props.eventId"
           :event-status="event.status"
           :loading="loadingRegistrations"
           :error="registrationsError"
@@ -248,6 +249,15 @@
       @close="dangerSheetOpen = false"
     >
       <div class="sheet-list">
+        <ListItemButton
+          v-if="event.status === 'REGISTRATION_CLOSED'"
+          :icon="RotateCcw"
+          :disabled="actions.reopeningRegistration.value"
+          @click="() => { dangerSheetOpen = false; actions.reopenRegistration(event) }"
+        >
+          Anmeldung wieder öffnen
+          <template #detail>Zurück zu OPEN, falls versehentlich geschlossen</template>
+        </ListItemButton>
         <ListItemButton
           v-if="event.status === 'CONFIRMED'"
           :icon="UserMinus"
@@ -402,7 +412,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import {
   HelpCircle, Link2, Send, Copy, FileDown, MoreHorizontal,
-  UserMinus, XCircle, Trash2, Check, ClipboardList, Mail,
+  UserMinus, XCircle, Trash2, Check, ClipboardList, Mail, RotateCcw,
 } from 'lucide-vue-next'
 import { adminApi } from '../../services/api'
 import { useEventActions } from '../../composables/useEventActions.js'
@@ -789,8 +799,8 @@ onMounted(async () => {
 }
 
 .cancel-warning {
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  background: var(--color-danger-bg);
+  border: 1px solid var(--color-danger-text);
   border-radius: var(--radius-md);
   padding: var(--space-4);
   margin-bottom: var(--space-4);
@@ -829,9 +839,9 @@ dialog footer {
   font-size: 11px;
   font-weight: 600;
 }
-.fb-chip--draft { background: #f5f5f5; color: #4b5563; }
-.fb-chip--sent { background: #dcfce7; color: #15803d; }
-.fb-chip--err { background: #fdecea; color: #922b21; }
-.fb-chip--warn { background: #fef3c7; color: #b45309; }
-.fb-chip--muted { background: #f5f5f5; color: #6b7280; }
+.fb-chip--draft { background: var(--color-neutral-bg); color: var(--color-neutral-text); }
+.fb-chip--sent { background: var(--color-success-bg); color: var(--color-success-text); }
+.fb-chip--err { background: var(--color-danger-bg); color: var(--color-danger-text); }
+.fb-chip--warn { background: var(--color-warning-bg); color: var(--color-warning-text); }
+.fb-chip--muted { background: var(--color-neutral-bg); color: var(--color-neutral-text); }
 </style>

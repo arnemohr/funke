@@ -109,7 +109,7 @@ watch(() => props.roleFilter, () => {
   border: 1.5px solid var(--color-border);
   border-radius: var(--radius-md);
   padding: 0 var(--space-2);
-  background: #fff;
+  background: var(--color-surface-raised);
   min-height: 44px;
 }
 .crewref__field input {
@@ -143,7 +143,7 @@ watch(() => props.roleFilter, () => {
   inset-inline: 0;
   top: calc(100% + 4px);
   z-index: 50;
-  background: #fff;
+  background: var(--color-surface-raised);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   box-shadow: 0 8px 18px rgba(0,0,0,.08);

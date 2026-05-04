@@ -1,0 +1,5 @@
+- main [ref=e3]:
+  - article [ref=e4]:
+    - alert [ref=e5]:
+      - heading "Fehler" [level=2] [ref=e6]
+      - paragraph [ref=e7]: Ungültiger Link. Schau nochmal in deiner E-Mail nach.

@@ -55,9 +55,9 @@ function fmt(n) { return Number(n || 0).toFixed(2) }
 </script>
 
 <style scoped>
-.submitted { padding: var(--space-4); background: #fff; border: 1.5px solid var(--color-border); border-radius: var(--radius-md); }
+.submitted { padding: var(--space-4); background: var(--color-surface-raised); border: 1.5px solid var(--color-border); border-radius: var(--radius-md); }
 .muted { color: var(--color-text-muted); margin: 0 0 var(--space-3); }
-.warnings { background: #fdf6e3; border-left: 4px solid #e8a020; padding: 12px; border-radius: 8px; margin-bottom: var(--space-3); }
+.warnings { background: var(--color-warning-bg); border-left: 4px solid var(--color-warning-text); padding: 12px; border-radius: 8px; margin-bottom: var(--space-3); }
 .warnings ul { margin: 4px 0 var(--space-2); padding-left: 20px; }
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); margin-bottom: var(--space-3); }
 .tile { background: var(--color-bg-muted); padding: 10px; border-radius: 8px; }

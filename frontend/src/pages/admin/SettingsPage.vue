@@ -68,6 +68,47 @@
       </div>
     </template>
 
+    <!-- Darstellung -->
+    <div class="section-heading" id="theme-heading">
+      <h3>Darstellung</h3>
+    </div>
+    <div class="list-group" role="radiogroup" aria-labelledby="theme-heading">
+      <ListItemButton
+        :icon="Monitor"
+        role="radio"
+        :aria-checked="themeMode === 'auto' ? 'true' : 'false'"
+        @click="setTheme('auto')"
+      >
+        Automatisch
+        <template #detail>Folgt Systemeinstellung ({{ resolvedLabel }})</template>
+        <template #trailing>
+          <Check v-if="themeMode === 'auto'" :size="18" aria-hidden="true" />
+        </template>
+      </ListItemButton>
+      <ListItemButton
+        :icon="Sun"
+        role="radio"
+        :aria-checked="themeMode === 'light' ? 'true' : 'false'"
+        @click="setTheme('light')"
+      >
+        Hell
+        <template #trailing>
+          <Check v-if="themeMode === 'light'" :size="18" aria-hidden="true" />
+        </template>
+      </ListItemButton>
+      <ListItemButton
+        :icon="Moon"
+        role="radio"
+        :aria-checked="themeMode === 'dark' ? 'true' : 'false'"
+        @click="setTheme('dark')"
+      >
+        Dunkel
+        <template #trailing>
+          <Check v-if="themeMode === 'dark'" :size="18" aria-hidden="true" />
+        </template>
+      </ListItemButton>
+    </div>
+
     <!-- App -->
     <div class="section-heading">
       <h3>App</h3>
@@ -162,14 +203,16 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useAuth0 } from '@auth0/auth0-vue'
 import {
   Bell, BellOff, Tag, Smartphone, Globe, Download, Mail, LogOut, Wrench, User,
+  Monitor, Sun, Moon, Check,
 } from 'lucide-vue-next'
 import { usePushNotifications } from '../../composables/usePushNotifications.js'
 import { useInstallPrompt } from '../../composables/useInstallPrompt.js'
 import { useDevMode } from '../../composables/useDevMode.js'
+import { useTheme } from '../../composables/useTheme.js'
 import { showToast } from '../../composables/useToast.js'
 import PageHeader from '../../components/PageHeader.vue'
 import ListItemButton from '../../components/ListItemButton.vue'
@@ -186,6 +229,8 @@ const {
 
 const { canInstall, isStandalone, promptInstall } = useInstallPrompt()
 const { enabled: devMode, enable: enableDev, disable: disableDev, toggle: toggleDev } = useDevMode()
+const { mode: themeMode, resolved: themeResolved, setMode: setTheme } = useTheme()
+const resolvedLabel = computed(() => themeResolved.value === 'dark' ? 'Dunkel' : 'Hell')
 
 const appVersion = __APP_VERSION__ || '0.0.0'
 

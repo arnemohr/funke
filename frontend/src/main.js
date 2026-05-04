@@ -5,6 +5,9 @@ import { auth0 } from './plugins/auth0'
 import App from './App.vue'
 import '@picocss/pico/css/pico.min.css'
 import './assets/design-tokens.css'
+import { initTheme } from './composables/useTheme.js'
+
+initTheme()
 
 const app = createApp(App)
 app.use(createPinia())

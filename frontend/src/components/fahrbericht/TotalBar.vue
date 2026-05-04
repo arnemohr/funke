@@ -30,8 +30,8 @@ function fmt(n) { return Number(n || 0).toFixed(2) }
   bottom: 0;
   left: 0;
   right: 0;
-  background: #1a2744;
-  color: #fff;
+  background: var(--color-brand);
+  color: var(--pico-primary-inverse);
   padding: 10px 16px;
   display: flex;
   justify-content: space-between;

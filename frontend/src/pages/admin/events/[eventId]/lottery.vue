@@ -361,9 +361,9 @@ onMounted(loadData)
 .panel {
   margin-top: 1.5rem;
   padding: 1.25rem;
-  border: 1px solid var(--pico-muted-border-color, #e2e8f0);
+  border: 1px solid var(--color-border);
   border-radius: var(--pico-border-radius);
-  background: white;
+  background: var(--color-surface-raised);
 }
 
 .panel-header {
@@ -404,9 +404,9 @@ th {
 }
 
 .error {
-  color: var(--pico-color-red-500, #dc3545);
+  color: var(--color-danger-text);
   padding: 1rem;
-  background: var(--pico-color-red-50, #fff5f5);
+  background: var(--color-danger-bg);
   border-radius: var(--pico-border-radius);
 }
 
@@ -419,8 +419,8 @@ th {
 .capacity-warning {
   margin-top: 1rem;
   padding: 1rem;
-  background: #fef3c7;
-  border: 1px solid #f59e0b;
+  background: var(--color-warning-bg);
+  border: 1px solid var(--color-warning-text);
   border-radius: var(--pico-border-radius);
   color: #92400e;
   font-weight: 500;

@@ -278,9 +278,9 @@ onMounted(loadEvent)
 
 <style scoped>
 .error {
-  color: var(--pico-color-red-500, #dc3545);
+  color: var(--color-danger-text);
   padding: 1rem;
-  background: var(--pico-color-red-50, #fff5f5);
+  background: var(--color-danger-bg);
   border-radius: var(--pico-border-radius);
   margin-bottom: 1rem;
 }
@@ -288,17 +288,17 @@ onMounted(loadEvent)
 .success {
   text-align: center;
   padding: 2rem;
-  background: var(--pico-color-green-50, #f0fff4);
+  background: var(--color-success-bg);
   border-radius: var(--pico-border-radius);
 }
 
 .success h3 {
-  color: var(--pico-color-green-600, #2f855a);
+  color: var(--color-success-text);
 }
 
 .registration-details {
   text-align: left;
-  background: white;
+  background: var(--color-surface-raised);
   padding: 1rem;
   border-radius: var(--pico-border-radius);
   margin: 1rem 0;
@@ -312,7 +312,7 @@ onMounted(loadEvent)
 
 .info-box {
   text-align: left;
-  background: white;
+  background: var(--color-surface-raised);
   padding: 1rem;
   border-radius: var(--pico-border-radius);
   margin-top: 1.5rem;
@@ -333,26 +333,26 @@ onMounted(loadEvent)
 }
 
 .deadline-passed {
-  color: var(--pico-color-red-500, #dc3545);
+  color: var(--color-danger-text);
   font-weight: bold;
 }
 
 .deadline-notice {
   padding: 2rem;
-  background: var(--pico-color-amber-50, #fffbeb);
+  background: var(--color-warning-bg);
   border-radius: var(--pico-border-radius);
-  border-left: 4px solid var(--pico-color-amber-500, #f59e0b);
+  border-left: 4px solid var(--color-warning-text);
   text-align: center;
 }
 
 .late-signup-notice {
   padding: 1rem;
-  background: #eff6ff;
+  background: var(--color-info-bg);
   border-radius: var(--pico-border-radius);
-  border-left: 4px solid #3b82f6;
+  border-left: 4px solid var(--color-info-text);
   margin-bottom: 1rem;
   font-size: 0.95em;
-  color: #1e40af;
+  color: var(--color-info-text);
 }
 
 .page-header {
@@ -378,11 +378,11 @@ dt {
 
 .manage-link-box {
   text-align: left;
-  background: white;
+  background: var(--color-surface-raised);
   padding: 1rem;
   border-radius: var(--pico-border-radius);
   margin-top: 1rem;
-  border-left: 4px solid var(--color-warning-text, #92400e);
+  border-left: 4px solid var(--color-warning-text);
 }
 
 .manage-link-text {
@@ -402,7 +402,7 @@ dt {
   word-break: break-all;
   font-size: var(--text-xs);
   padding: 0.5rem;
-  background: #f1f5f9;
+  background: var(--color-bg-muted);
   border-radius: var(--pico-border-radius);
 }
 

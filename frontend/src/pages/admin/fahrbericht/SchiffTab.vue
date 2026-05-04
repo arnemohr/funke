@@ -117,7 +117,7 @@ function onTodosChange(text) {
 .panel { display: flex; flex-direction: column; gap: var(--space-2); }
 .section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: var(--color-brand); padding: var(--space-3) 0 4px; border-bottom: 2px solid var(--color-brand); margin: 10px 0 8px; }
 .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
-.tile { border: 1.5px solid var(--color-border); background: #fff; border-radius: var(--radius-md); padding: 12px; }
+.tile { border: 1.5px solid var(--color-border); background: var(--color-surface-raised); border-radius: var(--radius-md); padding: 12px; }
 .tile label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--color-text-muted); display: block; margin-bottom: 6px; }
 .tile input, .tile select { width: 100%; padding: 7px 9px; border: 1px solid var(--color-border); border-radius: 6px; font-size: var(--text-base); }
 textarea { width: 100%; min-height: 80px; padding: 10px 12px; border: 1.5px solid var(--color-border); border-radius: var(--radius-md); font-size: var(--text-base); resize: vertical; }

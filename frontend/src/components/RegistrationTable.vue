@@ -49,7 +49,14 @@
         </thead>
         <tbody>
           <tr v-for="reg in filteredRegistrations" :key="reg.id">
-            <td data-label="Name">{{ reg.name }}</td>
+            <td data-label="Name">
+              <router-link
+                v-if="eventId"
+                :to="{ name: 'admin-registration-detail', params: { eventId, registrationId: reg.id } }"
+                class="reg-name-link"
+              >{{ reg.name }}</router-link>
+              <template v-else>{{ reg.name }}</template>
+            </td>
             <td data-label="E-Mail"><a :href="`mailto:${reg.email}`">{{ reg.email }}</a></td>
             <td data-label="Telefon">
               <a
@@ -166,6 +173,7 @@ import { formatDate, formatRegistrationStatus } from '../utils/formatters.js'
 
 const props = defineProps({
   registrations: { type: Array, required: true },
+  eventId: { type: String, default: null },
   eventStatus: { type: String, default: null },
   loading: { type: Boolean, default: false },
   error: { type: String, default: null },
@@ -315,13 +323,13 @@ function smsLink(reg) {
   border-radius: var(--pico-border-radius);
   font-size: 0.65rem;
   font-weight: 500;
-  background: #e0e7ff;
-  color: #4f46e5;
+  background: var(--color-indigo-bg);
+  color: var(--color-indigo-text);
   cursor: help;
 }
 
 .promoted-badge {
-  color: #d97706;
+  color: var(--color-warning-text);
   font-size: 1.2rem;
 }
 
@@ -343,8 +351,8 @@ function smsLink(reg) {
 }
 
 .context-menu-trigger:hover {
-  background: #e2e8f0;
-  color: #334155;
+  background: var(--color-border);
+  color: var(--color-text);
 }
 
 .context-menu {
@@ -353,8 +361,8 @@ function smsLink(reg) {
   top: 100%;
   z-index: 10;
   min-width: 160px;
-  background: white;
-  border: 1px solid #e2e8f0;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
   border-radius: var(--pico-border-radius);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   padding: 0.25rem 0;
@@ -368,25 +376,25 @@ function smsLink(reg) {
   padding: 0.5rem 0.75rem;
   font-size: 0.8125rem;
   cursor: pointer;
-  color: #334155;
+  color: var(--color-text);
 }
 
 .context-menu-item:hover {
-  background: #f1f5f9;
+  background: var(--color-bg-muted);
 }
 
 .context-menu-item.destructive {
-  color: #dc2626;
+  color: var(--color-danger-text);
 }
 
 .context-menu-item.destructive:hover {
-  background: #fef2f2;
+  background: var(--color-danger-bg);
 }
 
 .context-menu-divider {
   margin: 0.25rem 0;
   border: none;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--color-border);
 }
 
 .total-info {
@@ -398,11 +406,11 @@ function smsLink(reg) {
 .confirmation-summary {
   margin-top: 1rem;
   padding: 0.75rem;
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
+  background: var(--color-bg-muted);
+  border: 1px solid var(--color-border);
   border-radius: var(--pico-border-radius);
   font-size: 0.875rem;
-  color: #334155;
+  color: var(--color-text);
   display: flex;
   flex-wrap: wrap;
   gap: 1rem;
@@ -415,15 +423,15 @@ function smsLink(reg) {
   font-weight: 500;
 }
 
-.confirmation-stat.yes { background: #dcfce7; color: #16a34a; }
-.confirmation-stat.no { background: #fee2e2; color: #dc2626; }
-.confirmation-stat.pending { background: #fef3c7; color: #d97706; }
-.confirmation-stat.waitlisted { background: #e5e7eb; color: #6b7280; }
+.confirmation-stat.yes { background: var(--color-success-bg); color: var(--color-success-text); }
+.confirmation-stat.no { background: var(--color-danger-bg); color: var(--color-danger-text); }
+.confirmation-stat.pending { background: var(--color-warning-bg); color: var(--color-warning-text); }
+.confirmation-stat.waitlisted { background: var(--color-neutral-bg); color: var(--color-neutral-text); }
 
 .error {
-  color: var(--pico-color-red-500, #dc3545);
+  color: var(--color-danger-text);
   padding: 1rem;
-  background: var(--pico-color-red-50, #fff5f5);
+  background: var(--color-danger-bg);
   border-radius: var(--pico-border-radius);
   margin-bottom: 1rem;
 }
@@ -436,7 +444,7 @@ function smsLink(reg) {
 .context-menu-item:focus-visible {
   outline: 2px solid var(--pico-primary);
   outline-offset: -2px;
-  background: #f1f5f9;
+  background: var(--color-bg-muted);
 }
 
 /* Desktop table — natural content widths; the .table-wrap scrolls horizontally
@@ -454,6 +462,17 @@ function smsLink(reg) {
 /* Allow only long free-text columns to wrap; identifiers stay single-line */
 .registration-table td[data-label="Name"] {
   white-space: normal;
+}
+
+.reg-name-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.reg-name-link:hover,
+.reg-name-link:focus-visible {
+  text-decoration: underline;
+  color: var(--color-brand);
 }
 
 @media (max-width: 900px) {

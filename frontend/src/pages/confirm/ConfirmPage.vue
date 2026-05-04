@@ -259,9 +259,9 @@ onMounted(loadRegistration)
 
 <style scoped>
 .error {
-  color: var(--pico-color-red-500, #dc3545);
+  color: var(--color-danger-text);
   padding: 1rem;
-  background: var(--pico-color-red-50, #fff5f5);
+  background: var(--color-danger-bg);
   border-radius: var(--pico-border-radius);
   margin-bottom: 1rem;
 }
@@ -273,23 +273,23 @@ onMounted(loadRegistration)
 }
 
 .status-card.success {
-  background: var(--pico-color-green-50, #f0fff4);
+  background: var(--color-success-bg);
 }
 
 .status-card.success h2 {
-  color: var(--pico-color-green-600, #2f855a);
+  color: var(--color-success-text);
 }
 
 .status-card.cancelled {
-  background: #fef2f2;
+  background: var(--color-danger-bg);
 }
 
 .status-card.cancelled h2 {
-  color: #dc2626;
+  color: var(--color-danger-text);
 }
 
 .status-card.waitlist {
-  background: #f5f5f5;
+  background: var(--color-surface-sunken);
 }
 
 .status-icon {
@@ -298,20 +298,20 @@ onMounted(loadRegistration)
 }
 
 .status-card.success .status-icon {
-  color: var(--pico-color-green-600, #2f855a);
+  color: var(--color-success-text);
 }
 
 .status-card.cancelled .status-icon {
-  color: #dc2626;
+  color: var(--color-danger-text);
 }
 
 .status-card.waitlist .status-icon {
-  color: #6b7280;
+  color: var(--color-text-muted);
   font-weight: bold;
 }
 
 .registration-details {
-  background: white;
+  background: var(--color-surface-raised);
   padding: 1rem;
   border-radius: var(--pico-border-radius);
   margin: 1.5rem 0;
@@ -338,29 +338,27 @@ onMounted(loadRegistration)
 }
 
 .confirm-yes {
-  background: #16a34a !important;
-  border-color: #16a34a !important;
-  color: white !important;
+  background: var(--color-success-text) !important;
+  border-color: var(--color-success-text) !important;
+  color: var(--color-surface-raised) !important;
   padding: 1rem 2rem;
   font-size: 1.1rem;
 }
 
 .confirm-yes:hover:not(:disabled) {
-  background: #15803d !important;
-  border-color: #15803d !important;
+  filter: brightness(0.9);
 }
 
 .confirm-no {
-  background: #dc2626 !important;
-  border-color: #dc2626 !important;
-  color: white !important;
+  background: var(--color-danger-text) !important;
+  border-color: var(--color-danger-text) !important;
+  color: var(--color-surface-raised) !important;
   padding: 1rem 2rem;
   font-size: 1.1rem;
 }
 
 .confirm-no:hover:not(:disabled) {
-  background: #b91c1c !important;
-  border-color: #b91c1c !important;
+  filter: brightness(0.9);
 }
 
 .info {

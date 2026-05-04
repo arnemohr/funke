@@ -146,8 +146,8 @@ const MessageLogContent = {
   border-radius: var(--pico-border-radius);
   font-size: 0.7rem;
   font-weight: 600;
-  background: #e0e7ff;
-  color: #4f46e5;
+  background: var(--color-indigo-bg);
+  color: var(--color-indigo-text);
 }
 
 .error {

@@ -87,7 +87,7 @@ function onClick(e) {
 }
 
 .li-btn:active {
-  background: #eef0f3;
+  background: var(--color-border);
 }
 
 .li-btn--static,

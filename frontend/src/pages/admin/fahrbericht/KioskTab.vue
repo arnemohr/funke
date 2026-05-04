@@ -68,7 +68,7 @@ function change(id, delta) {
 
 <style scoped>
 .panel { display: flex; flex-direction: column; gap: var(--space-2); }
-.infobox { background: #e8f5f2; border-left: 3px solid var(--color-brand); padding: 10px 13px; border-radius: 0 8px 8px 0; font-size: 13px; color: #1a4a40; margin-bottom: 8px; line-height: 1.5; }
+.infobox { background: var(--color-info-subtle-bg); border-left: 3px solid var(--color-brand); padding: 10px 13px; border-radius: 0 8px 8px 0; font-size: 13px; color: var(--color-info-subtle-text); margin-bottom: 8px; line-height: 1.5; }
 .section-total { text-align: right; font-size: var(--text-sm); color: var(--color-text-muted); }
 .cat-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--color-text-muted); padding: 12px 0 6px; margin: 0; }
 </style>
