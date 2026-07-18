@@ -22,7 +22,7 @@
     <div class="sum-card">
       <div class="sum-line"><span>Kiosk Einnahmen</span><span class="amt">€ {{ fmt(computed.kiosk_total) }}</span></div>
       <div class="sum-line"><span>Umlage Boarding</span><span class="amt">€ {{ fmt(bericht.boarding_fee) }}</span></div>
-      <div class="sum-line"><span>Umlage Bar</span><span class="amt">€ {{ fmt(bericht.bar_surcharge) }}</span></div>
+      <div class="sum-line"><span>Umlage Bar <small>(Kiosk + Crew)</small></span><span class="amt">€ {{ fmt(computed.bar_surcharge) }}</span></div>
       <div class="sum-line total"><span>Soll Umschlag</span><span class="pos">€ {{ fmt(computed.soll) }}</span></div>
       <div class="sum-line"><span>Ist Umschlag</span><span class="amt">€ {{ fmt(bericht.cash_amount) }}</span></div>
       <div class="sum-line total"><span>Differenz</span><span :class="diffClass">€ {{ computed.cash_diff >= 0 ? '+' : '' }}{{ fmt(computed.cash_diff) }} {{ diffBadge }}</span></div>
@@ -43,7 +43,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed as vueComputed } from 'vue'
 import { buildBookingText } from '../../../utils/bookingText'
 import { showToast } from '../../../composables/useToast'
 
@@ -55,35 +55,35 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:bericht', 'save', 'submit'])
 
-const computed_ = computed(() => props.bericht.computed || {
-  kiosk_total: 0, crew_cost: 0, expenses_total: 0, soll: 0, cash_diff: 0,
+const computed = vueComputed(() => props.bericht.computed || {
+  kiosk_total: 0, crew_cost: 0, expenses_total: 0, bar_surcharge: 0, soll: 0, cash_diff: 0,
 })
 
-const cashAmount = computed({
+const cashAmount = vueComputed({
   get: () => props.bericht.cash_amount,
   set: v => emit('update:bericht', { ...props.bericht, cash_amount: v || null }),
 })
-const cashHandedTo = computed({
+const cashHandedTo = vueComputed({
   get: () => props.bericht.cash_handed_to,
   set: v => emit('update:bericht', { ...props.bericht, cash_handed_to: v || null }),
 })
 
-const bookingText = computed(() => buildBookingText({
+const bookingText = vueComputed(() => buildBookingText({
   bericht: props.bericht,
   event: props.event,
   catalog: props.catalogMap,
 }))
 
-const isResubmit = computed(() => (props.bericht.version || 0) >= 1)
+const isResubmit = vueComputed(() => (props.bericht.version || 0) >= 1)
 
-const diffClass = computed(() => {
-  const d = Math.abs(Number(computed_.value.cash_diff) || 0)
+const diffClass = vueComputed(() => {
+  const d = Math.abs(Number(computed.value.cash_diff) || 0)
   if (d < 0.5) return 'pos'
   if (d < 5) return 'warn'
   return 'neg'
 })
-const diffBadge = computed(() => {
-  const d = Number(computed_.value.cash_diff) || 0
+const diffBadge = vueComputed(() => {
+  const d = Number(computed.value.cash_diff) || 0
   if (Math.abs(d) < 0.5) return '✅ passt'
   if (d > 0) return '⬆️ Überschuss'
   return '⚠️ Fehlbetrag'
@@ -118,7 +118,7 @@ async function copyBooking() {
 }
 
 // expose computed totals for parent through v-model side-effect indirectly
-defineExpose({ computed: computed_ })
+defineExpose({ computed })
 </script>
 
 <style scoped>

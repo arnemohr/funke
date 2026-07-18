@@ -43,7 +43,6 @@ class CrewRef(BaseModel):
 
 class FahrberichtBase(BaseModel):
     boarding_fee: Decimal = Decimal("0")
-    bar_surcharge: Decimal = Decimal("0")
     kiosk_tally: dict[UUID, int] = Field(default_factory=dict)
     crew_tally: dict[UUID, int] = Field(default_factory=dict)
     ship_status: ShipStatusSnapshot = Field(default_factory=ShipStatusSnapshot)
@@ -65,7 +64,6 @@ class FahrberichtPatch(BaseModel):
     """Partial update for the PUT endpoint. version/applied_* are server-only."""
 
     boarding_fee: Decimal | None = None
-    bar_surcharge: Decimal | None = None
     kiosk_tally: dict[UUID, int] | None = None
     crew_tally: dict[UUID, int] | None = None
     ship_status: ShipStatusSnapshot | None = None
@@ -108,6 +106,7 @@ class ComputedTotals(BaseModel):
     kiosk_total: Decimal = Decimal("0")
     crew_cost: Decimal = Decimal("0")
     expenses_total: Decimal = Decimal("0")
+    bar_surcharge: Decimal = Decimal("0")
     soll: Decimal = Decimal("0")
     cash_diff: Decimal = Decimal("0")
 

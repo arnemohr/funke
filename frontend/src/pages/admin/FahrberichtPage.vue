@@ -137,7 +137,6 @@ async function flushSave() {
   try {
     const patch = {
       boarding_fee: String(bericht.value.boarding_fee || '0'),
-      bar_surcharge: String(bericht.value.bar_surcharge || '0'),
       kiosk_tally: bericht.value.kiosk_tally,
       crew_tally: bericht.value.crew_tally,
       ship_status: bericht.value.ship_status,

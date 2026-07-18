@@ -92,7 +92,7 @@
 
 <h2>Kassenabgleich</h2>
 <table>
-  <tr><td>Soll Kiosk + Umlagen</td><td class="num">{{ fmt(totals.soll) }}</td></tr>
+  <tr><td>Soll (Umlage Boarding + Umlage Bar)</td><td class="num">{{ fmt(totals.soll) }}</td></tr>
   <tr><td>Ist (Bargeld Umschlag)</td><td class="num">{{ fmt(totals.cash_amount) if totals.cash_amount is not none else '—' }}</td></tr>
   <tr class="total">
     <td>Differenz</td>

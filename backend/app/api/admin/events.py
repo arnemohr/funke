@@ -533,7 +533,7 @@ async def delete_registration(
         "registration.delete",
         user.email,
         str(event_id),
-        {"registration_id": str(registration_id), "name": deleted.name},
+        {"registration_id": str(registration_id), "registrant_name": deleted.name},
     )
 
 
@@ -945,7 +945,9 @@ async def export_registrations_pdf(
 
     Empty cells beyond the guest list render as blank numbered rows ready to
     sign manually. One additional fully-blank page is always appended for
-    crew or last-minute walk-ons; numbering continues across pages.
+    crew or last-minute walk-ons; numbering continues across pages. A floor
+    of 95 numbered rows is always rendered so the form is usable as a print
+    template even before the lottery has been drawn.
     """
     from fpdf import FPDF
 
@@ -990,6 +992,7 @@ async def export_registrations_pdf(
     HEADER_HEIGHT = 9
     ROW_HEIGHT = 12
     ROWS_PER_PAGE = 17
+    MIN_TOTAL_ROWS = 95  # render at least this many numbered rows even when empty
 
     DISCLAIMER_PARA_1 = (
         "Mit meiner Unterschrift erkläre ich als Mitglied oder Gast eines Mitgliedes "
@@ -1005,10 +1008,13 @@ async def export_registrations_pdf(
         'ist eine Haftung wegen einfacher Fahrlässigkeit ausgeschlossen."'
     )
 
-    # Compute pages: at least one for guests, plus one fully-blank page.
+    # Compute pages: at least one for guests, plus one fully-blank trailing
+    # page for walk-ons. Floor at MIN_TOTAL_ROWS so the form is printable as a
+    # template even when there are no PARTICIPATING registrations yet.
     guest_count = len(guests)
     pages_for_guests = max(1, (guest_count + ROWS_PER_PAGE - 1) // ROWS_PER_PAGE)
-    total_pages = pages_for_guests + 1
+    min_pages = (MIN_TOTAL_ROWS + ROWS_PER_PAGE - 1) // ROWS_PER_PAGE
+    total_pages = max(pages_for_guests + 1, min_pages)
 
     event_date = event.start_at.astimezone(ZoneInfo("Europe/Berlin")).strftime("%d.%m.%Y %H:%M")
     event_name = event.name

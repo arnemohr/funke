@@ -85,7 +85,6 @@ def _fahrbericht_to_item(bericht: Fahrbericht) -> dict:
         "status": bericht.status.value,
         "version": bericht.version,
         "boarding_fee": _dec(bericht.boarding_fee),
-        "bar_surcharge": _dec(bericht.bar_surcharge),
         "kiosk_tally": {str(k): v for k, v in bericht.kiosk_tally.items()},
         "crew_tally": {str(k): v for k, v in bericht.crew_tally.items()},
         "applied_kiosk_tally": {str(k): v for k, v in bericht.applied_kiosk_tally.items()},
@@ -125,7 +124,6 @@ def _item_to_fahrbericht(item: dict) -> Fahrbericht:
         status=FahrberichtStatus(item["status"]),
         version=int(item.get("version", 0)),
         boarding_fee=_req_dec(item.get("boarding_fee")),
-        bar_surcharge=_req_dec(item.get("bar_surcharge")),
         kiosk_tally={UUID(k): int(v) for k, v in (item.get("kiosk_tally") or {}).items()},
         crew_tally={UUID(k): int(v) for k, v in (item.get("crew_tally") or {}).items()},
         applied_kiosk_tally={
@@ -166,12 +164,16 @@ def _compute(bericht: Fahrbericht, catalog: dict[UUID, BarItem]) -> ComputedTota
         Decimal("0"),
     )
     expenses_total = sum((e.amount for e in bericht.expenses), Decimal("0"))
-    soll = kiosk_total + bericht.boarding_fee + bericht.bar_surcharge
+    # Umlage Bar is the bar's full economic activity (retail + crew freebies)
+    # invoiced to the charterer — derived, not free-input.
+    bar_surcharge = kiosk_total + crew_cost
+    soll = bericht.boarding_fee + bar_surcharge
     cash = bericht.cash_amount or Decimal("0")
     return ComputedTotals(
         kiosk_total=kiosk_total,
         crew_cost=crew_cost,
         expenses_total=expenses_total,
+        bar_surcharge=bar_surcharge,
         soll=soll,
         cash_diff=cash - soll,
     )

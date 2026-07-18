@@ -39,12 +39,28 @@ class RegistrationCreate(BaseModel):
     phone: str | None = Field(None, max_length=50)
     notes: str | None = Field(None, max_length=500)
     group_size: int = Field(default=1, ge=1, le=5)
+    group_members: list[str] | None = Field(default=None)
 
     @field_validator("email")
     @classmethod
     def normalize_email(cls, v: str) -> str:
         """Normalize email to lowercase."""
         return v.lower().strip()
+
+    @field_validator("group_members")
+    @classmethod
+    def _clean_members(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        cleaned: list[str] = []
+        for entry in v:
+            stripped = entry.strip()
+            if not stripped:
+                raise ValueError("group_members entries must be non-empty")
+            if len(stripped) > 200:
+                raise ValueError("group_members entries must be at most 200 characters")
+            cleaned.append(stripped)
+        return cleaned or None
 
 
 class RegistrationUpdate(BaseModel):

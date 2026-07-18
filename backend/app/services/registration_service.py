@@ -326,6 +326,12 @@ class RegistrationService:
         if registration_data.group_size > 5:
             return None, "Group size cannot exceed 5"
 
+        if (
+            registration_data.group_members is not None
+            and len(registration_data.group_members) > registration_data.group_size
+        ):
+            return None, "group_members cannot exceed group_size"
+
         # Late signups go straight to waitlist
         if is_late_signup:
             max_pos = await self._get_max_waitlist_position(event.id)
@@ -343,6 +349,7 @@ class RegistrationService:
             phone=registration_data.phone,
             notes=registration_data.notes,
             group_size=registration_data.group_size,
+            group_members=registration_data.group_members,
             status=initial_status,
             waitlist_position=waitlist_position,
             registration_token=_generate_registration_token(),

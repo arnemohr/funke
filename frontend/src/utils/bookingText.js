@@ -44,8 +44,8 @@ export function buildBookingText({ bericht, event, catalog }) {
     0,
   )
   const boarding = Number(bericht?.boarding_fee || 0)
-  const surcharge = Number(bericht?.bar_surcharge || 0)
-  const soll = kioskTotal + boarding + surcharge
+  const surcharge = kioskTotal + crewCost
+  const soll = boarding + surcharge
   const cash = Number(bericht?.cash_amount || 0)
   const diff = cash - soll
 

@@ -122,7 +122,9 @@ export const publicApi = {
   /**
    * Submit a registration.
    * @param {string} linkToken - Public registration link token
-   * @param {object} data - Registration data
+   * @param {object} data - Registration data: { name, email, phone?, notes?, group_size, group_members? }.
+   *   group_members is optional; when provided, it is the full passenger list including the registrant
+   *   (length ≤ group_size). Backend stores it as-is.
    * @returns {Promise<object>} Registration result
    */
   async submitRegistration(linkToken, data) {

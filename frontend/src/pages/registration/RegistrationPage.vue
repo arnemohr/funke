@@ -105,6 +105,20 @@
             <small>Wie viele Personen insgesamt (inkl. dir selbst)?</small>
           </label>
 
+          <fieldset v-if="form.groupSize > 1" class="extra-members">
+            <legend>Namen deiner Mitfahrer (optional)</legend>
+            <input
+              v-for="(_, i) in form.extraMembers"
+              :key="i"
+              v-model="form.extraMembers[i]"
+              type="text"
+              maxlength="200"
+              placeholder="Name"
+              :disabled="submitting"
+            />
+            <small>Kannst du auch später ergänzen.</small>
+          </fieldset>
+
           <label for="notes">
             Anmerkungen (optional)
             <textarea
@@ -205,6 +219,17 @@ const form = ref({
   phone: '',
   groupSize: 1,
   notes: '',
+  extraMembers: [],
+})
+
+watch(() => form.value.groupSize, (size) => {
+  const target = Math.max(0, (size || 1) - 1)
+  const current = form.value.extraMembers
+  if (current.length < target) {
+    form.value.extraMembers = [...current, ...Array(target - current.length).fill('')]
+  } else if (current.length > target) {
+    form.value.extraMembers = current.slice(0, target)
+  }
 })
 
 // Load event info
@@ -239,14 +264,21 @@ async function handleSubmit() {
 
   const token = route.params.token
 
+  const trimmedName = form.value.name.trim()
+  const extras = form.value.extraMembers.map((n) => n.trim()).filter(Boolean)
+  const payload = {
+    name: trimmedName,
+    email: form.value.email.trim().toLowerCase(),
+    phone: form.value.phone?.trim() || null,
+    group_size: form.value.groupSize,
+    notes: form.value.notes?.trim() || null,
+  }
+  if (form.value.groupSize > 1 && extras.length > 0) {
+    payload.group_members = [trimmedName, ...extras]
+  }
+
   try {
-    const result = await publicApi.submitRegistration(token, {
-      name: form.value.name.trim(),
-      email: form.value.email.trim().toLowerCase(),
-      phone: form.value.phone?.trim() || null,
-      group_size: form.value.groupSize,
-      notes: form.value.notes?.trim() || null,
-    })
+    const result = await publicApi.submitRegistration(token, payload)
 
     registration.value = result.registration
     successMessage.value = result.message
@@ -409,5 +441,26 @@ dt {
 .manage-link-row button {
   margin: 0;
   white-space: nowrap;
+}
+
+.extra-members {
+  border: none;
+  padding: 0;
+  margin: 0 0 var(--pico-spacing);
+}
+
+.extra-members legend {
+  padding: 0;
+  font-weight: bold;
+  font-size: var(--text-sm);
+  margin-bottom: 0.25rem;
+}
+
+.extra-members input {
+  margin-bottom: 0.5rem;
+}
+
+.extra-members input:last-of-type {
+  margin-bottom: 0.25rem;
 }
 </style>

@@ -37,6 +37,7 @@ class ReportTotals(BaseModel):
     kiosk_total: Decimal = Decimal("0")
     crew_cost: Decimal = Decimal("0")
     expenses_total: Decimal = Decimal("0")
+    bar_surcharge: Decimal = Decimal("0")
     soll: Decimal = Decimal("0")
     cash_amount: Decimal | None = None
     cash_diff: Decimal = Decimal("0")

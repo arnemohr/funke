@@ -45,7 +45,8 @@ def build_booking_text(
         crew_lines.append(f"  {bar.name} × {qty} = € {_fmt(total)}")
 
     expenses_total = sum((e.amount for e in bericht.expenses), Decimal("0"))
-    soll = kiosk_total + bericht.boarding_fee + bericht.bar_surcharge
+    bar_surcharge = kiosk_total + crew_cost
+    soll = bericht.boarding_fee + bar_surcharge
     cash = bericht.cash_amount or Decimal("0")
     diff = cash - soll
 
@@ -69,7 +70,7 @@ def build_booking_text(
             "",
             f"SUMME EINNAHMEN: € {_fmt(kiosk_total)}",
             f"Umlage Boarding: € {_fmt(bericht.boarding_fee)}",
-            f"Umlage Bar: € {_fmt(bericht.bar_surcharge)}",
+            f"Umlage Bar: € {_fmt(bar_surcharge)}",
             "─────────────────────────────────",
             f"SOLL Umschlag: € {_fmt(soll)}",
             f"IST Umschlag:  € {_fmt(cash)}",

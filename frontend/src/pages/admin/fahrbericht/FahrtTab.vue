@@ -23,9 +23,11 @@
       <label>Umlage Boarding (€)
         <input v-model.number="berichtModel.boarding_fee" type="number" step="0.01" @change="emit('save')" />
       </label>
-      <label>Umlage Bar (€)
-        <input v-model.number="berichtModel.bar_surcharge" type="number" step="0.01" @change="emit('save')" />
-      </label>
+      <div class="readonly-field">
+        <label>Umlage Bar (€)</label>
+        <div class="readonly-value">€ {{ fmtSurcharge(barSurcharge) }}</div>
+        <small class="hint">= Kiosk + Crew, automatisch aus Strichliste</small>
+      </div>
     </div>
     <label>Charterer / Veranstalter
       <input v-model="berichtModel.charterer" type="text" @change="emit('save')" />
@@ -75,6 +77,12 @@ const berichtModel = computed({
   set: v => emit('update:bericht', v),
 })
 
+const barSurcharge = computed(() => Number(props.bericht?.computed?.bar_surcharge || 0))
+
+function fmtSurcharge(n) {
+  return Number(n || 0).toFixed(2)
+}
+
 function formatEventDate(dateStr) {
   return formatDate(dateStr, '—')
 }
@@ -111,6 +119,7 @@ input { padding: 10px 12px; border: 1.5px solid var(--color-border); border-radi
 .readonly-field { display: flex; flex-direction: column; gap: 4px; }
 .readonly-field label { font-size: var(--text-sm); color: var(--color-text-muted); }
 .readonly-value { padding: 10px 12px; border-radius: var(--radius-md); background: var(--color-bg-muted); font-size: var(--text-base); font-weight: 500; }
+.hint { font-size: 11px; color: var(--color-text-muted); }
 .field-label { margin-top: 4px; }
 .crew-row { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
 .icon-btn { background: transparent; border: none; color: var(--color-danger-text, #c0392b); cursor: pointer; font-size: 18px; }

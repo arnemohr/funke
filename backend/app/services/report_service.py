@@ -165,6 +165,7 @@ def _item_to_version(item: dict) -> ReportVersion:
             kiosk_total=_req_dec(totals_raw.get("kiosk_total")),
             crew_cost=_req_dec(totals_raw.get("crew_cost")),
             expenses_total=_req_dec(totals_raw.get("expenses_total")),
+            bar_surcharge=_req_dec(totals_raw.get("bar_surcharge")),
             soll=_req_dec(totals_raw.get("soll")),
             cash_amount=_dec(totals_raw.get("cash_amount")),
             cash_diff=_req_dec(totals_raw.get("cash_diff")),
@@ -665,13 +666,15 @@ def _build_version_snapshot(
         ReportExpenseLine(description=e.description, amount=e.amount) for e in bericht.expenses
     ]
     expenses_total = sum((e.amount for e in bericht.expenses), Decimal("0"))
-    soll = kiosk_total + bericht.boarding_fee + bericht.bar_surcharge
+    bar_surcharge = kiosk_total + crew_cost
+    soll = bericht.boarding_fee + bar_surcharge
     cash = bericht.cash_amount or Decimal("0")
 
     totals = ReportTotals(
         kiosk_total=kiosk_total,
         crew_cost=crew_cost,
         expenses_total=expenses_total,
+        bar_surcharge=bar_surcharge,
         soll=soll,
         cash_amount=bericht.cash_amount,
         cash_diff=cash - soll,

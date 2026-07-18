@@ -173,3 +173,113 @@ class TestDynamoDBSerialization:
 
         restored = _item_to_registration(item)
         assert restored.promoted is False
+
+
+class TestRegistrationGroupMembers:
+    """Group member names captured at registration time."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self, mock_dynamodb, sample_event):
+        self.tables = mock_dynamodb
+        self.service = RegistrationService()
+        self.service._registrations_table = self.tables["registrations_table"]
+        self.service._events_table = self.tables["events_table"]
+        self.sample_event = sample_event
+
+    def _store_event(self, event):
+        self.tables["events_table"].put_item(Item=_event_to_item(event))
+
+    @pytest.mark.asyncio
+    async def test_group_members_full_list_persisted(self):
+        event = self.sample_event(capacity=50)
+        self._store_event(event)
+
+        reg_data = RegistrationCreate(
+            name="Anna",
+            email="anna@test.com",
+            group_size=3,
+            group_members=["Anna", "Bob", "Carol"],
+        )
+        reg, error = await self.service.create_registration(event.registration_link_token, reg_data)
+
+        assert error is None
+        assert reg.group_members == ["Anna", "Bob", "Carol"]
+
+        # Roundtrip through DynamoDB
+        item = self.tables["registrations_table"].get_item(
+            Key={"pk": f"EVENT#{event.id}", "sk": f"REG#{reg.id}"},
+        )["Item"]
+        assert item["group_members"] == ["Anna", "Bob", "Carol"]
+
+    @pytest.mark.asyncio
+    async def test_group_members_partial_saves_short_list(self):
+        event = self.sample_event(capacity=50)
+        self._store_event(event)
+
+        reg_data = RegistrationCreate(
+            name="Anna",
+            email="anna@test.com",
+            group_size=3,
+            group_members=["Anna", "Bob"],
+        )
+        reg, error = await self.service.create_registration(event.registration_link_token, reg_data)
+
+        assert error is None
+        assert reg.group_size == 3
+        assert reg.group_members == ["Anna", "Bob"]
+
+    @pytest.mark.asyncio
+    async def test_group_members_longer_than_size_rejected(self):
+        event = self.sample_event(capacity=50)
+        self._store_event(event)
+
+        reg_data = RegistrationCreate(
+            name="Anna",
+            email="anna@test.com",
+            group_size=2,
+            group_members=["Anna", "Bob", "Carol"],
+        )
+        reg, error = await self.service.create_registration(event.registration_link_token, reg_data)
+
+        assert reg is None
+        assert error == "group_members cannot exceed group_size"
+
+    @pytest.mark.asyncio
+    async def test_group_members_omitted_stays_none(self):
+        event = self.sample_event(capacity=50)
+        self._store_event(event)
+
+        reg_data = RegistrationCreate(name="Anna", email="anna@test.com", group_size=2)
+        reg, error = await self.service.create_registration(event.registration_link_token, reg_data)
+
+        assert error is None
+        assert reg.group_members is None
+
+
+class TestRegistrationCreateValidator:
+    """RegistrationCreate.group_members validator (Pydantic)."""
+
+    def test_strips_whitespace(self):
+        reg = RegistrationCreate(
+            name="Anna", email="a@test.com", group_size=2, group_members=["  Bob  "],
+        )
+        assert reg.group_members == ["Bob"]
+
+    def test_rejects_empty_entry(self):
+        with pytest.raises(ValueError, match="non-empty"):
+            RegistrationCreate(
+                name="Anna", email="a@test.com", group_size=2, group_members=["Anna", "  "],
+            )
+
+    def test_rejects_overlong_entry(self):
+        with pytest.raises(ValueError, match="200 characters"):
+            RegistrationCreate(
+                name="Anna",
+                email="a@test.com",
+                group_size=2,
+                group_members=["Anna", "x" * 201],
+            )
+
+    def test_none_passthrough(self):
+        reg = RegistrationCreate(name="Anna", email="a@test.com", group_size=1)
+        assert reg.group_members is None
