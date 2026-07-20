@@ -90,6 +90,25 @@ export default {
     ]
   },
 
+  // Festival guests (spec 019): no lottery, no waitlist — their manage page
+  // gets its own story instead of the SINGLE-event texts above.
+  'manage-festival': {
+    title: 'Deine Festival-Anmeldung',
+    sections: [
+      {
+        html: '<p>Das ist deine persönliche Seite fürs Festival. Zeiten und Begleitungen kannst du hier <strong>bis zum Ende des Festivals</strong> selbst ändern — jede Änderung bestätigen wir dir per Mail.</p>'
+      },
+      {
+        heading: 'Einlass',
+        html: '<p>Sobald die <strong>Eintritts-Codes</strong> freigeschaltet sind, findest du sie hier — jede Person zeigt ihren Code einmal am Einlass und bekommt ihr Bändchen. Danach reicht das Bändchen.</p>'
+      },
+      {
+        heading: 'Absagen',
+        html: '<p>Falls ihr doch nicht könnt: „Doch nicht dabei“ storniert die ganze Anmeldung — das lässt sich nicht rückgängig machen.</p>'
+      }
+    ]
+  },
+
   'manage-checked_in': {
     title: 'Eingecheckt',
     sections: [

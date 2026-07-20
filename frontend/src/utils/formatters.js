@@ -173,6 +173,24 @@ export function formatBarCategory(cat) {
 }
 
 /**
+ * Format an ISO date string as a `datetime-local` input value (Berlin wall-clock time).
+ * Inverse of `berlinToUTCISO` — used to pre-fill event/festival edit forms.
+ * (Originally a local function in EventForm.vue:131 — extracted here so
+ * FestivalPage.vue can use it without reusing EventForm.vue itself, spec 019 T118.)
+ */
+export function formatDateTimeLocal(dateStr) {
+  if (!dateStr) return ''
+  const date = new Date(dateStr)
+  const parts = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Europe/Berlin',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(date)
+  const get = (type) => parts.find(p => p.type === type).value
+  return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`
+}
+
+/**
  * Convert a datetime-local input value (Berlin wall-clock time) to UTC ISO string.
  * Used when submitting event forms.
  */

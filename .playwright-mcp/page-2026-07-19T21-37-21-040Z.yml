@@ -1,0 +1,31 @@
+- generic [ref=f2e1]:
+  - paragraph [ref=f2e2]: ✓
+  - heading "Eingecheckt — Bändchen ausgeben" [level=1] [ref=f2e3]
+  - paragraph [ref=f2e4]: Marie-Antoinette Freiin von und zu Hohenzollern-Sigmaringen
+  - paragraph [ref=f2e5]: bei Lena Schmidt
+  - generic [ref=f2e6]:
+    - paragraph [ref=f2e7]: "Zeitfenster (nur Info):"
+    - list [ref=f2e8]:
+      - listitem [ref=f2e9]:
+        - generic [ref=f2e10]: Freitag
+      - listitem [ref=f2e11]:
+        - generic [ref=f2e12]: Samstag
+  - generic [ref=f2e13]:
+    - paragraph [ref=f2e14]: "Gruppe:"
+    - list [ref=f2e15]:
+      - listitem [ref=f2e16]:
+        - generic [ref=f2e17]: ✓
+        - generic [ref=f2e18]: Marie-Antoinette Freiin von und zu Hohenzollern-Sigmaringen
+      - listitem [ref=f2e19]:
+        - generic [ref=f2e20]: ✓
+        - generic [ref=f2e21]: Lena Schmidt
+      - listitem [ref=f2e22]:
+        - generic [ref=f2e23]: ○
+        - generic [ref=f2e24]: Jan Hansen
+      - listitem [ref=f2e25]:
+        - generic [ref=f2e26]: ○
+        - generic [ref=f2e27]: Aleksandrapetrovna Konstantinopolitanskaja
+      - listitem [ref=f2e28]:
+        - generic [ref=f2e29]: ○
+        - generic [ref=f2e30]: Ole Petersen
+  - button "Weiter scannen" [ref=f2e31] [cursor=pointer]

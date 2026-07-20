@@ -119,6 +119,7 @@ def get_admins_table() -> "Table":
 EVENT_PK_PREFIX = "EVENT#"
 EVENT_SK_FAHRBERICHT = "FAHRBERICHT"
 EVENT_SK_REPORT_POINTER = "REPORT"
+EVENT_SK_INVITE_PREFIX = "INVITE#"
 
 BAR_PK_PREFIX = "BAR#"
 BAR_SK_META = "META"
@@ -134,3 +135,8 @@ REPORT_PK_PREFIX = "REPORT#"
 REPORT_SK_META = "META"
 REPORT_SK_VERSION_PREFIX = "VERSION#"
 REPORTS_LIST_PK = "REPORTS"
+
+# Spec 019 §P3: check-in scan log rows, co-located in the registrations table
+# under the same EVENT# partition as REG# rows (T305's begins_with filter
+# keeps them from leaking into registration queries).
+CHECKIN_SK_PREFIX = "SCAN#"

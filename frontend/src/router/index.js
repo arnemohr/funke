@@ -27,6 +27,33 @@ const routes = [
     component: () => import('../pages/registration/RegistrationPage.vue'),
   },
 
+  // Public festival invite route (spec 019 — festival sidetrack)
+  {
+    path: '/invite/:inviteToken',
+    name: 'festival-invite',
+    component: () => import('../pages/registration/FestivalRegistrationPage.vue'),
+    props: true,
+  },
+
+  // Public guestlist view for a contingent invite link (owner sees their
+  // allotment fill up; same token as the invite itself).
+  {
+    path: '/invite/:inviteToken/liste',
+    name: 'festival-invite-guestlist',
+    component: () => import('../pages/registration/GuestlistPage.vue'),
+    props: true,
+  },
+
+  // Scanner gate check-in (spec 019 §P3) — no authGuard, the gate token IS
+  // the auth (spec.md:336).
+  {
+    path: '/checkin/:gateToken',
+    name: 'checkin-scanner',
+    component: () => import('../pages/checkin/ScannerPage.vue'),
+    props: true,
+    meta: { hideTabBar: true },
+  },
+
   // Registration management page (replaces separate confirm/cancel pages)
   {
     path: '/registration/:registrationId',
@@ -165,6 +192,51 @@ const routes = [
     component: () => import('../pages/admin/ReportDetailPage.vue'),
     beforeEnter: authGuard,
     props: true,
+  },
+  // Festival admin (spec 019 — festival sidetrack)
+  {
+    path: '/admin/festival',
+    name: 'admin-festival',
+    component: () => import('../pages/admin/festival/FestivalListPage.vue'),
+    beforeEnter: authGuard,
+    props: true,
+  },
+  {
+    path: '/admin/festival/new',
+    name: 'admin-festival-new',
+    component: () => import('../pages/admin/festival/FestivalCreatePage.vue'),
+    beforeEnter: authGuard,
+    props: true,
+  },
+  {
+    path: '/admin/festival/:eventId',
+    name: 'admin-festival-detail',
+    component: () => import('../pages/admin/festival/FestivalPage.vue'),
+    beforeEnter: authGuard,
+    props: true,
+  },
+  {
+    path: '/admin/festival/:eventId/invites',
+    name: 'admin-festival-invites',
+    component: () => import('../pages/admin/festival/InvitesPage.vue'),
+    beforeEnter: authGuard,
+    props: true,
+  },
+  {
+    path: '/admin/festival/:eventId/headcount',
+    name: 'admin-festival-headcount',
+    component: () => import('../pages/admin/festival/HeadcountPage.vue'),
+    beforeEnter: authGuard,
+    props: true,
+    meta: { hideTabBar: true },
+  },
+  {
+    path: '/admin/festival/:eventId/registrations',
+    name: 'admin-festival-registrations',
+    component: () => import('../pages/admin/festival/FestivalRegistrationsPage.vue'),
+    beforeEnter: authGuard,
+    props: true,
+    meta: { hideTabBar: true },
   },
 ]
 

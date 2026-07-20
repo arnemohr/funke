@@ -5,13 +5,16 @@ group_size guards, frozen-state rejections, optimistic concurrency on
 status + responded_at.
 """
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from uuid import uuid4
 
 import pytest
 
 from app.models import (
+    AccommodationType,
     EventStatus,
+    EventType,
+    FestivalSlot,
     RegistrationAdminPatch,
     RegistrationStatus,
 )
@@ -267,3 +270,186 @@ async def test_no_changes_returns_current(admin_service, mock_dynamodb, sample_e
     assert error is None
     assert updated.id == reg.id
     assert updated.name == "Same"
+
+
+def _festival_slots() -> list[FestivalSlot]:
+    return [
+        FestivalSlot(key="fr", label="Freitag", date=date(2026, 8, 14)),
+        FestivalSlot(key="sa", label="Samstag", date=date(2026, 8, 15)),
+    ]
+
+
+class TestFestivalAdminPatch:
+    """T205: RegistrationAdminPatch festival fields — slot membership,
+    the Ä15 phone-iff-accommodation rule enforced on the resulting state,
+    the Ä17 overnight_approved write path, and the T109 append-only
+    group_members rule reused for festival admin edits.
+    """
+
+    def _festival_event(self, sample_event, **overrides):
+        defaults = {
+            "event_type": EventType.FESTIVAL,
+            "festival_slots": _festival_slots(),
+            "status": EventStatus.OPEN,
+        }
+        defaults.update(overrides)
+        return sample_event(**defaults)
+
+    @pytest.mark.asyncio
+    async def test_unknown_slot_key_rejected(self, admin_service, mock_dynamodb, sample_event, sample_registration):
+        event = self._festival_event(sample_event)
+        reg = sample_registration(
+            event_id=event.id, status=RegistrationStatus.REGISTERED, attendance_slots=["fr"],
+        )
+        _store_event(mock_dynamodb, event)
+        _store_registration(mock_dynamodb, reg)
+
+        patch = RegistrationAdminPatch(attendance_slots=["fr", "removed-slot"])
+        updated, error = await admin_service.admin_update_registration(event.id, reg.id, patch)
+
+        assert updated is None
+        assert error == "invalid_slots"
+
+    @pytest.mark.asyncio
+    async def test_valid_slot_subset_persisted(self, admin_service, mock_dynamodb, sample_event, sample_registration):
+        event = self._festival_event(sample_event)
+        reg = sample_registration(
+            event_id=event.id, status=RegistrationStatus.REGISTERED, attendance_slots=["fr"],
+        )
+        _store_event(mock_dynamodb, event)
+        _store_registration(mock_dynamodb, reg)
+
+        patch = RegistrationAdminPatch(attendance_slots=["sa"])
+        updated, error = await admin_service.admin_update_registration(event.id, reg.id, patch)
+
+        assert error is None
+        assert updated.attendance_slots == ["sa"]
+
+    @pytest.mark.asyncio
+    async def test_accommodation_without_phone_rejected_then_accepted_with_phone(
+        self, admin_service, mock_dynamodb, sample_event, sample_registration,
+    ):
+        event = self._festival_event(sample_event)
+        reg = sample_registration(
+            event_id=event.id, status=RegistrationStatus.REGISTERED, attendance_slots=["fr"], phone=None,
+        )
+        _store_event(mock_dynamodb, event)
+        _store_registration(mock_dynamodb, reg)
+
+        patch = RegistrationAdminPatch(accommodation=AccommodationType.TENT)
+        updated, error = await admin_service.admin_update_registration(event.id, reg.id, patch)
+        assert updated is None
+        assert error == "phone_required_for_accommodation"
+
+        patch2 = RegistrationAdminPatch(accommodation=AccommodationType.TENT, phone="+49 111")
+        updated2, error2 = await admin_service.admin_update_registration(event.id, reg.id, patch2)
+        assert error2 is None
+        assert updated2.accommodation == AccommodationType.TENT
+        assert updated2.phone == "+49 111"
+
+    @pytest.mark.asyncio
+    async def test_clearing_accommodation_clears_phone_and_resets_approval(
+        self, admin_service, mock_dynamodb, sample_event, sample_registration,
+    ):
+        event = self._festival_event(sample_event)
+        reg = sample_registration(
+            event_id=event.id,
+            status=RegistrationStatus.REGISTERED,
+            attendance_slots=["fr"],
+            accommodation=AccommodationType.TENT,
+            phone="+49 111",
+            overnight_approved=True,
+        )
+        _store_event(mock_dynamodb, event)
+        _store_registration(mock_dynamodb, reg)
+
+        patch = RegistrationAdminPatch(accommodation=None)
+        updated, error = await admin_service.admin_update_registration(event.id, reg.id, patch)
+
+        assert error is None
+        assert updated.accommodation is None
+        assert updated.phone is None
+        assert updated.overnight_approved is False
+
+    @pytest.mark.asyncio
+    async def test_overnight_approved_write_path_and_rejection_without_wish(
+        self, admin_service, mock_dynamodb, sample_event, sample_registration,
+    ):
+        event = self._festival_event(sample_event)
+        reg_with_wish = sample_registration(
+            event_id=event.id,
+            status=RegistrationStatus.REGISTERED,
+            attendance_slots=["fr"],
+            accommodation=AccommodationType.CAMPER,
+            phone="+49 222",
+        )
+        _store_event(mock_dynamodb, event)
+        _store_registration(mock_dynamodb, reg_with_wish)
+
+        patch = RegistrationAdminPatch(overnight_approved=True)
+        updated, error = await admin_service.admin_update_registration(event.id, reg_with_wish.id, patch)
+        assert error is None
+        assert updated.overnight_approved is True
+
+        reg_no_wish = sample_registration(
+            event_id=event.id, status=RegistrationStatus.REGISTERED, attendance_slots=["fr"],
+        )
+        _store_registration(mock_dynamodb, reg_no_wish)
+
+        patch2 = RegistrationAdminPatch(overnight_approved=True)
+        updated2, error2 = await admin_service.admin_update_registration(event.id, reg_no_wish.id, patch2)
+        assert updated2 is None
+        assert error2 == "overnight_approval_requires_accommodation"
+
+    @pytest.mark.asyncio
+    async def test_slot_fields_rejected_on_single_event(
+        self, admin_service, mock_dynamodb, sample_event, sample_registration,
+    ):
+        event = sample_event(status=EventStatus.OPEN)  # default event_type=SINGLE
+        reg = sample_registration(event_id=event.id, status=RegistrationStatus.REGISTERED)
+        _store_event(mock_dynamodb, event)
+        _store_registration(mock_dynamodb, reg)
+
+        patch = RegistrationAdminPatch(attendance_slots=["fr"])
+        updated, error = await admin_service.admin_update_registration(event.id, reg.id, patch)
+
+        assert updated is None
+        assert error == "not_festival_event"
+
+    def test_unknown_fields_still_rejected(self):
+        with pytest.raises(Exception):
+            RegistrationAdminPatch(attendance_slots=["fr"], not_a_real_field="x")
+
+    @pytest.mark.asyncio
+    async def test_group_members_append_only_tombstone_rule_reused(
+        self, admin_service, mock_dynamodb, sample_event, sample_registration,
+    ):
+        """Festival admin patches follow T109's append-only rule, not the
+        SINGLE-event shrink-only rule: shrinking the list outright is
+        rejected, but a same-length tombstone (None) followed by an append
+        is accepted and never reindexes surviving entries.
+        """
+        event = self._festival_event(sample_event)
+        reg = sample_registration(
+            event_id=event.id,
+            status=RegistrationStatus.REGISTERED,
+            attendance_slots=["fr"],
+            group_size=3,
+            group_members=["Alice", "Bob"],
+        )
+        _store_event(mock_dynamodb, event)
+        _store_registration(mock_dynamodb, reg)
+
+        # Outright shrink is rejected — must use a tombstone instead.
+        shrink_patch = RegistrationAdminPatch(group_members=["Alice"])
+        updated, error = await admin_service.admin_update_registration(event.id, reg.id, shrink_patch)
+        assert updated is None
+        assert error == "invalid_group_members"
+
+        # Tombstone Bob, then append Carol — indices never shift.
+        patch = RegistrationAdminPatch(group_members=["Alice", None, "Carol"])
+        updated2, error2 = await admin_service.admin_update_registration(event.id, reg.id, patch)
+
+        assert error2 is None
+        assert updated2.group_members == ["Alice", None, "Carol"]
+        assert updated2.group_size == 3

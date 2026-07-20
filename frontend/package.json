@@ -16,6 +16,8 @@
     "@picocss/pico": "^2.0.6",
     "lucide-vue-next": "^1.0.0",
     "pinia": "^2.1.7",
+    "qr-scanner": "^1.4.2",
+    "qrcode": "^1.5.4",
     "vue": "^3.4.0",
     "vue-router": "^4.3.0"
   },

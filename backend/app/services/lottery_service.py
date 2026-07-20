@@ -15,7 +15,15 @@ from uuid import UUID, uuid4
 
 from botocore.exceptions import ClientError
 
-from ..models import Event, EventStatus, LotteryResult, LotteryRun, Registration, RegistrationStatus
+from ..models import (
+    Event,
+    EventStatus,
+    EventType,
+    LotteryResult,
+    LotteryRun,
+    Registration,
+    RegistrationStatus,
+)
 from .config import get_lottery_runs_table
 from .email_service import get_email_service
 from .event_service import get_event_service
@@ -140,6 +148,12 @@ class LotteryService:
         if not event:
             raise ValueError("Event not found")
 
+        if event.event_type == EventType.FESTIVAL:
+            raise ValueError(
+                "Für Festivals gibt es keine Lotterie — Anmeldungen über "
+                "Einladungslinks sind sofort bestätigt.",
+            )
+
         if event.status not in [EventStatus.REGISTRATION_CLOSED, EventStatus.LOTTERY_PENDING]:
             raise ValueError("Lottery can only run after registration is closed")
 
@@ -257,6 +271,12 @@ class LotteryService:
         event = await self.event_service.get_event(org_id, event_id)
         if not event:
             raise ValueError("Event not found")
+
+        if event.event_type == EventType.FESTIVAL:
+            raise ValueError(
+                "Für Festivals gibt es keine Lotterie — Anmeldungen über "
+                "Einladungslinks sind sofort bestätigt.",
+            )
 
         if event.status not in [EventStatus.LOTTERY_PENDING, EventStatus.REGISTRATION_CLOSED]:
             raise ValueError("Lottery can only be finalized after it has been run")

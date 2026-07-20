@@ -38,6 +38,8 @@ def mock_dynamodb(aws_credentials):
                 {"AttributeName": "org_id", "AttributeType": "S"},
                 {"AttributeName": "status", "AttributeType": "S"},
                 {"AttributeName": "registration_link_token", "AttributeType": "S"},
+                {"AttributeName": "invite_token", "AttributeType": "S"},
+                {"AttributeName": "gate_token", "AttributeType": "S"},
             ],
             GlobalSecondaryIndexes=[
                 {
@@ -52,6 +54,20 @@ def mock_dynamodb(aws_credentials):
                     "IndexName": "link-token-index",
                     "KeySchema": [
                         {"AttributeName": "registration_link_token", "KeyType": "HASH"},
+                    ],
+                    "Projection": {"ProjectionType": "ALL"},
+                },
+                {
+                    "IndexName": "invite-token-index",
+                    "KeySchema": [
+                        {"AttributeName": "invite_token", "KeyType": "HASH"},
+                    ],
+                    "Projection": {"ProjectionType": "ALL"},
+                },
+                {
+                    "IndexName": "gate-token-index",
+                    "KeySchema": [
+                        {"AttributeName": "gate_token", "KeyType": "HASH"},
                     ],
                     "Projection": {"ProjectionType": "ALL"},
                 },

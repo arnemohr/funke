@@ -9,7 +9,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
-from ...models import RegistrationResponse
+from ...models import EventType, RegistrationResponse
 from ...services.email_service import get_email_service
 from ...services.event_service import get_event_service
 from ...services.logging import get_logger
@@ -71,14 +71,17 @@ async def cancel_registration(
         },
     )
 
-    # Send cancellation confirmation email
+    # Send cancellation confirmation email — the festival branch (F4) is
+    # already sent by the service's cancel_registration() itself (spec 019
+    # §T109), so the lottery-flavoured copy here must never reach a
+    # festival guest.
     try:
         event_service = get_event_service()
         event = await event_service.get_event_by_id(registration.event_id)
-        if event:
+        if event and event.event_type != EventType.FESTIVAL:
             email_service = get_email_service()
             await email_service.send_cancellation_confirmation(event, registration)
-        else:
+        elif not event:
             logger.warning(
                 "Could not send cancellation email: event not found",
                 extra={

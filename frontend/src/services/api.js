@@ -205,6 +205,153 @@ export const publicApi = {
       body: JSON.stringify({ group_members: groupMembers }),
     })
   },
+
+  /**
+   * Get form-boot info for a festival invite link (spec 019).
+   * @param {string} inviteToken - Invite token
+   * @returns {Promise<object>} Invite info: event details, slots, participation hint
+   */
+  async getInviteInfo(inviteToken) {
+    return request(`/api/public/invites/${inviteToken}`)
+  },
+
+  /**
+   * Get the public guestlist view for an invite link (contingent status
+   * plus who registered — names and days only).
+   * @param {string} inviteToken - Invite token
+   * @returns {Promise<object>} Guestlist: counts, can_register, registrations
+   */
+  async getInviteGuestlist(inviteToken) {
+    return request(`/api/public/invites/${inviteToken}/guestlist`)
+  },
+
+  /**
+   * Redeem an invite and create a festival registration (spec 019).
+   * @param {string} inviteToken - Invite token
+   * @param {object} payload - Festival registration data
+   * @returns {Promise<object>} Registration result plus manage_url
+   */
+  async createFestivalRegistration(inviteToken, payload) {
+    return request(`/api/public/invites/${inviteToken}/registrations`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+
+  /**
+   * Self-service edit of a festival registration's attendance (spec 019).
+   * @param {string} registrationId - Registration ID
+   * @param {string} token - Registration token
+   * @param {object} payload - Attendance patch (slots, accommodation, phone, group_members)
+   * @returns {Promise<object>} Updated registration
+   */
+  async updateFestivalAttendance(registrationId, token, payload) {
+    return request(`/api/public/registrations/${registrationId}/festival-attendance?token=${token}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  },
+}
+
+// Scanner check-in API (no auth required — the gate token IS the auth,
+// spec.md:336). Every call is scoped to one gate token.
+export const checkinApi = {
+  /**
+   * Boot payload for the scanner PWA: event info, slot labels, and the
+   * offline verification secret.
+   * @param {string} gateToken - Scanner gate token
+   * @returns {Promise<object>} Boot response
+   */
+  async boot(gateToken) {
+    return request(`/api/public/checkin/${gateToken}`)
+  },
+
+  /**
+   * One-tap QR scan. Always resolves with a structured result
+   * (`result`/`reason`/`card`/`scan_id`/`already_checked_in`) — the caller
+   * branches on the body, not on HTTP status.
+   * @param {string} gateToken - Scanner gate token
+   * @param {string} code - The scanned ticket code
+   * @returns {Promise<object>} Scan result
+   */
+  async scan(gateToken, code) {
+    return request(`/api/public/checkin/${gateToken}/scan`, {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    })
+  },
+
+  /**
+   * Override check-in — either `{ code }` ("Trotzdem einchecken" on an
+   * already-checked-in ticket) or `{ registration_id, person_index }`
+   * (the name-search check-in target).
+   * @param {string} gateToken - Scanner gate token
+   * @param {object} body - `{ code }` or `{ registration_id, person_index }`
+   * @returns {Promise<object>} Scan result (same shape as `scan`)
+   */
+  async override(gateToken, body) {
+    return request(`/api/public/checkin/${gateToken}/override`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+  },
+
+  /**
+   * Undo a scan within its ~60s window.
+   * @param {string} gateToken - Scanner gate token
+   * @param {string} scanId - The scan_id returned by `scan`/`override`
+   * @returns {Promise<object>} `{ ok: boolean }`
+   */
+  async undo(gateToken, scanId) {
+    return request(`/api/public/checkin/${gateToken}/undo`, {
+      method: 'POST',
+      body: JSON.stringify({ scan_id: scanId }),
+    })
+  },
+
+  /**
+   * Name-search fallback (no QR). `q` must be at least 2 characters.
+   * @param {string} gateToken - Scanner gate token
+   * @param {string} q - Search query
+   * @returns {Promise<object>} `{ matches: [...] }`
+   */
+  async search(gateToken, q) {
+    return request(`/api/public/checkin/${gateToken}/search?q=${encodeURIComponent(q)}`)
+  },
+}
+
+/**
+ * Shared blob-download helper for the festival registrations CSV export
+ * (T206) — used for the printable gate list (`view=gate`). Mirrors
+ * `exportBoardingPdf`'s pattern: raw `fetch` with a bearer token,
+ * `response.blob()`, object URL + temp `<a download>` click, filename
+ * from `Content-Disposition`.
+ * @param {string} eventId - Festival event ID
+ * @param {string} view - 'gate'
+ * @returns {Promise<void>} Triggers file download
+ */
+async function downloadFestivalCsv(eventId, view) {
+  const token = await getAccessToken()
+  const url = `${API_BASE_URL}/api/admin/festival/${eventId}/registrations/export-csv?view=${view}`
+  const response = await fetch(url, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+    },
+  })
+  if (!response.ok) {
+    throw new Error(`Export failed with status ${response.status}`)
+  }
+  const blob = await response.blob()
+  const downloadUrl = window.URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = downloadUrl
+  const disposition = response.headers.get('Content-Disposition')
+  const match = disposition && disposition.match(/filename="?([^"]+)"?/)
+  a.download = match ? match[1] : `${view}_${eventId}.csv`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  window.URL.revokeObjectURL(downloadUrl)
 }
 
 // Admin API (requires auth)
@@ -718,6 +865,142 @@ export const adminApi = {
     },
     versionPdfUrl(id, version) {
       return `${API_BASE_URL}/api/admin/reports/${id}/versions/${version}/pdf`
+    },
+  },
+
+  // ---------------------------------------------------------------- Festival
+  festival: {
+    async createEvent(data) {
+      return request('/api/admin/festival/events', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }, true)
+    },
+    async listEvents() {
+      return request('/api/admin/festival/events', {}, true)
+    },
+    async getEvent(eventId) {
+      return request(`/api/admin/festival/${eventId}`, {}, true)
+    },
+    async updateEvent(eventId, data) {
+      return request(`/api/admin/festival/${eventId}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }, true)
+    },
+    async deleteEvent(eventId) {
+      return request(`/api/admin/festival/${eventId}`, {
+        method: 'DELETE',
+      }, true)
+    },
+    async setStatus(eventId, status) {
+      return request(`/api/admin/festival/${eventId}/status`, {
+        method: 'POST',
+        body: JSON.stringify({ status }),
+      }, true)
+    },
+    async createInvites(eventId, batch) {
+      return request(`/api/admin/festival/${eventId}/invites`, {
+        method: 'POST',
+        body: JSON.stringify(batch),
+      }, true)
+    },
+    async listInvites(eventId) {
+      return request(`/api/admin/festival/${eventId}/invites`, {}, true)
+    },
+    async patchInvite(eventId, inviteId, patch) {
+      return request(`/api/admin/festival/${eventId}/invites/${inviteId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      }, true)
+    },
+    async sendInviteEmail(eventId, inviteId) {
+      return request(`/api/admin/festival/${eventId}/invites/${inviteId}/send-email`, {
+        method: 'POST',
+      }, true)
+    },
+    async markInviteSent(eventId, inviteId) {
+      return request(`/api/admin/festival/${eventId}/invites/${inviteId}/mark-sent`, {
+        method: 'POST',
+      }, true)
+    },
+
+    /**
+     * Export the printable gate list as CSV (Ä9 floor).
+     * @param {string} eventId - Festival event ID
+     * @returns {Promise<void>} Triggers file download
+     */
+    async exportGateCsv(eventId) {
+      return downloadFestivalCsv(eventId, 'gate')
+    },
+
+    /**
+     * Slot x tier headcount board (T201/T202).
+     * @param {string} eventId - Festival event ID
+     * @returns {Promise<object>} Headcount board payload
+     */
+    async headcount(eventId) {
+      return request(`/api/admin/festival/${eventId}/headcount`, {}, true)
+    },
+
+    /**
+     * List festival registrations for the admin registrations page (T203).
+     * @param {string} eventId - Festival event ID
+     * @param {object} [opts] - { status, search }
+     * @returns {Promise<object>} { items, total }
+     */
+    async listRegistrations(eventId, { status, search } = {}) {
+      const params = new URLSearchParams()
+      if (status) params.append('status_filter', status)
+      if (search) params.append('search', search)
+      const query = params.toString() ? `?${params.toString()}` : ''
+      return request(`/api/admin/festival/${eventId}/registrations${query}`, {}, true)
+    },
+
+    /**
+     * Admin cancel for a festival registration (T203).
+     * @param {string} eventId - Festival event ID
+     * @param {string} registrationId - Registration ID
+     * @returns {Promise<object>} Cancelled registration
+     */
+    async cancelRegistration(eventId, registrationId) {
+      return request(`/api/admin/festival/${eventId}/registrations/${registrationId}/cancel`, {
+        method: 'POST',
+      }, true)
+    },
+
+    /**
+     * Partial update of a festival registration (T205) — reuses the
+     * existing spec-018 admin-update route (same registrations resource,
+     * festival events included); shares its 409-conflict handling
+     * (`err.status === 409`, `err.data`) rather than duplicating it.
+     * @param {string} eventId - Festival event ID
+     * @param {string} registrationId - Registration ID
+     * @param {object} patch - Partial registration update
+     * @returns {Promise<object>} Updated registration
+     */
+    async updateRegistration(eventId, registrationId, patch) {
+      return adminApi.updateAdminRegistration(eventId, registrationId, patch)
+    },
+
+    /**
+     * Get (lazily generating) the scanner gate link (T303).
+     * @param {string} eventId - Festival event ID
+     * @returns {Promise<object>} { gate_url }
+     */
+    async getGateToken(eventId) {
+      return request(`/api/admin/festival/${eventId}/gate-token`, {}, true)
+    },
+
+    /**
+     * Rotate the scanner gate link — the old link dies immediately (T303).
+     * @param {string} eventId - Festival event ID
+     * @returns {Promise<object>} { gate_url }
+     */
+    async rotateGateToken(eventId) {
+      return request(`/api/admin/festival/${eventId}/gate-token/rotate`, {
+        method: 'POST',
+      }, true)
     },
   },
 }

@@ -175,55 +175,186 @@
           <h2>Du bist dabei!</h2>
         </section>
 
-        <div class="primary-action">
-          <h3>Passagierliste</h3>
-          <p class="hint-text">
-            Für die Passagierliste brauchen wir von allen Mitfahrenden den vollständigen
-            Vor- und Nachnamen.
-          </p>
+        <!-- Festival branch (spec 019) — additive, keyed on event_type; SINGLE below is untouched -->
+        <template v-if="isFestival">
+          <div class="primary-action">
+            <div class="registration-details festival-summary">
+              <p><strong>Wann:</strong> {{ chosenSlotLabels.length ? chosenSlotLabels.join(', ') : '–' }}</p>
+              <p><strong>Telefon:</strong> {{ phone || '–' }}</p>
+              <p v-if="OVERNIGHT_ENABLED">
+                <strong>{{ overnightStatusLine }}</strong>
+              </p>
+              <p><strong>Wer dabei ist:</strong></p>
+              <ul class="group-list">
+                <li v-for="(name, i) in visibleGroupMembers" :key="i">{{ name }}</li>
+              </ul>
+            </div>
 
-          <div v-if="saveError" role="alert" class="error">{{ saveError }}</div>
-          <div v-if="saveSuccess" role="status" class="success-msg">{{ saveSuccess }}</div>
-
-          <div class="name-fields">
-            <div v-for="(_, i) in editableMembers" :key="i" class="name-field-row">
-              <label :for="`member-${i}`">
-                {{ i === 0 ? 'Dein Name (Vor- & Nachname)' : `Mitfahrer:in ${i + 1} (Vor- & Nachname)` }}
-              </label>
-              <div class="name-field-input">
-                <input
-                  :id="`member-${i}`"
-                  v-model="editableMembers[i]"
-                  type="text"
-                  :placeholder="i === 0 ? 'z.B. Lena Schmidt' : `z.B. Jan Hansen`"
-                  required
-                />
-                <button
-                  v-if="i > 0 && editableMembers.length > 1"
-                  @click="handleRemoveMember(i)"
-                  :disabled="saving"
-                  class="remove-btn outline"
-                  title="Person entfernen"
-                  type="button"
-                >✕</button>
+            <!-- Entry-code QR cards (spec 019 §P3, T309) — absent when the P3
+                 backend isn't live yet (qr_payloads not present), matching
+                 the F2 email variant note (spec.md:205). -->
+            <div v-if="qrPayloads.length" class="qr-codes-section">
+              <h3>Eure Eintritts-Codes</h3>
+              <p class="hint-text">
+                Schick jeder Begleitung ihren Code — am Einlass zeigt jede Person ihren
+                eigenen vor. Ein Screenshot reicht völlig.
+              </p>
+              <div class="qr-card-grid">
+                <div v-for="payload in qrPayloads" :key="payload.person_index" class="qr-card">
+                  <canvas :ref="(el) => setQrCanvasRef(payload.person_index, el)"></canvas>
+                  <p class="qr-card-name">{{ payload.name }}</p>
+                </div>
               </div>
             </div>
+
+            <div class="festival-edit-controls">
+              <button
+                v-if="isEditable && !editingFestival"
+                @click="startEditingFestival"
+                class="outline festival-edit-btn"
+                type="button"
+              >
+                {{ OVERNIGHT_ENABLED ? 'Zeiten, Übernachtung oder Begleitungen ändern' : 'Zeiten oder Begleitungen ändern' }}
+              </button>
+              <p v-else-if="!isEditable && eventInfo?.contact_hint" class="hint-text hint-warning">
+                Deine Zeiten kannst du nicht mehr selbst ändern — schreib uns einfach an {{ eventInfo.contact_hint }}
+              </p>
+            </div>
+
+            <div v-if="editingFestival" class="festival-edit-form">
+              <div v-if="saveError" role="alert" class="error">{{ saveError }}</div>
+              <div v-if="saveSuccess" role="status" class="success-msg">{{ saveSuccess }}</div>
+
+              <fieldset class="slot-grid">
+                <legend>Wann bist du dabei?</legend>
+                <div v-for="group in editSlotsByDate" :key="group.date" class="slot-day-group">
+                  <p class="slot-day-heading">{{ formatWeekdayHeading(group.date) }}</p>
+                  <label v-for="slot in group.slots" :key="slot.key" class="slot-checkbox">
+                    <input type="checkbox" v-model="editSlots[slot.key]" :disabled="saving" />
+                    <span class="slot-checkbox-label">{{ slot.label }}</span>
+                  </label>
+                </div>
+              </fieldset>
+
+              <label for="edit-phone">
+                Telefonnummer *
+                <input id="edit-phone" v-model="editPhone" type="tel" required :disabled="saving" />
+              </label>
+
+              <fieldset v-if="OVERNIGHT_ENABLED" class="overnight-fieldset">
+                <legend>Übernachtest du auf dem Gelände?</legend>
+                <label class="slot-checkbox">
+                  <input type="radio" name="edit-accommodation" value="NONE" v-model="editAccommodation" :disabled="saving" />
+                  <span class="slot-checkbox-label">Nein</span>
+                </label>
+                <label class="slot-checkbox">
+                  <input type="radio" name="edit-accommodation" value="TENT" v-model="editAccommodation" :disabled="saving" />
+                  <span class="slot-checkbox-label">Zelt — wir bringen unser eigenes Zelt mit</span>
+                </label>
+                <label class="slot-checkbox">
+                  <input type="radio" name="edit-accommodation" value="CAMPER" v-model="editAccommodation" :disabled="saving" />
+                  <span class="slot-checkbox-label">Camper/Bus — wir schlafen im eigenen Fahrzeug</span>
+                </label>
+
+                <p v-if="editAccommodation !== 'NONE'" class="request-copy">
+                  Schlafplätze sind begrenzt — deine Angabe ist eine Anfrage, keine Zusage. Wir melden uns bei dir.
+                </p>
+              </fieldset>
+
+              <fieldset class="extra-members">
+                <legend>Wen bringst du mit?</legend>
+                <div v-for="(entry, i) in memberEntries" :key="entry.index" class="name-field-row">
+                  <label :for="`festival-member-${entry.index}`">
+                    {{ entry.index === 0 ? 'Dein Name (Vor- & Nachname)' : `Begleitung (Vor- & Nachname)` }}
+                  </label>
+                  <div class="name-field-input">
+                    <input
+                      :id="`festival-member-${entry.index}`"
+                      v-model="entry.value"
+                      type="text"
+                      maxlength="200"
+                      :disabled="saving || entry.index === 0"
+                    />
+                    <button
+                      v-if="entry.index > 0"
+                      @click="removeFestivalMember(i)"
+                      :disabled="saving"
+                      class="remove-btn outline"
+                      title="Person entfernen"
+                      type="button"
+                    >✕</button>
+                  </div>
+                </div>
+                <button type="button" class="outline" @click="addFestivalMember" :disabled="saving">
+                  + Noch jemand kommt mit
+                </button>
+              </fieldset>
+
+              <button
+                @click="handleSaveFestival"
+                :disabled="saving"
+                :aria-busy="saving"
+                class="save-btn"
+              >
+                {{ saving ? 'Wird gespeichert...' : 'Speichern' }}
+              </button>
+              <button type="button" class="secondary outline" @click="editingFestival = false" :disabled="saving">
+                Abbrechen
+              </button>
+            </div>
           </div>
+        </template>
+        <template v-else>
+          <div class="primary-action">
+            <h3>Passagierliste</h3>
+            <p class="hint-text">
+              Für die Passagierliste brauchen wir von allen Mitfahrenden den vollständigen
+              Vor- und Nachnamen.
+            </p>
 
-          <p v-if="editableMembers.length < originalGroupSize" class="hint-text hint-warning">
-            Entfernte Personen können nicht wieder hinzugefügt werden — der Platz geht zurück an die Warteliste.
-          </p>
+            <div v-if="saveError" role="alert" class="error">{{ saveError }}</div>
+            <div v-if="saveSuccess" role="status" class="success-msg">{{ saveSuccess }}</div>
 
-          <button
-            v-if="hasUnsavedChanges"
-            @click="handleSaveNames"
-            :disabled="saving"
-            :aria-busy="saving"
-            class="save-btn"
-          >
-            {{ saving ? 'Wird gespeichert...' : 'Speichern' }}
-          </button>
-        </div>
+            <div class="name-fields">
+              <div v-for="(_, i) in editableMembers" :key="i" class="name-field-row">
+                <label :for="`member-${i}`">
+                  {{ i === 0 ? 'Dein Name (Vor- & Nachname)' : `Mitfahrer:in ${i + 1} (Vor- & Nachname)` }}
+                </label>
+                <div class="name-field-input">
+                  <input
+                    :id="`member-${i}`"
+                    v-model="editableMembers[i]"
+                    type="text"
+                    :placeholder="i === 0 ? 'z.B. Lena Schmidt' : `z.B. Jan Hansen`"
+                    required
+                  />
+                  <button
+                    v-if="i > 0 && editableMembers.length > 1"
+                    @click="handleRemoveMember(i)"
+                    :disabled="saving"
+                    class="remove-btn outline"
+                    title="Person entfernen"
+                    type="button"
+                  >✕</button>
+                </div>
+              </div>
+            </div>
+
+            <p v-if="editableMembers.length < originalGroupSize" class="hint-text hint-warning">
+              Entfernte Personen können nicht wieder hinzugefügt werden — der Platz geht zurück an die Warteliste.
+            </p>
+
+            <button
+              v-if="hasUnsavedChanges"
+              @click="handleSaveNames"
+              :disabled="saving"
+              :aria-busy="saving"
+              class="save-btn"
+            >
+              {{ saving ? 'Wird gespeichert...' : 'Speichern' }}
+            </button>
+          </div>
+        </template>
 
         <div class="secondary-actions">
           <button @click="showCancelDialog = true" class="outline secondary cancel-btn">
@@ -244,7 +375,13 @@
             <h3>Wirklich stornieren?</h3>
           </header>
 
-          <p v-if="registration?.status === 'PARTICIPATING'" class="warning-box">
+          <!-- Festival guests never went through a lottery — their own copy (spec 019). -->
+          <p v-if="isFestival" class="warning-box">
+            Deine Anmeldung wird storniert — auch für deine Begleitungen. Das lässt sich
+            nicht rückgängig machen. Falls du es dir anders überlegst, schreib
+            uns<template v-if="eventInfo?.contact_hint"> an {{ eventInfo.contact_hint }}</template>.
+          </p>
+          <p v-else-if="registration?.status === 'PARTICIPATING'" class="warning-box">
             Du hast deinen Platz über die Verlosung bekommen. Wenn du jetzt stornierst,
             ist der Platz weg — das lässt sich nicht rückgängig machen.
           </p>
@@ -275,10 +412,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
+import QRCode from 'qrcode'
 import { publicApi } from '../../services/api'
 import { formatDate } from '../../utils/formatters.js'
+import { OVERNIGHT_ENABLED } from '../../config/festival.js'
 import HelpButton from '../../components/help/HelpButton.vue'
 import HelpPanel from '../../components/help/HelpPanel.vue'
 import { useHelp } from '../../components/help/useHelp.js'
@@ -289,6 +428,10 @@ const helpPanelRef = ref(null)
 watch(helpPanelRef, (el) => { help.panelRef.value = el?.$el || el })
 
 const currentHelpKey = computed(() => {
+  // Festival branch (spec 019): one flow-story entry for active festival
+  // guests — the SINGLE status texts talk about Verlosung/Warteliste, which
+  // festival guests never see. The generic cancelled text fits both worlds.
+  if (isFestival.value && registration.value?.status !== 'CANCELLED') return 'manage-festival'
   if (!registration.value?.status) return 'manage-registered'
   return `manage-${registration.value.status.toLowerCase()}`
 })
@@ -314,6 +457,103 @@ const cancelling = ref(false)
 const cancelError = ref(null)
 const showCancelDialog = ref(false)
 
+// Festival branch state (spec 019) — additive, only populated when eventInfo.event_type === 'FESTIVAL'
+const attendanceSlots = ref([])
+const accommodation = ref(null)
+const phone = ref(null)
+const overnightApproved = ref(false)
+const editableUntil = ref(null)
+const editingFestival = ref(false)
+const editSlots = ref({})
+const editAccommodation = ref('NONE')
+const editPhone = ref('')
+const memberEntries = ref([])
+const nextMemberIndex = ref(0)
+
+// Entry-code QR cards (spec 019 §P3, T309) — freshly signed on every GET,
+// never cached; re-drawn whenever qrPayloads changes (initial load, or
+// after a slot/group edit reload).
+const qrPayloads = ref([])
+const qrCanvasEls = {}
+
+function setQrCanvasRef(personIndex, el) {
+  if (el) qrCanvasEls[personIndex] = el
+}
+
+async function renderQrCodes() {
+  await nextTick()
+  for (const payload of qrPayloads.value) {
+    const canvas = qrCanvasEls[payload.person_index]
+    if (!canvas) continue
+    try {
+      await QRCode.toCanvas(canvas, payload.code, { width: 240, margin: 2 })
+    } catch {
+      // Non-critical — the card just shows a blank canvas.
+    }
+  }
+}
+
+watch(qrPayloads, renderQrCodes)
+
+const isFestival = computed(() => eventInfo.value?.event_type === 'FESTIVAL')
+
+const isEditable = computed(() => {
+  if (!isFestival.value) return false
+  if (!editableUntil.value) return false
+  if (registration.value?.status === 'CANCELLED') return false
+  return new Date() < new Date(editableUntil.value)
+})
+
+// Chosen slot labels, in festival (config) order — never in attendance_slots' own order.
+const chosenSlotLabels = computed(() => {
+  const slots = eventInfo.value?.festival_slots || []
+  return slots.filter((s) => attendanceSlots.value.includes(s.key)).map((s) => s.label)
+})
+
+const overnightStatusLine = computed(() => {
+  if (!accommodation.value) return 'Übernachtung: Nein'
+  const typeLabel = accommodation.value === 'TENT' ? 'Zelt' : 'Camper'
+  return `Übernachtung: ${typeLabel} — ${overnightApproved.value ? 'zugesagt' : 'angefragt'}`
+})
+
+// Festival group_members are EXCLUSIVE of the contact person (spec §QR
+// payload: person_index 0 = contact, 1.. = group_members) and may contain
+// `null` tombstones for removed members (T109) — prepend the contact and
+// skip tombstones in the display.
+const visibleGroupMembers = computed(() => {
+  if (!registration.value) return []
+  const companions = (registration.value.group_members || []).filter(
+    (m) => m !== null && m !== undefined,
+  )
+  return [registration.value.name, ...companions]
+})
+
+// Group the editable festival slots by day, weekday heading via Intl (duplicated from
+// FestivalRegistrationPage.vue per T117 — do not touch the SINGLE branches with a shared import).
+const editSlotsByDate = computed(() => {
+  const slots = eventInfo.value?.festival_slots || []
+  const groups = new Map()
+  for (const slot of slots) {
+    if (!groups.has(slot.date)) groups.set(slot.date, [])
+    groups.get(slot.date).push(slot)
+  }
+  return Array.from(groups.entries()).map(([date, daySlots]) => ({ date, slots: daySlots }))
+})
+
+function formatWeekdayHeading(dateStr) {
+  const d = new Date(`${dateStr}T00:00:00Z`)
+  if (isNaN(d.getTime())) return dateStr
+  return d.toLocaleDateString('de-DE', {
+    timeZone: 'Europe/Berlin',
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  })
+}
+
+function hasTwoWords(value) {
+  return (value || '').trim().split(/\s+/).filter(Boolean).length >= 2
+}
 
 const hasUnsavedChanges = computed(() => {
   if (editableMembers.value.length !== lastSavedMembers.value.length) return true
@@ -339,6 +579,13 @@ async function loadRegistration() {
     statusMessage.value = result.message
     editableMembers.value = [...result.group_members]
     lastSavedMembers.value = [...result.group_members]
+    attendanceSlots.value = result.attendance_slots || []
+    accommodation.value = result.accommodation || null
+    phone.value = result.phone || null
+    overnightApproved.value = result.overnight_approved || false
+    editableUntil.value = result.editable_until || null
+    editingFestival.value = false
+    qrPayloads.value = result.qr_payloads || []
   } catch (err) {
     if (err.message?.includes('404')) {
       error.value = 'Anmeldung nicht gefunden. Schau nochmal in deiner E-Mail nach.'
@@ -441,6 +688,104 @@ async function handleSaveNames() {
     editableMembers.value = [...result.group_members]
     lastSavedMembers.value = [...result.group_members]
     saveSuccess.value = 'Gespeichert!'
+    setTimeout(() => { saveSuccess.value = null }, 3000)
+  } catch (err) {
+    saveError.value = err.message || 'Speichern hat nicht geklappt. Versuch es nochmal.'
+  } finally {
+    saving.value = false
+  }
+}
+
+function startEditingFestival() {
+  const slotMap = {}
+  for (const slot of (eventInfo.value?.festival_slots || [])) {
+    slotMap[slot.key] = attendanceSlots.value.includes(slot.key)
+  }
+  editSlots.value = slotMap
+  editAccommodation.value = accommodation.value || 'NONE'
+  editPhone.value = phone.value || ''
+
+  // Entry index 0 is the contact person (read-only, not part of
+  // group_members); companions live at entry index i+1 for
+  // group_members[i] — the EXCLUSIVE convention (spec §QR payload).
+  const companions = registration.value?.group_members || []
+  memberEntries.value = [
+    { index: 0, value: registration.value?.name || '' },
+    ...companions
+      .map((name, idx) => ({ index: idx + 1, value: name }))
+      .filter((entry) => entry.value !== null && entry.value !== undefined),
+  ]
+  nextMemberIndex.value = companions.length + 1
+
+  saveError.value = null
+  saveSuccess.value = null
+  editingFestival.value = true
+}
+
+function addFestivalMember() {
+  memberEntries.value.push({ index: nextMemberIndex.value, value: '' })
+  nextMemberIndex.value += 1
+}
+
+function removeFestivalMember(i) {
+  if (memberEntries.value[i]?.index === 0) return
+  memberEntries.value.splice(i, 1)
+}
+
+async function handleSaveFestival() {
+  const registrationId = route.params.registrationId
+  const token = route.query.token
+
+  saveError.value = null
+  saveSuccess.value = null
+
+  const selectedSlotKeys = Object.keys(editSlots.value).filter((key) => editSlots.value[key])
+  if (selectedSlotKeys.length === 0) {
+    saveError.value = 'Bitte wähle mindestens einen Zeitraum aus.'
+    return
+  }
+
+  // Entry index 0 is the read-only contact row — only companions are
+  // validated and sent (group_members is EXCLUSIVE of the contact).
+  const companionEntries = memberEntries.value
+    .filter((entry) => entry.index > 0)
+    .map((entry) => ({ index: entry.index, value: entry.value.trim() }))
+  if (companionEntries.some((entry) => !entry.value || !hasTwoWords(entry.value))) {
+    saveError.value = 'Bitte Vor- und Nachnamen angeben'
+    return
+  }
+
+  // OVERNIGHT_ENABLED gate (Stellplatz ungeklärt, 19.7.): while disabled,
+  // accommodation never leaves this form, regardless of form state. Phone
+  // is required independently of accommodation/OVERNIGHT_ENABLED.
+  const nextAccommodation = OVERNIGHT_ENABLED && editAccommodation.value !== 'NONE' ? editAccommodation.value : null
+  const trimmedPhone = editPhone.value.trim()
+  if (!trimmedPhone) {
+    saveError.value = 'Bitte gib deine Telefonnummer an.'
+    return
+  }
+
+  // group_members is APPEND-ONLY with tombstones (T109) — never shrink below
+  // the current raw length; indices not present here stay/become `null`
+  // tombstones. Companion entry index i maps to group_members[i - 1] (the
+  // contact is index 0 and never part of the patch).
+  const rawLen = registration.value?.group_members?.length || 0
+  const total = Math.max(rawLen, ...companionEntries.map((entry) => entry.index), 0)
+  const groupMembersPatch = new Array(total).fill(null)
+  for (const entry of companionEntries) groupMembersPatch[entry.index - 1] = entry.value
+
+  saving.value = true
+
+  try {
+    await publicApi.updateFestivalAttendance(registrationId, token, {
+      attendance_slots: selectedSlotKeys,
+      accommodation: nextAccommodation,
+      phone: trimmedPhone,
+      group_members: groupMembersPatch,
+    })
+    editingFestival.value = false
+    saveSuccess.value = 'Alles klar — deine Änderung ist gespeichert!'
+    await loadRegistration()
     setTimeout(() => { saveSuccess.value = null }, 3000)
   } catch (err) {
     saveError.value = err.message || 'Speichern hat nicht geklappt. Versuch es nochmal.'
@@ -697,5 +1042,154 @@ onMounted(loadRegistration)
   text-decoration: none;
   padding: 0.5rem 1rem;
   border-radius: var(--pico-border-radius);
+}
+
+/* Festival branch (spec 019) — additive */
+.festival-summary p {
+  margin-bottom: var(--space-2);
+}
+
+.festival-summary .group-list {
+  margin: 0;
+}
+
+.qr-codes-section {
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  margin-bottom: 1.5rem;
+}
+
+.qr-codes-section h3 {
+  margin-bottom: 0.25rem;
+}
+
+.qr-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.qr-card {
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border);
+  border-radius: var(--pico-border-radius);
+  padding: 0.75rem;
+  text-align: center;
+}
+
+.qr-card canvas {
+  max-width: 100%;
+  height: auto;
+}
+
+.qr-card-name {
+  margin: 0.5rem 0 0;
+  font-weight: 500;
+  word-break: break-word;
+}
+
+.festival-edit-controls {
+  margin: 1rem 0;
+}
+
+.festival-edit-btn {
+  width: 100%;
+  min-height: 44px;
+}
+
+.festival-edit-form {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.extra-members {
+  border: none;
+  padding: 0;
+  margin: 0 0 var(--pico-spacing);
+}
+
+.extra-members legend {
+  padding: 0;
+  font-weight: bold;
+  font-size: var(--text-sm);
+  margin-bottom: 0.25rem;
+}
+
+.slot-grid,
+.overnight-fieldset {
+  border: none;
+  padding: 0;
+  margin: 0 0 var(--pico-spacing);
+}
+
+.slot-grid legend,
+.overnight-fieldset legend {
+  padding: 0;
+  font-weight: bold;
+  margin-bottom: 0.5rem;
+}
+
+.slot-day-group {
+  margin-bottom: var(--space-4);
+}
+
+.slot-day-heading {
+  font-weight: 600;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-2);
+  text-transform: capitalize;
+}
+
+/* Slot options as thumb-sized tap cards — same recipe as the public
+   registration form (FestivalRegistrationPage.vue). */
+.slot-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  min-height: 48px;
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-2);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.slot-checkbox input {
+  margin: 0.15rem 0 0;
+  flex-shrink: 0;
+}
+
+.slot-checkbox-label {
+  flex: 1;
+  line-height: 1.4;
+}
+
+.slot-checkbox:has(input:checked) {
+  border-color: var(--color-brand);
+  background: var(--color-brand-subtle);
+}
+
+.slot-checkbox:has(input:focus-visible) {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+.request-copy {
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
+  border-left: 4px solid var(--color-warning-text);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  margin: 0.5rem 0 1rem;
 }
 </style>

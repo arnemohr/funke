@@ -10,6 +10,7 @@ import secrets
 import smtplib
 from email.header import Header
 from email.mime.application import MIMEApplication
+from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr
@@ -55,6 +56,16 @@ class Attachment(BaseModel):
     content_type: str = "application/pdf"
 
 
+class InlineImage(BaseModel):
+    """Inline (Content-ID referenced) email image, e.g. a QR code in the body."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    content_id: str  # referenced from HTML as `cid:{content_id}`
+    content: bytes
+    content_type: str = "image/png"
+
+
 class EmailMessage(BaseModel):
     """Email message data structure."""
 
@@ -66,6 +77,7 @@ class EmailMessage(BaseModel):
     in_reply_to: str | None = None  # Message-ID of parent email for threading
     message_id: str | None = None  # Custom Message-ID (auto-generated if not provided)
     attachments: list[Attachment] = []
+    inline_images: list[InlineImage] = []
 
 
 class EmailResult(BaseModel):
@@ -96,6 +108,21 @@ class SmtpClient:
         else:
             body = MIMEMultipart()
             body.attach(MIMEText(email.body_text, "plain", "utf-8"))
+
+        if email.inline_images:
+            # Wrap the alternative body + inline images in `related` so mail
+            # clients resolve the HTML's `cid:` references to these parts.
+            related = MIMEMultipart("related")
+            related.attach(body)
+            for img in email.inline_images:
+                subtype = img.content_type.split("/", 1)[-1] or "png"
+                image_part = MIMEImage(img.content, _subtype=subtype)
+                image_part.add_header("Content-ID", f"<{img.content_id}>")
+                image_part.add_header(
+                    "Content-Disposition", "inline", filename=f"{img.content_id}.{subtype}",
+                )
+                related.attach(image_part)
+            body = related
 
         if email.attachments:
             # Wrap the body + attachments in a `mixed` multipart so clients

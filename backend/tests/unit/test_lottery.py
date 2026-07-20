@@ -11,8 +11,8 @@ from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 from datetime import datetime, timedelta, timezone
 
-from app.models import EventStatus, RegistrationStatus
-from app.services.lottery_service import LotteryService
+from app.models import EventStatus, EventType, RegistrationStatus
+from app.services.lottery_service import LotteryService, _lottery_run_to_item
 from app.services.registration_service import (
     RegistrationService,
     _registration_to_item,
@@ -205,3 +205,64 @@ class TestLotteryPromotedExceedsCapacity:
 
         with pytest.raises(ValueError, match="Bevorzugte Anmeldungen"):
             await self.lottery_service.run_lottery(event.org_id, event.id, uuid4())
+
+
+class TestLotteryFestivalGuard:
+    """T110: festivals never enter the lottery — invite links confirm immediately."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self, mock_dynamodb, sample_event):
+        self.tables = mock_dynamodb
+        self.sample_event = sample_event
+
+        reg_service = RegistrationService()
+        reg_service._registrations_table = self.tables["registrations_table"]
+        reg_service._events_table = self.tables["events_table"]
+
+        with patch("app.services.registration_service.get_registration_service", return_value=reg_service), \
+             patch("app.services.event_service.get_event_service") as mock_evt_svc, \
+             patch("app.services.email_service.get_email_service") as mock_email_svc:
+            self.lottery_service = LotteryService()
+            self.lottery_service._table = self.tables["lottery_runs_table"]
+            self.lottery_service.registration_service = reg_service
+            self.mock_event_service = AsyncMock()
+            self.lottery_service.event_service = self.mock_event_service
+            self.mock_email_service = AsyncMock()
+            self.lottery_service.email_service = self.mock_email_service
+
+    def _festival_event(self, **overrides):
+        defaults = dict(status=EventStatus.REGISTRATION_CLOSED, event_type=EventType.FESTIVAL)
+        defaults.update(overrides)
+        return self.sample_event(**defaults)
+
+    @pytest.mark.asyncio
+    async def test_run_lottery_raises_for_festival(self):
+        festival_event = self._festival_event()
+        self.mock_event_service.get_event.return_value = festival_event
+
+        with pytest.raises(ValueError, match="Festivals"):
+            await self.lottery_service.run_lottery(
+                festival_event.org_id, festival_event.id, uuid4(),
+            )
+
+    @pytest.mark.asyncio
+    async def test_finalize_lottery_raises_for_festival(self):
+        from app.models import LotteryRun
+
+        festival_event = self._festival_event()
+        self.mock_event_service.get_event.return_value = festival_event
+
+        run = LotteryRun(
+            event_id=festival_event.id,
+            executed_by_admin_id=uuid4(),
+            seed="auto-confirm",
+            shuffled_order=[],
+            winners=[],
+            waitlist=[],
+        )
+        self.tables["lottery_runs_table"].put_item(Item=_lottery_run_to_item(run))
+
+        with pytest.raises(ValueError, match="Festivals"):
+            await self.lottery_service.finalize_lottery(
+                festival_event.org_id, festival_event.id, uuid4(),
+            )

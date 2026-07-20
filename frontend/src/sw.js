@@ -7,7 +7,12 @@ import { NetworkOnly } from 'workbox-strategies'
 precacheAndRoute(self.__WB_MANIFEST)
 cleanupOutdatedCaches()
 
-// API calls: network only (online-only app, never cache API responses)
+// API calls: network only (online-only app, never cache API responses).
+// The scanner's offline check-in mode (spec 019 §P3, T311) is handled at
+// the APP level instead — boot payload + verification secret in
+// localStorage, local WebCrypto HMAC verify, scan retry queue — never via
+// SW response caching. Do not "fix" this by adding a cache strategy for
+// `/api/public/checkin/*`: this rule intentionally stands.
 registerRoute(
   ({ url }) => url.pathname.startsWith('/api/'),
   new NetworkOnly()

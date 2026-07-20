@@ -9,7 +9,7 @@ Provides:
 """
 
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
@@ -17,8 +17,12 @@ from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
 from ..models import (
+    AccommodationType,
     Event,
     EventStatus,
+    EventType,
+    FestivalAttendancePatch,
+    FestivalRegistrationCreate,
     Registration,
     RegistrationAdminPatch,
     RegistrationCreate,
@@ -38,6 +42,98 @@ def _generate_registration_token() -> str:
     return secrets.token_urlsafe(32)
 
 
+def _gate_accommodation_label(registration: Registration) -> str:
+    """Render the Schlafplatz column: Ä17 approval semantics.
+
+    Same mapping as `{Schlafplatz}` in the F1-F4 email templates
+    (`email_service._build_accommodation_label`) — kept as a small local
+    copy rather than a cross-module import of a private helper: `None` ->
+    "Nein"; TENT/CAMPER -> "<Zelt|Camper> — angefragt" until an admin sets
+    `overnight_approved`, then "... — zugesagt". Never empty, never the
+    dropped NEEDS_SPOT state.
+    """
+    if registration.accommodation is None:
+        return "Nein"
+    label = "Zelt" if registration.accommodation == AccommodationType.TENT else "Camper"
+    status = "zugesagt" if registration.overnight_approved else "angefragt"
+    return f"{label} — {status}"
+
+
+def build_gate_rows(registrations: list[Registration], event: Event) -> list[dict]:
+    """Build one printable gate-list row per person (Ä9 CSV export floor).
+
+    Pure and HTTP-free so it is directly unit-testable (T113). Excludes
+    CANCELLED registrations (Ä5) and expands each surviving registration
+    into one row per person: the contact plus every `group_members` entry
+    (`None` entries are tombstones for removed members and yield no row —
+    person_index stability, spec 019 §Registration index stability).
+
+    Rows are sorted alphabetically by person name (`str.casefold`, locale-
+    naive — fine for a printed list). Slot columns are informational only;
+    slots are never checked at the gate (Ä13). This list is reprinted every
+    festival evening (Ä14) — callers must always pass the live registration
+    list, never a cached one.
+    """
+    slot_labels = [slot.label for slot in (event.festival_slots or [])]
+    slot_keys = [slot.key for slot in (event.festival_slots or [])]
+
+    rows: list[dict] = []
+    for registration in registrations:
+        if registration.status == RegistrationStatus.CANCELLED:
+            continue
+
+        kontingent = registration.invite_label or ""
+        tier = registration.tier or ""
+        schlafplatz = _gate_accommodation_label(registration)
+        telefon = registration.phone or "" if registration.accommodation is not None else ""
+        chosen_slots = set(registration.attendance_slots or [])
+        slot_values = {label: ("x" if key in chosen_slots else "") for key, label in zip(slot_keys, slot_labels)}
+
+        person_names = [registration.name, *(registration.group_members or [])]
+        for person_name in person_names:
+            if person_name is None:
+                continue
+            row = {
+                "Name": person_name,
+                "Kontaktperson": registration.name,
+                "Kontingent": kontingent,
+                "Tier": tier,
+                "Schlafplatz": schlafplatz,
+                "Telefon": telefon,
+                **slot_values,
+                "Angekommen": "",
+                "Bändchen": "",
+            }
+            rows.append(row)
+
+    rows.sort(key=lambda row: row["Name"].casefold())
+    return rows
+
+
+VERY_FULL_THRESHOLD = 0.9  # Ä4: public "very_full" soft-warning threshold — 90% of a slot's effective cap
+
+
+def compute_very_full_slots(headcount: dict) -> dict[str, bool]:
+    """Ä4 (if-time): per-slot "very_full" booleans from a `get_headcount` (T201) result.
+
+    Pure and headcount-driven, mirroring `build_gate_rows`' shape — no
+    separate event lookup needed since `headcount["slots"][i]["cap"]` and
+    `headcount["overall_cap"]` already carry everything required. Effective
+    cap is the slot's own `cap`, falling back to `overall_cap` (the event
+    capacity) when the slot has none; **never true when neither cap
+    exists** — a missing cap must never manufacture a false "nearly full"
+    warning. Returns booleans only — counts/caps/percentages stay
+    admin-only (the public invite-boot payload exposes just this dict's
+    values, never the numbers behind them).
+    """
+    overall_cap = headcount["overall_cap"]
+    result: dict[str, bool] = {}
+    for slot in headcount["slots"]:
+        effective_cap = slot["cap"] if slot["cap"] is not None else overall_cap
+        result[slot["key"]] = effective_cap is not None and slot["total"] >= VERY_FULL_THRESHOLD * effective_cap
+    return result
+
+
 def _registration_to_item(registration: Registration) -> dict:
     """Convert Registration model to DynamoDB item."""
     item = {
@@ -55,6 +151,9 @@ def _registration_to_item(registration: Registration) -> dict:
         "promoted": registration.promoted,
         "entity_type": "Registration",
         # GSI fields are already included: event_id, email, registration_token
+        # Written unconditionally (Ä17 — the flag must be legible without the
+        # attribute existing yet on legacy items, which parse as False).
+        "overnight_approved": registration.overnight_approved,
     }
 
     # Optional fields
@@ -81,6 +180,22 @@ def _registration_to_item(registration: Registration) -> dict:
 
     if registration.ttl:
         item["ttl"] = registration.ttl
+
+    # Festival sidetrack (spec 019) — additive optional fields
+    if registration.attendance_slots is not None:
+        item["attendance_slots"] = registration.attendance_slots
+
+    if registration.accommodation is not None:
+        item["accommodation"] = registration.accommodation.value
+
+    if registration.invite_id is not None:
+        item["invite_id"] = str(registration.invite_id)
+
+    if registration.invite_label:
+        item["invite_label"] = registration.invite_label
+
+    if registration.tier:
+        item["tier"] = registration.tier
 
     return item
 
@@ -118,6 +233,15 @@ def _item_to_registration(item: dict) -> Registration:
         promoted_from_waitlist=item.get("promoted_from_waitlist", False),
         promoted=item.get("promoted", False),
         ttl=item.get("ttl"),
+        # Festival sidetrack (spec 019) — additive optional fields
+        invite_id=UUID(item["invite_id"]) if item.get("invite_id") else None,
+        invite_label=item.get("invite_label"),
+        tier=item.get("tier"),
+        attendance_slots=item.get("attendance_slots"),
+        accommodation=(
+            AccommodationType(item["accommodation"]) if item.get("accommodation") else None
+        ),
+        overnight_approved=item.get("overnight_approved", False),
     )
 
 
@@ -144,7 +268,7 @@ class RegistrationService:
 
     async def record_page_view(self, event_id: UUID, registration_id: UUID) -> None:
         """Record that the registrant opened their manage page."""
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         try:
             self.registrations_table.update_item(
                 Key={
@@ -161,7 +285,7 @@ class RegistrationService:
             )
 
     async def update_reminder_sent(
-        self, event_id: UUID, registration_id: UUID, sent_at: datetime
+        self, event_id: UUID, registration_id: UUID, sent_at: datetime,
     ) -> None:
         """Record that a reminder was sent to prevent duplicate sends."""
         try:
@@ -210,7 +334,7 @@ class RegistrationService:
                 RegistrationStatus.PARTICIPATING.value,
             }
             response = self.registrations_table.query(
-                KeyConditionExpression=Key("pk").eq(f"EVENT#{event_id}"),
+                KeyConditionExpression=Key("pk").eq(f"EVENT#{event_id}") & Key("sk").begins_with("REG#"),
                 ProjectionExpression="group_size, #status",
                 ExpressionAttributeNames={"#status": "status"},
             )
@@ -218,7 +342,7 @@ class RegistrationService:
             items = response.get("Items", [])
             while "LastEvaluatedKey" in response:
                 response = self.registrations_table.query(
-                    KeyConditionExpression=Key("pk").eq(f"EVENT#{event_id}"),
+                    KeyConditionExpression=Key("pk").eq(f"EVENT#{event_id}") & Key("sk").begins_with("REG#"),
                     ProjectionExpression="group_size, #status",
                     ExpressionAttributeNames={"#status": "status"},
                     ExclusiveStartKey=response["LastEvaluatedKey"],
@@ -239,7 +363,7 @@ class RegistrationService:
         """Get the maximum waitlist position for an event."""
         try:
             response = self.registrations_table.query(
-                KeyConditionExpression=Key("pk").eq(f"EVENT#{event_id}"),
+                KeyConditionExpression=Key("pk").eq(f"EVENT#{event_id}") & Key("sk").begins_with("REG#"),
                 FilterExpression="#status = :waitlisted",
                 ExpressionAttributeNames={"#status": "status"},
                 ExpressionAttributeValues={":waitlisted": RegistrationStatus.WAITLISTED.value},
@@ -299,6 +423,12 @@ class RegistrationService:
         if not event:
             return None, "Event not found"
 
+        # Festivals never use this legacy path (spec 019 §T110) — dead by
+        # construction (festivals have no registration_link_token), guarded
+        # explicitly anyway.
+        if event.event_type == EventType.FESTIVAL:
+            return None, "Registration is not open for this event"
+
         # Determine registration mode based on event status
         accepting_statuses = {
             EventStatus.OPEN,
@@ -312,7 +442,7 @@ class RegistrationService:
         # During open registration, check deadline
         is_late_signup = event.status != EventStatus.OPEN
         if not is_late_signup:
-            if datetime.now(timezone.utc) >= event.registration_deadline.replace(tzinfo=timezone.utc):
+            if datetime.now(UTC) >= event.registration_deadline.replace(tzinfo=UTC):
                 return None, "Registration deadline has passed"
 
         # Normalize email
@@ -353,7 +483,7 @@ class RegistrationService:
             status=initial_status,
             waitlist_position=waitlist_position,
             registration_token=_generate_registration_token(),
-            registered_at=datetime.now(timezone.utc),
+            registered_at=datetime.now(UTC),
         )
 
         item = _registration_to_item(registration)
@@ -384,6 +514,169 @@ class RegistrationService:
                 extra={"error": str(e), "event_id": str(event.id)},
             )
             return None, "Failed to create registration"
+
+    async def create_festival_registration(
+        self,
+        invite_token: str,
+        data: FestivalRegistrationCreate,
+    ) -> tuple[Registration | None, str | None]:
+        """Create a festival registration by redeeming an invite (spec 019 §T108).
+
+        Same tuple contract as ``create_registration``. Registrations are
+        created directly in status PARTICIPATING with
+        ``responded_at == registered_at`` — never CONFIRMED (spec "Critical
+        semantic decision"; CONFIRMED feeds the nag-reminder worker and the
+        discard-unacknowledged flow, neither of which apply to festivals).
+        There is no waitlist branch and slot caps are never enforced here
+        (soft only, Ä8/Ä4).
+
+        Validation chain (spec §Data model deltas), in order:
+        invite lookup -> revoked -> event lookup -> FESTIVAL+OPEN -> deadline
+        -> invite expiry -> group cap -> slot subset -> phone required
+        -> duplicate email -> atomic consume -> build + conditional put
+        (release the use on put failure) -> touch_last_registered -> send F2
+        (never-fail).
+
+        Args:
+            invite_token: The invite's public redemption token.
+            data: Festival registration form data.
+
+        Returns:
+            Tuple of (Registration, None) on success, or (None, error) on
+            failure. Error strings are router-mappable (T111): they contain
+            one of "not found", "revoked", "expired", "exhausted",
+            "deadline", "not open", "already registered", or are plain
+            messages otherwise.
+        """
+        from .event_service import get_event_service
+        from .invite_service import get_invite_service
+
+        invite_service = get_invite_service()
+        invite = await invite_service.get_invite_by_token(invite_token)
+        if not invite:
+            return None, "Invite not found"
+        if invite.revoked_at is not None:
+            return None, "Invite revoked"
+
+        event_service = get_event_service()
+        event = await event_service.get_event(invite.org_id, invite.event_id)
+        if not event:
+            return None, "Event not found"
+
+        if event.event_type != EventType.FESTIVAL or event.status != EventStatus.OPEN:
+            return None, "Registration is not open for this event"
+
+        deadline = event.registration_deadline
+        if deadline.tzinfo is None:
+            deadline = deadline.replace(tzinfo=UTC)
+        if datetime.now(UTC) >= deadline:
+            return None, "Registration deadline has passed"
+
+        if invite.is_expired(event.registration_deadline):
+            return None, "Invite has expired"
+
+        if data.group_size > invite.max_group_size:
+            return (
+                None,
+                f"Group size cannot exceed the invite's allowance of {invite.max_group_size}",
+            )
+
+        # group_members is EXCLUSIVE of the contact person (spec §QR payload:
+        # person_index 0 = contact, 1.. = group_members). Fail loudly when a
+        # client sends an inconsistent pair instead of storing garbage rows.
+        if (
+            data.group_members is not None
+            and len(data.group_members) != data.group_size - 1
+        ):
+            return None, "group_members must list exactly group_size - 1 companions"
+
+        if not data.attendance_slots or not set(data.attendance_slots).issubset(
+            set(event.slot_keys()),
+        ):
+            return None, "Unknown attendance slot selected"
+
+        # Overnight (Ä15): accommodation is optional and independent of the
+        # chosen slots — is_night no longer gates anything. Phone is
+        # required for every registration regardless of accommodation; the
+        # schema already enforces this, re-checked here at service level as
+        # defense in depth.
+        accommodation = data.accommodation
+        phone = data.phone
+        if not phone or not phone.strip():
+            return None, "Phone number is required"
+
+        email = data.email.lower().strip()
+        if await self._check_duplicate_email(event.id, email):
+            return None, "Email already registered for this event"
+
+        # Atomic consume — AFTER all other validations, so a rejected
+        # registration never touches the invite's use_count.
+        consumed = await invite_service.consume_use(event.id, invite.id)
+        if not consumed:
+            return None, "Invite exhausted (Kontingent aufgebraucht)"
+
+        registered_at = datetime.now(UTC)
+        registration = Registration(
+            id=uuid4(),
+            event_id=event.id,
+            name=data.name,
+            email=email,
+            phone=phone,
+            notes=data.notes,
+            group_size=data.group_size,
+            group_members=data.group_members,
+            status=RegistrationStatus.PARTICIPATING,
+            registration_token=_generate_registration_token(),
+            registered_at=registered_at,
+            responded_at=registered_at,
+            invite_id=invite.id,
+            invite_label=invite.label,
+            tier=invite.tier,
+            attendance_slots=data.attendance_slots,
+            accommodation=accommodation,
+        )
+
+        item = _registration_to_item(registration)
+
+        try:
+            self.registrations_table.put_item(
+                Item=item,
+                ConditionExpression="attribute_not_exists(pk) AND attribute_not_exists(sk)",
+            )
+        except ClientError as e:
+            logger.error(
+                "Failed to create festival registration",
+                extra={"error": str(e), "event_id": str(event.id)},
+            )
+            # Undo the consume — the registration never made it to storage.
+            await invite_service.release_use(event.id, invite.id)
+            return None, "Failed to create registration"
+
+        logger.info(
+            "Festival registration created",
+            extra={
+                "registration_id": str(registration.id),
+                "event_id": str(event.id),
+                "invite_id": str(invite.id),
+                "status": RegistrationStatus.PARTICIPATING.value,
+            },
+        )
+
+        await invite_service.touch_last_registered(event.id, invite.id)
+
+        # Send F2, never fail the registration on email trouble.
+        try:
+            from .email_service import get_email_service
+
+            email_service = get_email_service()
+            await email_service.send_festival_confirmation(event, registration)
+        except Exception as e:
+            logger.error(
+                "Failed to send festival confirmation email",
+                extra={"error": str(e), "registration_id": str(registration.id)},
+            )
+
+        return registration, None
 
     async def get_registration(
         self,
@@ -502,7 +795,7 @@ class RegistrationService:
         """
         try:
             query_kwargs = {
-                "KeyConditionExpression": Key("pk").eq(f"EVENT#{event_id}"),
+                "KeyConditionExpression": Key("pk").eq(f"EVENT#{event_id}") & Key("sk").begins_with("REG#"),
             }
 
             filter_expressions = []
@@ -542,6 +835,163 @@ class RegistrationService:
                 extra={"error": str(e), "event_id": str(event_id)},
             )
             return []
+
+    async def update_festival_attendance(
+        self,
+        registration_id: UUID,
+        token: str,
+        patch: FestivalAttendancePatch,
+    ) -> tuple[Registration | None, str | None]:
+        """Self-service edit of a festival registration's attendance (spec 019 §T109).
+
+        Re-runs the T108 validations against the patched values and enforces
+        the invite grandfathering rule and the append-only/tombstone rule
+        for `group_members`. Sends F3 (never-fail) on success.
+
+        Returns:
+            Tuple of (updated Registration, None) on success, or
+            (None, error) on failure. The "deadline" error covers both the
+            event-status and the past-deadline branch of the lifecycle
+            gate (spec matrix) — the manage page then shows `contact_hint`.
+        """
+        from .email_service import get_email_service
+        from .event_service import get_event_service
+        from .invite_service import get_invite_service
+
+        registration = await self.get_registration_by_token(token)
+        if not registration:
+            return None, "Registration not found"
+        if registration.id != registration_id:
+            return None, "Invalid token for this registration"
+        if registration.status == RegistrationStatus.CANCELLED:
+            return None, "Cannot edit a cancelled registration"
+
+        event_service = get_event_service()
+        event = await event_service.get_event_by_id(registration.event_id)
+        if not event or event.event_type != EventType.FESTIVAL:
+            return None, "Not a festival registration"
+
+        # Lifecycle gate (spec matrix): status ∈ {OPEN, REGISTRATION_CLOSED,
+        # CONFIRMED} AND before the deadline — combined into a single
+        # "deadline" error either way.
+        accepting_statuses = {
+            EventStatus.OPEN,
+            EventStatus.REGISTRATION_CLOSED,
+            EventStatus.CONFIRMED,
+        }
+        deadline = event.registration_deadline
+        if deadline.tzinfo is None:
+            deadline = deadline.replace(tzinfo=UTC)
+        if event.status not in accepting_statuses or datetime.now(UTC) >= deadline:
+            return None, "Editing deadline has passed"
+
+        updates = patch.model_dump(exclude_unset=True)
+        if not updates:
+            return registration, None
+
+        # Slots (re-run T108's subset/non-empty check).
+        target_slots = updates.get("attendance_slots", registration.attendance_slots)
+        if "attendance_slots" in updates:
+            if not target_slots:
+                return None, "At least one attendance slot is required"
+            if not set(target_slots).issubset(set(event.slot_keys())):
+                return None, "Unknown attendance slot selected"
+
+        # Phone is required for every festival registration, independent of
+        # accommodation. Ä17 approval still resets when the wish is cleared.
+        target_accommodation = updates.get("accommodation", registration.accommodation)
+        target_phone = updates.get("phone", registration.phone)
+        overnight_approved = registration.overnight_approved
+
+        if not target_phone or not target_phone.strip():
+            return None, "Phone number is required"
+
+        if (
+            target_accommodation is None
+            and "accommodation" in updates
+            and registration.accommodation is not None
+        ):
+            overnight_approved = False
+
+        # Grandfathering (spec §Invite): a group may grow to
+        # max(current group_size, invite.max_group_size) — reducing the
+        # invite's allowance never invalidates an existing registration.
+        invite = None
+        if registration.invite_id is not None:
+            invite_service = get_invite_service()
+            invite = await invite_service.get_invite(event.id, registration.invite_id)
+        allowed_max_group_size = max(
+            registration.group_size,
+            invite.max_group_size if invite else registration.group_size,
+        )
+
+        # group_members: APPEND-ONLY with tombstones (spec §Registration
+        # index stability) — a shorter list would reindex, which is
+        # forbidden; removal must replace an entry with None instead.
+        target_group_members = updates.get("group_members", registration.group_members)
+        if "group_members" in updates:
+            old_members = registration.group_members or []
+            new_members = updates["group_members"] or []
+            if len(new_members) < len(old_members):
+                return (
+                    None,
+                    "group_members entries cannot be removed — use null to tombstone instead",
+                )
+            target_group_members = new_members
+
+        non_none_count = sum(1 for m in (target_group_members or []) if m is not None)
+
+        if "group_size" in updates:
+            target_group_size = updates["group_size"]
+        elif "group_members" in updates:
+            # group_size counts contact + non-None members only.
+            target_group_size = 1 + non_none_count
+        else:
+            target_group_size = registration.group_size
+
+        if target_group_size > allowed_max_group_size:
+            return None, f"Group size cannot exceed {allowed_max_group_size}"
+        if non_none_count > target_group_size - 1:
+            return None, "group_members exceeds group_size"
+
+        updated = registration.model_copy(
+            update={
+                "attendance_slots": target_slots,
+                "accommodation": target_accommodation,
+                "phone": target_phone,
+                "overnight_approved": overnight_approved,
+                "group_size": target_group_size,
+                "group_members": target_group_members,
+            },
+        )
+
+        try:
+            self.registrations_table.put_item(Item=_registration_to_item(updated))
+        except ClientError as e:
+            logger.error(
+                "Failed to update festival attendance",
+                extra={"error": str(e), "registration_id": str(registration_id)},
+            )
+            return None, "Failed to update festival attendance"
+
+        logger.info(
+            "Festival attendance updated",
+            extra={
+                "registration_id": str(registration_id),
+                "event_id": str(registration.event_id),
+            },
+        )
+
+        try:
+            email_service = get_email_service()
+            await email_service.send_festival_update_confirmation(event, updated)
+        except Exception as e:
+            logger.error(
+                "Failed to send festival update confirmation email",
+                extra={"error": str(e), "registration_id": str(registration_id)},
+            )
+
+        return updated, None
 
     async def cancel_registration(
         self,
@@ -604,8 +1054,45 @@ class RegistrationService:
                 },
             )
 
-            # If held a spot (CONFIRMED or PARTICIPATING), trigger waitlist promotion
-            if held_spot:
+            # Festival branch (spec 019 §T109): release the invite use, send
+            # F4 from HERE (so every caller — public cancel, admin cancel —
+            # gets it for free with exactly one send site), and never
+            # promote from a waitlist that festivals don't have (explicit
+            # guard — already inert via autopromote_waitlist=False, but
+            # belt and braces).
+            from .event_service import get_event_service
+
+            event_service = get_event_service()
+            event = await event_service.get_event_by_id(registration.event_id)
+            is_festival = event is not None and event.event_type == EventType.FESTIVAL
+
+            if is_festival:
+                if cancelled_registration.invite_id is not None:
+                    try:
+                        from .invite_service import get_invite_service
+
+                        invite_service = get_invite_service()
+                        await invite_service.release_use(
+                            registration.event_id, cancelled_registration.invite_id,
+                        )
+                    except Exception as e:
+                        logger.error(
+                            "Failed to release invite use on cancel",
+                            extra={"error": str(e), "registration_id": str(registration_id)},
+                        )
+
+                try:
+                    from .email_service import get_email_service
+
+                    email_service = get_email_service()
+                    await email_service.send_festival_cancellation(event, cancelled_registration)
+                except Exception as e:
+                    logger.error(
+                        "Failed to send festival cancellation email",
+                        extra={"error": str(e), "registration_id": str(registration_id)},
+                    )
+            elif held_spot:
+                # If held a spot (CONFIRMED or PARTICIPATING), trigger waitlist promotion.
                 await self._promote_from_waitlist(registration.event_id, group_size)
 
             return cancelled_registration, None
@@ -637,7 +1124,10 @@ class RegistrationService:
         event_service = get_event_service()
         event = await event_service.get_event_by_id(event_id)
 
-        if not event or not event.autopromote_waitlist:
+        # Festivals never autopromote (spec 019 §T110) — already inert via
+        # autopromote_waitlist=False from T103, but guarded explicitly here
+        # too (belt and braces / defense in depth).
+        if not event or event.event_type == EventType.FESTIVAL or not event.autopromote_waitlist:
             return []
 
         # Get waitlisted registrations ordered by position
@@ -807,6 +1297,105 @@ class RegistrationService:
             "promoted_spots": promoted_spots,
         }
 
+    async def get_headcount(self, event: Event) -> dict:
+        """Aggregate festival attendance into a slot x tier headcount board.
+
+        Modeled on `get_registration_stats` above: **one** `list_registrations`
+        call, then a single in-Python aggregation loop — no per-slot queries.
+
+        Ä5: CANCELLED registrations are excluded from every bucket. A
+        registration contributes its full `group_size` to every slot key in
+        `attendance_slots` (the grid is shared by the whole group — peak
+        counting, not person-splitting). Keys not present in
+        `event.festival_slots` (orphaned after a slot-config edit) are
+        collected into `unknown_slots` instead of silently vanishing.
+        Accommodation totals are OVERALL, not per slot (Ä15), split into
+        `requested` (all non-cancelled regs with that accommodation value)
+        vs. `approved` (the subset with `overnight_approved=True`, Ä17) —
+        `approved` is always <= `requested`. Per-slot `overnight` demand is
+        Σ group_size of regs on that slot with `accommodation` set,
+        independent of `is_night` (Ä15).
+
+        Soft-cap semantics (Ä4/Ä8): `overbooked` is a display flag only —
+        this method never raises and blocks nothing.
+
+        Args:
+            event: The FESTIVAL event to aggregate.
+
+        Returns:
+            Headcount board dict — see spec 019 T201 for the exact shape.
+        """
+        registrations = await self.list_registrations(event.id)
+
+        slots = event.festival_slots or []
+        slot_totals: dict[str, int] = {slot.key: 0 for slot in slots}
+        slot_by_tier: dict[str, dict[str, int]] = {slot.key: {} for slot in slots}
+        slot_overnight: dict[str, int] = {slot.key: 0 for slot in slots}
+
+        unknown_slots: dict[str, int] = {}
+        accommodation_totals: dict[str, dict[str, int]] = {
+            accommodation.value: {"requested": 0, "approved": 0} for accommodation in AccommodationType
+        }
+        total_registrations = 0
+        total_people = 0
+        registrations_without_slots = 0
+
+        for reg in registrations:
+            if reg.status == RegistrationStatus.CANCELLED:
+                continue
+
+            total_registrations += 1
+            total_people += reg.group_size
+
+            tier = reg.tier or "unknown"
+
+            if not reg.attendance_slots:
+                registrations_without_slots += 1
+            else:
+                for key in reg.attendance_slots:
+                    if key in slot_totals:
+                        slot_totals[key] += reg.group_size
+                        slot_by_tier[key][tier] = slot_by_tier[key].get(tier, 0) + reg.group_size
+                        if reg.accommodation is not None:
+                            slot_overnight[key] += reg.group_size
+                    else:
+                        unknown_slots[key] = unknown_slots.get(key, 0) + reg.group_size
+
+            if reg.accommodation is not None:
+                bucket = accommodation_totals[reg.accommodation.value]
+                bucket["requested"] += reg.group_size
+                if reg.overnight_approved:
+                    bucket["approved"] += reg.group_size
+
+        slot_rows = [
+            {
+                "key": slot.key,
+                "label": slot.label,
+                "date": slot.date.isoformat(),
+                "is_night": slot.is_night,
+                "total": slot_totals[slot.key],
+                "by_tier": slot_by_tier[slot.key],
+                "cap": slot.capacity,
+                "overbooked": slot.capacity is not None and slot_totals[slot.key] > slot.capacity,
+                "overnight": slot_overnight[slot.key],
+            }
+            for slot in slots
+        ]
+
+        peak_total = max((row["total"] for row in slot_rows), default=0)
+
+        return {
+            "slots": slot_rows,
+            "peak_total": peak_total,
+            "overall_cap": event.capacity,
+            "overall_overbooked": peak_total > event.capacity,
+            "accommodation_totals": accommodation_totals,
+            "total_registrations": total_registrations,
+            "total_people": total_people,
+            "registrations_without_slots": registrations_without_slots,
+            "unknown_slots": unknown_slots,
+        }
+
     async def set_attendance_response(
         self,
         registration_id: UUID,
@@ -856,7 +1445,7 @@ class RegistrationService:
                 ExpressionAttributeNames={"#status": "status"},
                 ExpressionAttributeValues={
                     ":new_status": new_status.value,
-                    ":responded_at": datetime.now(timezone.utc).isoformat(),
+                    ":responded_at": datetime.now(UTC).isoformat(),
                     ":confirmed": RegistrationStatus.CONFIRMED.value,
                 },
                 ConditionExpression="#status = :confirmed",
@@ -996,7 +1585,7 @@ class RegistrationService:
 
         if target_status == RegistrationStatus.PARTICIPATING:
             update_expr += ", responded_at = :responded_at"
-            expr_values[":responded_at"] = datetime.now(timezone.utc).isoformat()
+            expr_values[":responded_at"] = datetime.now(UTC).isoformat()
 
         try:
             response = self.registrations_table.update_item(
@@ -1261,7 +1850,7 @@ class RegistrationService:
                 ExpressionAttributeNames={"#status": "status"},
                 ExpressionAttributeValues={
                     ":new_status": RegistrationStatus.PARTICIPATING.value,
-                    ":responded_at": datetime.now(timezone.utc).isoformat(),
+                    ":responded_at": datetime.now(UTC).isoformat(),
                     ":group_members": stripped,
                     ":group_size": new_group_size,
                     ":confirmed": RegistrationStatus.CONFIRMED.value,
@@ -1406,15 +1995,30 @@ class RegistrationService:
         registration_id: UUID,
         patch: RegistrationAdminPatch,
     ) -> tuple[Registration | None, str | None]:
-        """Admin: partial update of a single registration (spec 018).
+        """Admin: partial update of a single registration (spec 018 + 019 T205).
 
         Returns ``(registration, None)`` on success, ``(None, error_code)`` otherwise.
         Error codes: ``not_found``, ``frozen_registration``, ``frozen_event``,
         ``invalid_group_size``, ``invalid_group_members``, ``conflict``,
-        ``update_failed``.
+        ``update_failed``, and (festival-only, T205) ``not_festival_event``,
+        ``invalid_slots``, ``phone_required_for_accommodation``,
+        ``overnight_approval_requires_accommodation``.
 
         Capacity is intentionally local: this method does NOT increment
         ``freed_spots`` or trigger waitlist promotion (see spec § Capacity behaviour).
+
+        Festival sidetrack (spec 019, T205): this admin patch is the ONLY
+        write path for `overnight_approved` (Ä17) — no public schema has it.
+        `attendance_slots` / `accommodation` / `overnight_approved` are
+        rejected on non-FESTIVAL events. `attendance_slots` is validated
+        against `event.slot_keys()`. The phone-iff-accommodation rule (Ä15)
+        is enforced against the RESULTING state (patched-or-existing
+        accommodation + patched-or-existing phone); clearing accommodation
+        also resets `overnight_approved`, mirroring T109's self-service
+        reset. `group_members` on a FESTIVAL registration follows the same
+        append-only/tombstone rule as T109 (the list may only grow —
+        removals become `None` entries instead), overriding the SINGLE-event
+        shrink-only rule below.
         """
         from .event_service import get_event_service
 
@@ -1435,29 +2039,87 @@ class RegistrationService:
         if event.status == EventStatus.COMPLETED:
             return None, "frozen_event"
 
+        fields_set = patch.model_fields_set
+        is_festival = event.event_type == EventType.FESTIVAL
+        festival_only_fields = {"attendance_slots", "accommodation", "overnight_approved"}
+        if not is_festival and (fields_set & festival_only_fields):
+            return None, "not_festival_event"
+
         target_name = registration.name if patch.name is None else patch.name
-        target_phone = registration.phone if patch.phone is None else patch.phone
         target_notes = registration.notes if patch.notes is None else patch.notes
-        target_group_size = registration.group_size
-        target_group_members: list[str] | None = registration.group_members
+        target_phone = registration.phone if patch.phone is None else patch.phone
 
-        if patch.group_members is not None and patch.group_size is not None:
-            if len(patch.group_members) != patch.group_size:
-                return None, "invalid_group_members"
-            target_group_members = patch.group_members
-            target_group_size = patch.group_size
-        elif patch.group_members is not None:
-            if len(patch.group_members) > registration.group_size:
-                return None, "invalid_group_members"
-            target_group_members = patch.group_members
-            target_group_size = len(patch.group_members)
-        elif patch.group_size is not None:
-            target_group_size = patch.group_size
-            if registration.group_members is not None:
-                target_group_members = registration.group_members[: patch.group_size]
+        target_attendance_slots = registration.attendance_slots
+        if "attendance_slots" in fields_set:
+            target_attendance_slots = patch.attendance_slots
+            if not target_attendance_slots or not set(target_attendance_slots).issubset(
+                set(event.slot_keys()),
+            ):
+                return None, "invalid_slots"
 
-        if target_group_size < 1 or target_group_size > registration.group_size:
-            return None, "invalid_group_size"
+        target_accommodation = registration.accommodation
+        target_overnight_approved = registration.overnight_approved
+        if is_festival:
+            if "accommodation" in fields_set:
+                target_accommodation = patch.accommodation
+
+            # Ä15 phone-iff-accommodation rule, enforced on the RESULTING
+            # (patched-or-existing) state.
+            if target_accommodation is not None:
+                if not target_phone or not target_phone.strip():
+                    return None, "phone_required_for_accommodation"
+            else:
+                target_phone = None
+                # Ä17: clearing the wish resets the approval flag too —
+                # mirrors T109's self-service reset.
+                if "accommodation" in fields_set and registration.accommodation is not None:
+                    target_overnight_approved = False
+
+            if "overnight_approved" in fields_set:
+                target_overnight_approved = patch.overnight_approved
+
+            if target_overnight_approved and target_accommodation is None:
+                return None, "overnight_approval_requires_accommodation"
+
+        # group_members / group_size: a FESTIVAL registration touching
+        # group_members uses the T109 append-only/tombstone rule (list may
+        # only grow — see method docstring); everything else keeps the
+        # spec-018 shrink-only rule.
+        if is_festival and patch.group_members is not None:
+            old_members = registration.group_members or []
+            new_members = patch.group_members
+            if len(new_members) < len(old_members):
+                return None, "invalid_group_members"
+            target_group_members: list[str | None] | None = new_members
+            non_none_count = sum(1 for m in new_members if m is not None)
+            target_group_size = (
+                patch.group_size if patch.group_size is not None else 1 + non_none_count
+            )
+            if non_none_count > target_group_size - 1:
+                return None, "invalid_group_members"
+            if target_group_size < 1:
+                return None, "invalid_group_size"
+        else:
+            target_group_size = registration.group_size
+            target_group_members = registration.group_members
+
+            if patch.group_members is not None and patch.group_size is not None:
+                if len(patch.group_members) != patch.group_size:
+                    return None, "invalid_group_members"
+                target_group_members = patch.group_members
+                target_group_size = patch.group_size
+            elif patch.group_members is not None:
+                if len(patch.group_members) > registration.group_size:
+                    return None, "invalid_group_members"
+                target_group_members = patch.group_members
+                target_group_size = len(patch.group_members)
+            elif patch.group_size is not None:
+                target_group_size = patch.group_size
+                if registration.group_members is not None:
+                    target_group_members = registration.group_members[: patch.group_size]
+
+            if target_group_size < 1 or target_group_size > registration.group_size:
+                return None, "invalid_group_size"
 
         set_parts: list[str] = []
         remove_parts: list[str] = []
@@ -1499,6 +2161,27 @@ class RegistrationService:
                 set_parts.append("group_members = :group_members")
                 expr_values[":group_members"] = target_group_members
             changed_fields.append("group_members")
+
+        if target_attendance_slots != registration.attendance_slots:
+            if not target_attendance_slots:
+                remove_parts.append("attendance_slots")
+            else:
+                set_parts.append("attendance_slots = :attendance_slots")
+                expr_values[":attendance_slots"] = target_attendance_slots
+            changed_fields.append("attendance_slots")
+
+        if target_accommodation != registration.accommodation:
+            if target_accommodation is None:
+                remove_parts.append("accommodation")
+            else:
+                set_parts.append("accommodation = :accommodation")
+                expr_values[":accommodation"] = target_accommodation.value
+            changed_fields.append("accommodation")
+
+        if target_overnight_approved != registration.overnight_approved:
+            set_parts.append("overnight_approved = :overnight_approved")
+            expr_values[":overnight_approved"] = target_overnight_approved
+            changed_fields.append("overnight_approved")
 
         if not changed_fields:
             return registration, None

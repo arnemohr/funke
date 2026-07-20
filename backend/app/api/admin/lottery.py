@@ -4,8 +4,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from ...models import LotteryResult
+from ...models import EventType, LotteryResult
 from ...services.auth import AdminRole, CurrentUser, require_role
+from ...services.event_service import get_event_service
 from ...services.logging import get_logger
 from ...services.lottery_service import get_lottery_service
 
@@ -42,6 +43,21 @@ async def run_lottery(
     org_id = _get_org_id(user)
     admin_id = _get_admin_id(user)
     service = get_lottery_service()
+
+    # Explicit FESTIVAL pre-check (spec 019 §T110): festivals never enter
+    # the lottery — invite links confirm immediately. This 409 is the
+    # primary signal; the service's own ValueError (mapped to 400 below)
+    # stays as a fallback for any path that reaches it directly.
+    event_service = get_event_service()
+    event = await event_service.get_event(org_id, event_id)
+    if event and event.event_type == EventType.FESTIVAL:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Für Festivals gibt es keine Lotterie — Anmeldungen über "
+                "Einladungslinks sind sofort bestätigt."
+            ),
+        )
 
     try:
         return await service.run_lottery(org_id, event_id, admin_id)

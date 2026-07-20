@@ -23,7 +23,9 @@ from .event import (
     EventCreate,
     EventPublic,
     EventStatus,
+    EventType,
     EventUpdate,
+    FestivalSlot,
 )
 from .fahrbericht import (
     ComputedTotals,
@@ -35,9 +37,16 @@ from .fahrbericht import (
     SubmitResult,
 )
 from .fahrbericht import ExpenseLine as FahrberichtExpenseLine
+from .invite import (
+    Invite,
+    InviteBatchCreate,
+    InviteCreate,
+    InviteUpdate,
+)
 from .lottery import LotteryResult, LotteryRun
 from .message import (
     CustomMessageRequest,
+    InlineImageData,
     Message,
     MessageCreate,
     MessageDirection,
@@ -45,6 +54,9 @@ from .message import (
     MessageType,
 )
 from .registration import (
+    AccommodationType,
+    FestivalAttendancePatch,
+    FestivalRegistrationCreate,
     Registration,
     RegistrationAdminPatch,
     RegistrationCreate,
@@ -86,12 +98,15 @@ __all__ = [
     "EventCreate",
     "EventPublic",
     "EventStatus",
+    "EventType",
     "EventUpdate",
+    "FestivalSlot",
     # Lottery
     "LotteryResult",
     "LotteryRun",
     # Message
     "CustomMessageRequest",
+    "InlineImageData",
     "Message",
     "MessageCreate",
     "MessageDirection",
@@ -104,6 +119,10 @@ __all__ = [
     "RegistrationResponse",
     "RegistrationStatus",
     "RegistrationUpdate",
+    # Registration (spec 019 — festival)
+    "AccommodationType",
+    "FestivalAttendancePatch",
+    "FestivalRegistrationCreate",
     # Bar + Ship (spec 011)
     "BarItem",
     "BarItemCategory",
@@ -132,6 +151,11 @@ __all__ = [
     "FahrberichtStatus",
     "FahrberichtExpenseLine",
     "SubmitResult",
+    # Invite (spec 019)
+    "Invite",
+    "InviteBatchCreate",
+    "InviteCreate",
+    "InviteUpdate",
     # Report (spec 013)
     "EmailStatus",
     "LineItem",

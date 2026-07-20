@@ -60,6 +60,17 @@
     <a
       href="#"
       class="nav-tab"
+      :class="{ 'is-active': isFestivalActive }"
+      :aria-current="isFestivalActive ? 'page' : undefined"
+      @click.prevent="navTo('/admin/festival')"
+    >
+      <span class="nav-tab-indicator" aria-hidden="true" />
+      <Tent :size="22" class="nav-icon" aria-hidden="true" />
+      <span>Festival</span>
+    </a>
+    <a
+      href="#"
+      class="nav-tab"
       :class="{ 'is-active': isSettingsActive }"
       :aria-current="isSettingsActive ? 'page' : undefined"
       aria-label="Einstellungen"
@@ -88,7 +99,7 @@
 import { useAuth0 } from '@auth0/auth0-vue'
 import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { Anchor, Beer, Calendar, MoreHorizontal, Wrench } from 'lucide-vue-next'
+import { Anchor, Beer, Calendar, MoreHorizontal, Tent, Wrench } from 'lucide-vue-next'
 import ToastContainer from './components/ToastContainer.vue'
 import { useAppUpdate } from './composables/useAppUpdate.js'
 import { useInstallPrompt } from './composables/useInstallPrompt.js'
@@ -114,6 +125,7 @@ const isSchaluppeActive = computed(
   () => route.path === '/admin/schaluppe' || route.path === '/admin/ship',
 )
 const isBarActive = computed(() => route.path.startsWith('/admin/bar'))
+const isFestivalActive = computed(() => route.path.startsWith('/admin/festival'))
 const isSettingsActive = computed(
   () => route.path === '/admin/settings' || route.path === '/admin/profile',
 )

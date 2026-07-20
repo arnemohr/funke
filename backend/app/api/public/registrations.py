@@ -6,20 +6,26 @@ Provides:
 - Registration management (confirm with names, update group members)
 """
 
+from datetime import date
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
 from ...models import (
+    AccommodationType,
     EventPublic,
+    EventType,
+    Registration,
     RegistrationCreate,
     RegistrationResponse,
+    RegistrationStatus,
 )
 from ...services.email_service import get_email_service
 from ...services.event_service import get_event_service
 from ...services.logging import get_logger
 from ...services.registration_service import get_registration_service
+from ...services.ticket_signing import build_person_tickets
 
 logger = get_logger(__name__)
 
@@ -174,12 +180,33 @@ async def submit_registration(
 # --- Registration Management Endpoints ---
 
 
+class FestivalSlotInfo(BaseModel):
+    """A selectable festival slot, as shown on the manage page."""
+
+    key: str
+    label: str
+    date: date
+    is_night: bool
+
+
 class EventInfo(BaseModel):
     """Minimal event info for the management page."""
 
     name: str
     start_at: str
     location: str | None
+    # Festival sidetrack (spec 019) — additive optional fields
+    event_type: str = EventType.SINGLE.value
+    contact_hint: str | None = None
+    festival_slots: list[FestivalSlotInfo] | None = None
+
+
+class QrPayload(BaseModel):
+    """A freshly-signed per-person check-in QR payload (spec 019 §P3)."""
+
+    person_index: int
+    name: str
+    code: str
 
 
 class ManageRegistrationResponse(BaseModel):
@@ -187,9 +214,41 @@ class ManageRegistrationResponse(BaseModel):
 
     registration: RegistrationResponse
     event: EventInfo | None = None
-    group_members: list[str]
+    # `None` entries are tombstones for removed festival members (T109) —
+    # indices never shift; SINGLE flows never contain None.
+    group_members: list[str | None]
     original_group_size: int
     message: str
+    # Festival sidetrack (spec 019) — additive optional fields
+    attendance_slots: list[str] | None = None
+    accommodation: AccommodationType | None = None
+    phone: str | None = None
+    # Ä17: read-only for guests — drives the „angefragt"/„zugesagt" display;
+    # no public endpoint ever accepts this field.
+    overnight_approved: bool = False
+    # Registration deadline isoformat for FESTIVAL events, None for SINGLE.
+    editable_until: str | None = None
+    # T308: freshly signed on every GET — never cached/persisted. None for
+    # non-FESTIVAL events and CANCELLED registrations (no entry codes).
+    qr_payloads: list[QrPayload] | None = None
+
+
+def _build_qr_payloads(secret: str, registration: Registration) -> list[QrPayload]:
+    """Build freshly-signed per-person check-in QR payloads (spec 019 §P3, T308).
+
+    Signed fresh every call so slot/group/overnight edits always show up on
+    the next render. Delegates to `build_person_tickets`, shared with the
+    confirmation email's QR image generation.
+    """
+    tickets = build_person_tickets(
+        secret,
+        registration.id,
+        registration.name,
+        registration.group_members,
+        registration.attendance_slots,
+        registration.overnight_approved,
+    )
+    return [QrPayload(person_index=t.person_index, name=t.name, code=t.code) for t in tickets]
 
 
 class ConfirmWithNamesRequest(BaseModel):
@@ -234,15 +293,44 @@ async def get_registration_manage(
 
     # Fetch event details for display
     event_info = None
+    editable_until = None
+    qr_payloads: list[QrPayload] | None = None
     try:
         event_svc = get_event_service()
         event = await event_svc.get_event_by_id(registration.event_id)
         if event:
+            is_festival = event.event_type == EventType.FESTIVAL
             event_info = EventInfo(
                 name=event.name,
                 start_at=event.start_at.isoformat(),
                 location=event.location,
+                event_type=event.event_type.value,
+                contact_hint=event.contact_hint,
+                festival_slots=(
+                    [
+                        FestivalSlotInfo(
+                            key=slot.key, label=slot.label, date=slot.date, is_night=slot.is_night,
+                        )
+                        for slot in (event.festival_slots or [])
+                    ]
+                    if is_festival
+                    else None
+                ),
             )
+            if is_festival:
+                editable_until = event.registration_deadline.isoformat()
+
+                # T308: freshly signed per-person QR payloads for the entry
+                # codes section. Signed fresh on every GET (never cached) so
+                # slot/group/overnight edits always show up on next render.
+                if registration.status != RegistrationStatus.CANCELLED:
+                    credentialed_event = await event_svc.ensure_gate_credentials(
+                        event.org_id, event.id,
+                    )
+                    if credentialed_event is not None and credentialed_event.ticket_secret:
+                        qr_payloads = _build_qr_payloads(
+                            credentialed_event.ticket_secret, registration,
+                        )
     except Exception:
         pass  # Non-critical — page still works without event info
 
@@ -285,6 +373,12 @@ async def get_registration_manage(
         group_members=group_members,
         original_group_size=registration.group_size,
         message=message,
+        attendance_slots=registration.attendance_slots,
+        accommodation=registration.accommodation,
+        phone=registration.phone,
+        overnight_approved=registration.overnight_approved,
+        editable_until=editable_until,
+        qr_payloads=qr_payloads,
     )
 
 

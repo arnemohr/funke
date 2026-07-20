@@ -11,6 +11,7 @@ import pytest
 from app.models import (
     Event,
     EventStatus,
+    EventType,
     Message,
     MessageDirection,
     MessageStatus,
@@ -118,6 +119,33 @@ class TestCustomMessage:
         assert "neue Uhrzeit" in stored_item["body"]
         assert stored_item["status"] == "queued"
         assert stored_item["recipient_email"] == registration.email
+
+    @pytest.mark.asyncio
+    async def test_send_custom_message_include_links_on_festival_event(
+        self, email_service, sample_event, sample_registration,
+    ):
+        """Spec 019 T211/T212: the T211 send surface (MessageComposer's
+        `Verwaltungslink einfügen` checkbox → `include_links=True`) must
+        resolve to a working manage link for a FESTIVAL registration too —
+        `send_custom_message` builds the link generically from the
+        registration's own id/token, independent of `event.event_type`.
+        """
+        event = sample_event(event_type=EventType.FESTIVAL)
+        registration = sample_registration(event_id=event.id, registration_token="festival-manage-token")
+
+        result = await email_service.send_custom_message(
+            event=event,
+            registration=registration,
+            subject="Bald geht's los",
+            body="Bis bald auf der Werft!",
+            include_links=True,
+        )
+
+        assert result is True
+        stored_item = email_service._messages_table.put_item.call_args[1]["Item"]
+        expected_url = f"/registration/{registration.id}?token=festival-manage-token"
+        assert expected_url in stored_item["body"]
+        assert expected_url in stored_item["body_html"]
 
 
 class TestMessagesLog:

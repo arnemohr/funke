@@ -19,6 +19,11 @@ Platzhalter stehen in geschweiften Klammern, z. B. `{Name}`, und werden beim Ver
 | `{Dringlichkeit}` | „morgen“, „bald“ oder „in X Tagen“ |
 | `{Version}` | Versionsnummer des Fahrberichts |
 | `{Buchungstext}` | Der Buchungstext aus dem Fahrbericht |
+| `{Zeitfenster}` | Festival: die gewählten Zeitfenster, kommagetrennt, z. B. „Freitag, Samstag“ – nie als Zeitspanne |
+| `{Schlafplatz}` | Festival: Übernachtungswunsch – „Nein“ / „Zelt — angefragt“ / „Zelt — zugesagt“ / „Camper — angefragt“ / „Camper — zugesagt“. Die Zusage wird telefonisch abgestimmt, es gibt keine automatische Freigabe-Mail |
+| `{EinladungsLink}` | Festival: persönlicher oder Kontingent-Link zur Anmeldung |
+| `{KontaktAdresse}` | Festival: die hinterlegte Kontaktadresse für Rückfragen |
+| `{MitmachHinweis}` | Festival: der konfigurierte Mitmach-Hinweis inkl. Schichtplan-Link (nur wenn hinterlegt) |
 
 ---
 
@@ -54,7 +59,7 @@ Deine Anmeldung verwalten:
 Bei Fragen, einfach melden!
 
 Bis bald,
-Deine Crew von der Schaluppe
+Dein Orga-Team
 ```
 
 ---
@@ -85,7 +90,7 @@ Deine Anmeldung verwalten:
 {Verwaltungslink}
 
 Bis bald,
-Deine Crew von der Schaluppe
+Dein Orga-Team
 ```
 
 ---
@@ -114,7 +119,7 @@ Moin {Name},
 {NachrichtVomAdmin}
 
 Herzliche Grüße,
-Deine Crew von der Schaluppe
+Dein Orga-Team
 ```
 
 ---
@@ -132,7 +137,7 @@ Platz frei! {Veranstaltung}
 ```
 Moin {Name},
 
-ein Fisch ist abgesprungen und du rückst nach! Du hast jetzt einen Platz an Bord der Schaluppe für "{Veranstaltung}".
+ein Fisch ist abgesprungen und du rückst nach! Du hast jetzt einen Platz für "{Veranstaltung}".
 
 - Datum: {Datum}
 - Ort: {Ort}
@@ -147,7 +152,7 @@ Falls dir doch etwas dazwischen kommt, sag bitte umgehend Bescheid, damit sich e
 Wir freuen uns auf dich!
 
 Liebste Grüße,
-Deine Crew von der Schaluppe
+Dein Orga-Team
 ```
 
 ---
@@ -180,7 +185,7 @@ Falls dir doch etwas dazwischen kommt, sag bitte umgehend Bescheid, damit sich e
 Wir freuen uns auf dich!
 
 Liebste Grüße,
-Deine Crew von der Schaluppe
+Dein Orga-Team
 ```
 
 ---
@@ -214,7 +219,7 @@ Deine Anmeldung verwalten:
 Drück die Daumen!
 
 Bis bald,
-Deine Crew von der Schaluppe
+Dein Orga-Team
 ```
 
 ---
@@ -245,7 +250,7 @@ Details:
 Wir hoffen, dich beim nächsten Mal dabei zu haben!
 
 Bis bald,
-Deine Crew von der Schaluppe
+Dein Orga-Team
 ```
 
 ---
@@ -272,7 +277,7 @@ Ursprüngliche Details:
 Wir entschuldigen uns für die Unannehmlichkeiten.
 
 Bis bald,
-Deine Crew von der Schaluppe
+Dein Orga-Team
 ```
 
 ---
@@ -307,7 +312,7 @@ Bitte bestätige innerhalb von 24 Stunden, ob du wirklich dabei bist:
 Falls dir doch etwas dazwischen kommt, sag bitte umgehend Bescheid, damit sich ein anderer Fisch unserem Schwarm anschließen kann. Nichterscheinen schafft unseren ehrenamtlichen Vereinsprojekten außerdem finanzielle Probleme.
 
 Liebste Grüße,
-Deine Crew von der Schaluppe
+Dein Orga-Team
 ```
 
 ---
@@ -334,7 +339,7 @@ Details:
 Wir freuen uns auf dich!
 
 Bis bald,
-Deine Crew von der Schaluppe
+Dein Orga-Team
 ```
 
 ---
@@ -361,7 +366,7 @@ Details:
 Vielleicht beim nächsten Mal!
 
 Bis bald,
-Deine Crew von der Schaluppe
+Dein Orga-Team
 ```
 
 ---
@@ -370,6 +375,7 @@ Deine Crew von der Schaluppe
 
 **Wann?** Wenn ein Admin gezielt eine eigene Nachricht an Angemeldete einer Veranstaltung schickt.
 **Hinweis:** Betreff und Text werden vom Admin selbst geschrieben. Wenn die Option „Link zur Anmeldung anhängen“ aktiv ist, wird unten zusätzlich der Verwaltungslink eingefügt.
+**Festival (spec 019):** Diese Vorlage funktioniert unverändert auch für Festival-Anmeldungen — verifiziert am Code (`send_custom_message` / `POST /api/admin/events/{event_id}/messages`): sie hängt nur an `event.name` und `registration.id`/`registration_token`/`email`, keine der Werte unterscheidet sich für `event_type=FESTIVAL`. Es gibt bewusst keine neue automatische Vorlage für die Vor-Festival-Erinnerung („Challenged & decided“ im Spec) — dieser manuelle Versandweg ist der vorgesehene. Die Festival-Sektion selbst bekommt ihre eigene Versandoberfläche dafür erst in **T211** (Wiederverwendung des `MessageComposer`s); bis dahin ist der Endpunkt zwar bereits nutzbar, aber ohne dedizierten UI-Einstieg in der Festival-Sektion.
 
 **Betreff:** wird vom Admin geschrieben.
 
@@ -381,7 +387,7 @@ Deine Crew von der Schaluppe
 Anmeldung verwalten: {Verwaltungslink}
 
 (Diese Nachricht bezieht sich auf die Veranstaltung "{Veranstaltung}".)
-Deine Crew von der Schaluppe
+Dein Orga-Team
 ```
 
 ---
@@ -423,3 +429,150 @@ anbei die aktualisierte Version v{Version} des Fahrberichts der Schaluppe vom {D
 ```
 
 **Anhang:** PDF-Datei mit dem Namen `fahrbericht-{Datum}-v{Version}.pdf` – enthält den vollständigen Bericht mit Kiosk-Einnahmen, Crew-Verköstigung, Ausgaben, Kassenabgleich, Buchungstext und Ship-Status.
+
+---
+
+## 14. Festival-Einladung (F1)
+
+**Wann?** Wenn ein Admin für eine Gästelisten-Zeile den Einladungslink verschickt (`send-email`) oder ihn manuell kopiert.
+**Hinweis:** Die Begrüßung nutzt immer das Label der Zeile („Moin {Name},") — die Mail geht an die Person, nach der die Zeile benannt ist (persönlicher Gast oder Kontingent-Verantwortliche:r). Die Varianten:
+- Persönliche Einladung (`max_uses=1`): Absatz „Der Link ist persönlich für dich — bitte leite ihn nicht weiter." Bei `max_group_size>1` zusätzlich „Du kannst {eine Begleitung | bis zu N Begleitungen} mitbringen."
+- Kontingent-Link (`max_uses>1`): stattdessen ein Kontingent-Absatz mit den konkreten Zahlen und dem Link zur öffentlichen Gästelisten-Seite (`{EinladungsLink}/liste`), auf der die verantwortliche Person sieht, wer sich schon angemeldet hat.
+
+**Betreff:**
+```
+Du bist eingeladen: {Veranstaltung}
+```
+
+**Text (persönliche Einladung, `max_uses=1`):** — alle Fakten kommen aus dem Event ({Zeitraum} = `start_at`–`end_at`, z.B. „vom 14. bis 16. August 2026"; „Wo"/„Anmelden bis"/{Beschreibung}/{MitmachHinweis}/{KontaktAdresse} entfallen jeweils, wenn nicht gesetzt):
+```
+Moin {Name},
+
+wir feiern {Zeitraum} — und du bist eingeladen!
+
+- Was: {Veranstaltung}
+- Wo: {Ort}
+- Anmelden bis: {Anmeldeschluss}
+
+{Beschreibung}
+
+Hier meldest du dich an:
+{EinladungsLink}
+
+Bei der Anmeldung sagst du uns, an welchen Tagen du kommst und wen du mitbringst.
+
+Der Link ist persönlich für dich — bitte leite ihn nicht weiter.
+
+{MitmachHinweis}
+
+Bei Fragen: {KontaktAdresse}
+
+Bis bald,
+Dein Orga-Team
+```
+(Bei `max_group_size>1` zusätzlich nach dem „persönlich"-Absatz: „Du kannst {eine Begleitung | bis zu N Begleitungen} mitbringen.")
+
+**Text (Kontingent-Link, `max_uses>1`):** wie oben, aber statt „Der Link ist persönlich..." stehen diese Absätze:
+```
+Der Link ist dein Kontingent: Du kannst ihn weitergeben, er gilt für bis
+zu {MaxNutzungen} Anmeldungen — jede Anmeldung kann bis zu {MaxGruppe}
+Personen umfassen.
+
+Wer sich über deinen Link schon angemeldet hat, siehst du hier:
+{EinladungsLink}/liste
+```
+(Bei `max_group_size=1` lautet der Einschub „— eine Person pro Anmeldung".)
+
+---
+
+## 15. Festival: Anmeldung bestätigt (F2)
+
+**Wann?** Direkt nachdem eine Festival-Anmeldung über den Einladungslink eingegangen ist.
+**Hinweis:**
+- Der Eintritts-Codes-Absatz erscheint erst ab P3 (Check-in/QR), in P1 immer ausgeblendet.
+- Der `{MitmachHinweis}`-Absatz erscheint nur als eigener Absatz, wenn beim Event ein Mitmach-Hinweis hinterlegt ist (Ä16).
+
+**Betreff:**
+```
+Deine Anmeldung: {Veranstaltung}
+```
+
+**Text (P1: ohne Eintritts-Codes-Absatz, ohne Mitmach-Hinweis):**
+```
+Moin {Name},
+
+schön, dass du dabei bist! Deine Anmeldung für "{Veranstaltung}" steht.
+
+Deine Anmeldung:
+- Wann: {Zeitfenster}
+- Schlafplatz: {Schlafplatz}
+- Personen: {Personen} {Personenwort}
+
+Deine Anmeldung verwalten (Zeiten ändern, Begleitungen, absagen):
+{Verwaltungslink}
+
+Ändern kannst du deine Angaben jederzeit über den Link oben.
+Bei Fragen: {KontaktAdresse}
+
+Bis bald,
+Dein Orga-Team
+```
+
+**Ab P3, wenn Eintritts-Codes aktiv sind:** direkt nach dem `{Verwaltungslink}` folgt zusätzlich der Absatz „Auf der Verwaltungsseite findest du auch die Eintritts-Codes für deine ganze Gruppe — bitte leite sie an deine Begleitungen weiter."
+
+**Wenn ein Mitmach-Hinweis hinterlegt ist:** danach folgt als eigener Absatz `{MitmachHinweis}` (z. B. inkl. Schichtplan-Link).
+
+Ändern kannst du deine Angaben jederzeit über den Link oben — daher gibt es hierfür keine separate Freigabe-Mail (Ä14/Ä17).
+
+---
+
+## 16. Festival: Änderung bestätigt (F3)
+
+**Wann?** Nachdem eine Festival-Anmeldung ihre Zeitfenster, Übernachtung oder Begleitungen über die Verwaltungsseite geändert hat.
+
+**Betreff:**
+```
+Deine Änderung: {Veranstaltung}
+```
+
+**Text:**
+```
+Moin {Name},
+
+alles klar, wir haben deine Änderung gespeichert.
+
+Deine aktuelle Anmeldung:
+- Wann: {Zeitfenster}
+- Schlafplatz: {Schlafplatz}
+- Personen: {Personen} {Personenwort}
+
+Deine Anmeldung verwalten:
+{Verwaltungslink}
+
+Bis bald,
+Dein Orga-Team
+```
+
+---
+
+## 17. Festival: Absage bestätigt (F4)
+
+**Wann?** Wenn eine Festival-Anmeldung storniert wird (Selbstauskunft oder Admin). Eine eigene Vorlage, damit der Verlosungs-Standardtext („...Platz an einen anderen Fisch...") niemals an einen Festival-Gast geht.
+
+**Betreff:**
+```
+Deine Absage: {Veranstaltung}
+```
+
+**Text:**
+```
+Moin {Name},
+
+schade, dass du nicht dabei bist — deine Anmeldung für "{Veranstaltung}"
+ist storniert.
+
+Falls du es dir anders überlegst, schreib uns: {KontaktAdresse}
+
+Bis zum nächsten Mal,
+Dein Orga-Team
+```

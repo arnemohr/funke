@@ -9,7 +9,7 @@ Handles EventBridge-triggered tasks:
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from ..models import EventStatus, RegistrationStatus
+from ..models import EventStatus, EventType, RegistrationStatus
 from ..services.email_service import get_email_service
 from ..services.event_service import get_event_service
 from ..services.logging import get_logger, set_request_id, setup_logging
@@ -42,6 +42,12 @@ async def send_confirmation_reminders() -> dict:
     # We need to iterate through all orgs, but since we don't have a cross-org query,
     # we'll query by status using a GSI scan (or iterate events table)
     events = await event_service.get_events_by_status(EventStatus.CONFIRMED)
+
+    # Festivals never sit in CONFIRMED with a nag-worthy registration —
+    # festival registrations are created directly in PARTICIPATING and
+    # never enter CONFIRMED (spec 019 §T110). Already inert; this guard
+    # just documents the invariant explicitly (defense in depth).
+    events = [e for e in events if e.event_type != EventType.FESTIVAL]
 
     now = datetime.now(timezone.utc)
     total_sent = 0
@@ -161,6 +167,7 @@ async def process_email_queue() -> dict:
     the queue steadily.
     """
     import asyncio
+    import base64
     import random
 
     logger.info("Starting email queue processing")
@@ -168,6 +175,7 @@ async def process_email_queue() -> dict:
     from ..models import MessageStatus
     from ..services.config import get_messages_table
     from ..services.email_client import EmailMessage as SmtpEmailMessage
+    from ..services.email_client import InlineImage as SmtpInlineImage
     from ..services.email_client import get_gmail_client
 
     MAX_BATCH = 20  # Stay well within Lambda timeout (~3-4 min at 10s spacing)
@@ -264,11 +272,20 @@ async def process_email_queue() -> dict:
                 continue
 
             try:
+                inline_images = [
+                    SmtpInlineImage(
+                        content_id=img["content_id"],
+                        content=base64.b64decode(img["content_b64"]),
+                        content_type=img.get("content_type", "image/png"),
+                    )
+                    for img in item.get("inline_images", [])
+                ]
                 email_msg = SmtpEmailMessage(
                     to=recipient,
                     subject=subject,
                     body_text=body_text,
                     body_html=body_html,
+                    inline_images=inline_images,
                 )
                 result = await smtp_client.send_email(email_msg)
 

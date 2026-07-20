@@ -21,6 +21,10 @@ class MessageType(str, Enum):
     CONFIRMATION_REQUEST = "confirmation_request"
     CANCELLATION = "cancellation"
     CUSTOM = "custom"
+    FESTIVAL_INVITATION = "festival_invitation"
+    FESTIVAL_CONFIRMATION = "festival_confirmation"
+    FESTIVAL_UPDATE = "festival_update"
+    FESTIVAL_CANCELLATION = "festival_cancellation"
 
 
 class MessageDirection(str, Enum):
@@ -51,6 +55,18 @@ class MessageCreate(BaseModel):
     in_reply_to: str | None = None  # Parent message ID for threading
 
 
+class InlineImageData(BaseModel):
+    """A queued email's inline (Content-ID referenced) image, e.g. a QR code.
+
+    Content is base64-encoded for DynamoDB round-tripping through the
+    message queue — decoded back to bytes only at actual SMTP send time.
+    """
+
+    content_id: str
+    content_b64: str
+    content_type: str = "image/png"
+
+
 class Message(BaseModel):
     """Full message model with all fields."""
 
@@ -64,6 +80,7 @@ class Message(BaseModel):
     subject: str
     body: str
     body_html: str | None = None  # HTML version for queued sending
+    inline_images: list[InlineImageData] = Field(default_factory=list)
     email_message_id: str | None = None  # RFC 822 Message-ID
     in_reply_to: str | None = None  # Parent Message-ID
     status: MessageStatus = MessageStatus.QUEUED

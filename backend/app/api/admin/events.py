@@ -24,6 +24,7 @@ from ...models import (
     Event,
     EventCreate,
     EventStatus,
+    EventType,
     EventUpdate,
     Registration,
     RegistrationAdminPatch,
@@ -161,12 +162,17 @@ async def list_events(
 ) -> EventListResponse:
     """List all events for the organization.
 
-    Optionally filter by status.
+    Optionally filter by status. Festival events are excluded — they only
+    ever appear via `GET /api/admin/festival/events` (spec 019 §Isolation).
     """
     org_id = _get_org_id(user)
 
     event_service = get_event_service()
     events = await event_service.list_events(org_id, status_filter)
+
+    # Festival events live in their own admin section (spec 019 §Isolation)
+    # — never shown in the regular events UI.
+    events = [event for event in events if event.event_type != EventType.FESTIVAL]
 
     # Convert to responses with stats
     items = []
@@ -214,7 +220,14 @@ async def update_event(
     org_id = _get_org_id(user)
 
     event_service = get_event_service()
-    event = await event_service.update_event(org_id, event_id, update_data)
+    try:
+        event = await event_service.update_event(org_id, event_id, update_data)
+    except ValueError as e:
+        # Ä8: capacity exceeds the persisted event type's cap
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
 
     if not event:
         raise HTTPException(
@@ -859,6 +872,24 @@ _PATCH_ERROR_STATUS = {
     "invalid_group_members": (
         status.HTTP_400_BAD_REQUEST,
         "group_members payload is inconsistent with group_size",
+    ),
+    # Festival sidetrack (spec 019, T205) — the frontend surfaces `detail`
+    # verbatim in toasts, so these are German user-facing strings.
+    "not_festival_event": (
+        status.HTTP_400_BAD_REQUEST,
+        "Zeitfenster und Übernachtung gibt es nur bei Festival-Veranstaltungen",
+    ),
+    "invalid_slots": (
+        status.HTTP_400_BAD_REQUEST,
+        "Ungültige Zeitfenster-Auswahl — mindestens ein gültiges Zeitfenster wählen",
+    ),
+    "phone_required_for_accommodation": (
+        status.HTTP_400_BAD_REQUEST,
+        "Für einen Übernachtungswunsch wird eine Telefonnummer benötigt",
+    ),
+    "overnight_approval_requires_accommodation": (
+        status.HTTP_400_BAD_REQUEST,
+        "Übernachtung kann nur zugesagt werden, wenn ein Übernachtungswunsch vorliegt",
     ),
     "update_failed": (
         status.HTTP_500_INTERNAL_SERVER_ERROR,

@@ -78,6 +78,29 @@ class DatabaseStack(Stack):
             projection_type=dynamodb.ProjectionType.ALL,
         )
 
+        # GSI for public festival invite lookup by token (spec 019, T101).
+        # NOTE: one GSI change per CloudFormation update — invite-token-index
+        # (T101) and gate-token-index (T301) shipped in separate deploys.
+        self.events_table.add_global_secondary_index(
+            index_name="invite-token-index",
+            partition_key=dynamodb.Attribute(
+                name="invite_token",
+                type=dynamodb.AttributeType.STRING,
+            ),
+            projection_type=dynamodb.ProjectionType.ALL,
+        )
+
+        # GSI for gate scanner boot by gate token (spec 019, T301 — second
+        # separate GSI deploy).
+        self.events_table.add_global_secondary_index(
+            index_name="gate-token-index",
+            partition_key=dynamodb.Attribute(
+                name="gate_token",
+                type=dynamodb.AttributeType.STRING,
+            ),
+            projection_type=dynamodb.ProjectionType.ALL,
+        )
+
         # Registrations table
         # PK: EVENT#{event_id}#REG#{registration_id}
         # GSI1: email-index for duplicate checking per event

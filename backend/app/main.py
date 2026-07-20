@@ -114,12 +114,16 @@ from .api.admin import bar_items as admin_bar_items
 from .api.admin import ship as admin_ship
 from .api.admin import fahrbericht as admin_fahrbericht
 from .api.admin import reports as admin_reports
+from .api.admin import festival as admin_festival
 from .api.public import registrations as public_registrations
 from .api.public import cancellations as public_cancellations
 from .api.public import confirmations as public_confirmations
+from .api.public import invites as public_invites
+from .api.public import checkin as public_checkin
 
 # Register admin routers
 app.include_router(admin_events.router, prefix="/api/admin/events", tags=["admin-events"])
+app.include_router(admin_festival.router, prefix="/api/admin/festival", tags=["admin-festival"])
 app.include_router(admin_lottery.router, prefix="/api/admin", tags=["admin-lottery"])
 app.include_router(admin_push.router, prefix="/api/admin", tags=["admin-push"])
 
@@ -136,6 +140,8 @@ for reports_router in admin_reports.routers:
 app.include_router(public_registrations.router, prefix="/api/public", tags=["public"])
 app.include_router(public_cancellations.router, prefix="/api/public", tags=["public"])
 app.include_router(public_confirmations.router, prefix="/api/public", tags=["public"])
+app.include_router(public_invites.router, prefix="/api/public", tags=["public"])
+app.include_router(public_checkin.router, prefix="/api/public", tags=["public-checkin"])
 
 # Placeholder for future routers - will be added in later phases
 # from .api.admin import registrations as admin_registrations

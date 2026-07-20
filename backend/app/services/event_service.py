@@ -12,16 +12,61 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
+from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
-from ..models import Event, EventCreate, EventStatus, EventUpdate
-from .config import get_events_table
+from ..models import Event, EventCreate, EventStatus, EventType, EventUpdate, FestivalSlot
+from .config import (
+    CHECKIN_SK_PREFIX,
+    EVENT_SK_INVITE_PREFIX,
+    get_events_table,
+    get_messages_table,
+    get_registrations_table,
+)
 from .logging import get_logger
 
 if TYPE_CHECKING:
     from mypy_boto3_dynamodb.service_resource import Table
 
 logger = get_logger(__name__)
+
+# Registrations live under `sk="REG#{id}"`; no shared constant exists for it
+# (registration_service.py inlines the literal), so mirror that here too.
+REGISTRATION_SK_PREFIX = "REG#"
+# Messages live under `sk="MSG#{id}"` in the separate messages table; same
+# story as REGISTRATION_SK_PREFIX — email_service.py inlines the literal.
+MESSAGE_SK_PREFIX = "MSG#"
+
+
+def _purge_rows_by_prefix(table: "Table", pk: str, sk_prefix: str) -> int:
+    """Paginated query + `batch_writer` delete of every row under `pk` whose
+    `sk` starts with `sk_prefix`.
+
+    Used by `delete_festival_event` to purge co-located festival data
+    (invites, registrations, check-in scans, messages) before the EVENT#
+    item itself is removed.
+
+    Returns:
+        Number of rows deleted.
+    """
+    query_kwargs = {
+        "KeyConditionExpression": Key("pk").eq(pk) & Key("sk").begins_with(sk_prefix),
+        "ProjectionExpression": "pk, sk",
+    }
+    items: list[dict] = []
+    response = table.query(**query_kwargs)
+    items.extend(response.get("Items", []))
+
+    while "LastEvaluatedKey" in response:
+        query_kwargs["ExclusiveStartKey"] = response["LastEvaluatedKey"]
+        response = table.query(**query_kwargs)
+        items.extend(response.get("Items", []))
+
+    with table.batch_writer() as batch:
+        for item in items:
+            batch.delete_item(Key={"pk": item["pk"], "sk": item["sk"]})
+
+    return len(items)
 
 
 def _generate_link_token() -> str:
@@ -47,6 +92,7 @@ def _event_to_item(event: Event) -> dict:
         "autopromote_waitlist": event.autopromote_waitlist,
         "created_at": event.created_at.isoformat(),
         "entity_type": "Event",
+        "event_type": event.event_type.value,
     }
 
     # Optional fields
@@ -54,6 +100,27 @@ def _event_to_item(event: Event) -> dict:
         item["registration_link_token"] = event.registration_link_token
         # GSI for public link lookups
         # GSI uses registration_link_token directly as partition key
+
+    if event.end_at:
+        item["end_at"] = event.end_at.isoformat()
+
+    if event.contact_hint:
+        item["contact_hint"] = event.contact_hint
+
+    if event.participation_hint:
+        item["participation_hint"] = event.participation_hint
+
+    if event.festival_slots:
+        item["festival_slots"] = [
+            {
+                "key": slot.key,
+                "label": slot.label,
+                "date": slot.date.isoformat(),
+                "is_night": slot.is_night,
+                **({"capacity": slot.capacity} if slot.capacity else {}),
+            }
+            for slot in event.festival_slots
+        ]
 
     if event.created_by_admin_id:
         item["created_by_admin_id"] = str(event.created_by_admin_id)
@@ -69,6 +136,12 @@ def _event_to_item(event: Event) -> dict:
 
     if event.ttl:
         item["ttl"] = event.ttl
+
+    if event.gate_token:
+        item["gate_token"] = event.gate_token
+
+    if event.ticket_secret:
+        item["ticket_secret"] = event.ticket_secret
 
     return item
 
@@ -87,6 +160,11 @@ def _item_to_event(item: dict) -> Event:
         status=EventStatus(item["status"]),
         reminder_schedule_days=item.get("reminder_schedule_days", [7, 3, 1]),
         autopromote_waitlist=item.get("autopromote_waitlist", True),
+        event_type=item.get("event_type", "SINGLE"),
+        end_at=datetime.fromisoformat(item["end_at"]) if item.get("end_at") else None,
+        contact_hint=item.get("contact_hint"),
+        participation_hint=item.get("participation_hint"),
+        festival_slots=[FestivalSlot(**s) for s in item["festival_slots"]] if item.get("festival_slots") else None,
         registration_link_token=item.get("registration_link_token"),
         created_by_admin_id=UUID(item["created_by_admin_id"]) if item.get("created_by_admin_id") else None,
         cloned_from_event_id=UUID(item["cloned_from_event_id"]) if item.get("cloned_from_event_id") else None,
@@ -94,6 +172,8 @@ def _item_to_event(item: dict) -> Event:
         published_at=datetime.fromisoformat(item["published_at"]) if item.get("published_at") else None,
         cancelled_at=datetime.fromisoformat(item["cancelled_at"]) if item.get("cancelled_at") else None,
         ttl=item.get("ttl"),
+        gate_token=item.get("gate_token"),
+        ticket_secret=item.get("ticket_secret"),
     )
 
 
@@ -125,7 +205,11 @@ class EventService:
 
         Returns:
             Created Event with generated ID and registration link token.
+            Festival events get no registration link token (invite-only,
+            spec 019) and always have autopromote_waitlist disabled.
         """
+        is_festival = event_data.event_type == EventType.FESTIVAL
+
         event = Event(
             id=uuid4(),
             org_id=org_id,
@@ -136,9 +220,14 @@ class EventService:
             capacity=event_data.capacity,
             registration_deadline=event_data.registration_deadline,
             reminder_schedule_days=event_data.reminder_schedule_days,
-            autopromote_waitlist=event_data.autopromote_waitlist,
+            autopromote_waitlist=False if is_festival else event_data.autopromote_waitlist,
+            event_type=event_data.event_type,
+            end_at=event_data.end_at,
+            festival_slots=event_data.festival_slots,
+            contact_hint=event_data.contact_hint,
+            participation_hint=event_data.participation_hint,
             status=EventStatus.DRAFT,
-            registration_link_token=_generate_link_token(),
+            registration_link_token=None if is_festival else _generate_link_token(),
             created_by_admin_id=admin_id,
             created_at=datetime.now(timezone.utc),
         )
@@ -223,6 +312,86 @@ class EventService:
             logger.error(
                 "Failed to get event by link token",
                 extra={"error": str(e)},
+            )
+            return None
+
+    async def get_event_by_gate_token(self, gate_token: str) -> Event | None:
+        """Get an event by its check-in gate token (spec 019 §P3).
+
+        Args:
+            gate_token: The public checkin/scanner gate token.
+
+        Returns:
+            Event if found, None otherwise.
+        """
+        try:
+            response = self.table.query(
+                IndexName="gate-token-index",
+                KeyConditionExpression="gate_token = :token",
+                ExpressionAttributeValues={":token": gate_token},
+            )
+            items = response.get("Items", [])
+            if not items:
+                return None
+
+            return _item_to_event(items[0])
+
+        except ClientError as e:
+            logger.error(
+                "Failed to get event by gate token",
+                extra={"error": str(e)},
+            )
+            return None
+
+    async def ensure_gate_credentials(self, org_id: UUID, event_id: UUID) -> Event | None:
+        """Lazily generate the event's gate_token and ticket_secret (spec 019 §P3).
+
+        Idempotent: once set, both values are persisted as-is on subsequent
+        calls. `ticket_secret` is never rotated here — rotating it would
+        invalidate every QR code already issued to guests.
+
+        Args:
+            org_id: Organization ID.
+            event_id: Event ID.
+
+        Returns:
+            The (possibly unchanged) Event with both fields set, or None if
+            the event does not exist.
+        """
+        event = await self.get_event(org_id, event_id)
+        if event is None:
+            return None
+
+        if event.gate_token is not None and event.ticket_secret is not None:
+            return event
+
+        # Race-safe first mint: two concurrent first calls (e.g. two manage
+        # pages opening right after deploy, or a manage GET racing the
+        # scanner boot) must NOT each persist a different ticket_secret —
+        # the loser would sign QR payloads with an overwritten secret that
+        # scans red at the gate. `if_not_exists` lets DynamoDB serialize
+        # the writes: whichever value lands first wins, and every caller
+        # gets the winning values back via ALL_NEW.
+        try:
+            response = self.table.update_item(
+                Key={"pk": f"ORG#{org_id}", "sk": f"EVENT#{event_id}"},
+                UpdateExpression=(
+                    "SET gate_token = if_not_exists(gate_token, :gt), "
+                    "ticket_secret = if_not_exists(ticket_secret, :ts)"
+                ),
+                ConditionExpression="attribute_exists(pk)",
+                ExpressionAttributeValues={
+                    ":gt": _generate_link_token(),
+                    ":ts": secrets.token_urlsafe(32),
+                },
+                ReturnValues="ALL_NEW",
+            )
+            return _item_to_event(response["Attributes"])
+
+        except ClientError as e:
+            logger.error(
+                "Failed to ensure gate credentials",
+                extra={"error": str(e), "event_id": str(event_id)},
             )
             return None
 
@@ -387,6 +556,19 @@ class EventService:
         if not update_fields:
             return event
 
+        # Ä8: enforce the per-type capacity cap against the persisted
+        # event_type — EventUpdate's own validator can only check when the
+        # payload carries BOTH capacity and event_type.
+        new_capacity = update_fields.get("capacity")
+        if new_capacity is not None:
+            effective_type = update_fields.get("event_type") or event.event_type
+            max_capacity = 2000 if effective_type == EventType.FESTIVAL else 500
+            if new_capacity > max_capacity:
+                raise ValueError(
+                    f"Capacity must not exceed {max_capacity} for "
+                    f"{EventType(effective_type).value} events",
+                )
+
         update_expression_parts = []
         expression_attribute_names = {}
         expression_attribute_values = {}
@@ -400,6 +582,23 @@ class EventService:
             # Convert datetime to ISO string
             if isinstance(value, datetime):
                 value = value.isoformat()
+
+            # festival_slots dump to dicts holding datetime.date objects,
+            # which boto3's serializer rejects — store them in the exact
+            # shape _event_to_item uses (isoformat date, no None capacity).
+            if field == "festival_slots" and value is not None:
+                # exclude_unset recurses into the slot dicts — fall back to
+                # the FestivalSlot model defaults for omitted fields.
+                value = [
+                    {
+                        "key": slot["key"],
+                        "label": slot["label"],
+                        "date": slot["date"].isoformat(),
+                        "is_night": slot.get("is_night", False),
+                        **({"capacity": slot["capacity"]} if slot.get("capacity") else {}),
+                    }
+                    for slot in value
+                ]
 
             expression_attribute_values[attr_value] = value
 
@@ -834,6 +1033,104 @@ class EventService:
                 logger.warning("Event delete condition failed", extra={"event_id": str(event_id)})
                 return False
             logger.error("Failed to delete event", extra={"error": str(e)})
+            raise
+
+    async def delete_festival_event(self, org_id: UUID, event_id: UUID) -> bool:
+        """Delete a FESTIVAL event and every co-located row it owns.
+
+        Mirrors `delete_event`'s CANCELLED-only guard (Ä-isolation: this
+        only ever touches FESTIVAL events, a SINGLE event id 404s one layer
+        up in the router via `_get_festival_event_or_404`), but additionally
+        purges everything `delete_event` leaves behind as orphans for a
+        SINGLE event — that's intentional scope-creep for festivals only,
+        since a festival's invites/registrations/scans/messages are large
+        and otherwise unreachable once the event itself is gone:
+
+        - Invite rows (events table, `pk=EVENT#{event_id}`, `sk=INVITE#...`)
+        - Registration rows (registrations table, `pk=EVENT#{event_id}`,
+          `sk=REG#...`)
+        - Check-in scan log rows (registrations table, same partition,
+          `sk=SCAN#...`)
+        - Message rows (messages table, `pk=EVENT#{event_id}`, `sk=MSG#...`)
+
+        Co-located rows are purged BEFORE the EVENT# item itself, so a
+        failure partway through leaves the event (and any remaining rows)
+        discoverable and the delete retryable, rather than orphaning data
+        under a partition nothing points to anymore.
+
+        Args:
+            org_id: Organization ID.
+            event_id: Festival event ID.
+
+        Raises:
+            ValueError: the event exists but is not in CANCELLED status
+                (German detail — the router maps this to 409).
+
+        Returns:
+            True if deleted, False if not found (including a SINGLE event
+            id, or a conditional-check race where another request deleted
+            or un-cancelled it first).
+        """
+        event = await self.get_event(org_id, event_id)
+        if not event or event.event_type != EventType.FESTIVAL:
+            return False
+
+        if event.status != EventStatus.CANCELLED:
+            logger.warning(
+                "Cannot delete festival event not in CANCELLED status",
+                extra={"event_id": str(event_id), "status": event.status},
+            )
+            raise ValueError(
+                "Festival muss zuerst abgesagt werden, bevor es gelöscht werden "
+                f"kann (aktueller Status: {event.status.value})",
+            )
+
+        event_pk = f"EVENT#{event_id}"
+
+        invite_count = _purge_rows_by_prefix(self.table, event_pk, EVENT_SK_INVITE_PREFIX)
+
+        registrations_table = get_registrations_table()
+        registration_count = _purge_rows_by_prefix(registrations_table, event_pk, REGISTRATION_SK_PREFIX)
+        scan_count = _purge_rows_by_prefix(registrations_table, event_pk, CHECKIN_SK_PREFIX)
+
+        messages_table = get_messages_table()
+        message_count = _purge_rows_by_prefix(messages_table, event_pk, MESSAGE_SK_PREFIX)
+
+        logger.info(
+            "Purged festival co-located data",
+            extra={
+                "event_id": str(event_id),
+                "invites": invite_count,
+                "registrations": registration_count,
+                "scans": scan_count,
+                "messages": message_count,
+            },
+        )
+
+        try:
+            self.table.delete_item(
+                Key={
+                    "pk": f"ORG#{org_id}",
+                    "sk": f"EVENT#{event_id}",
+                },
+                ConditionExpression="#status = :cancelled_status",
+                ExpressionAttributeNames={"#status": "status"},
+                ExpressionAttributeValues={":cancelled_status": EventStatus.CANCELLED.value},
+            )
+
+            logger.info(
+                "Festival event deleted",
+                extra={"event_id": str(event_id), "org_id": str(org_id)},
+            )
+            return True
+
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                logger.warning(
+                    "Festival event delete condition failed", extra={"event_id": str(event_id)},
+                )
+                return False
+            logger.error("Failed to delete festival event", extra={"error": str(e)})
             raise
 
     async def clone_event(
