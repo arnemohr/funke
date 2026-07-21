@@ -7,7 +7,6 @@ from uuid import uuid4
 import pytest
 
 from app.models import (
-    AccommodationType,
     Event,
     EventStatus,
     EventType,
@@ -288,24 +287,31 @@ class TestSendEmail:
 
 
 class TestAccommodationLabel:
-    """Ä17 request semantics for {Schlafplatz}."""
+    """Ä17/Ä21 request semantics for {Schlafplatz}: _build_accommodation_label(
+    tent_count, camper_count, overnight_approved)."""
 
     def test_none_is_none(self):
-        """No accommodation wish -> None, so the Schlafplatz line is omitted entirely."""
-        assert _build_accommodation_label(None, False) is None
-        assert _build_accommodation_label(None, True) is None
+        """No overnight wish -> None, so the Schlafplatz line is omitted entirely."""
+        assert _build_accommodation_label(None, None, False) is None
+        assert _build_accommodation_label(0, 0, True) is None
 
     def test_tent_not_approved(self):
-        assert _build_accommodation_label(AccommodationType.TENT, False) == "Zelt — angefragt"
+        assert _build_accommodation_label(1, None, False) == "1 Zelt — angefragt"
 
     def test_tent_approved(self):
-        assert _build_accommodation_label(AccommodationType.TENT, True) == "Zelt — zugesagt"
+        assert _build_accommodation_label(1, None, True) == "1 Zelt — zugesagt"
 
     def test_camper_not_approved(self):
-        assert _build_accommodation_label(AccommodationType.CAMPER, False) == "Camper — angefragt"
+        assert _build_accommodation_label(None, 1, False) == "1 Camper — angefragt"
 
     def test_camper_approved(self):
-        assert _build_accommodation_label(AccommodationType.CAMPER, True) == "Camper — zugesagt"
+        assert _build_accommodation_label(None, 1, True) == "1 Camper — zugesagt"
+
+    def test_multiple_tents_pluralize(self):
+        assert _build_accommodation_label(3, None, False) == "3 Zelte — angefragt"
+
+    def test_both_types_shown(self):
+        assert _build_accommodation_label(2, 1, True) == "2 Zelte, 1 Camper — zugesagt"
 
 
 class TestSlotLabels:
@@ -533,16 +539,17 @@ class TestFestivalEmailTemplates:
         assert festival_ctx.management_url in text
 
     @pytest.mark.parametrize(
-        ("accommodation", "approved", "expected"),
+        ("tent_count", "camper_count", "approved", "expected"),
         [
-            (AccommodationType.TENT, False, "Zelt — angefragt"),
-            (AccommodationType.TENT, True, "Zelt — zugesagt"),
-            (AccommodationType.CAMPER, False, "Camper — angefragt"),
-            (AccommodationType.CAMPER, True, "Camper — zugesagt"),
+            (1, None, False, "1 Zelt — angefragt"),
+            (1, None, True, "1 Zelt — zugesagt"),
+            (None, 1, False, "1 Camper — angefragt"),
+            (None, 1, True, "1 Camper — zugesagt"),
+            (2, 1, True, "2 Zelte, 1 Camper — zugesagt"),
         ],
     )
-    def test_schlafplatz_states_in_f2_and_f3(self, festival_ctx, accommodation, approved, expected):
-        label = _build_accommodation_label(accommodation, approved)
+    def test_schlafplatz_states_in_f2_and_f3(self, festival_ctx, tent_count, camper_count, approved, expected):
+        label = _build_accommodation_label(tent_count, camper_count, approved)
         assert label == expected
         ctx = festival_ctx.model_copy(update={"accommodation_label": label})
 
@@ -553,9 +560,9 @@ class TestFestivalEmailTemplates:
         assert expected in f3_text
 
     def test_schlafplatz_line_absent_when_no_accommodation(self, festival_ctx):
-        """No accommodation wish -> the "- Schlafplatz: ..." line is omitted
+        """No overnight wish -> the "- Schlafplatz: ..." line is omitted
         entirely (not rendered as "Nein")."""
-        label = _build_accommodation_label(None, False)
+        label = _build_accommodation_label(None, None, False)
         assert label is None
         ctx = festival_ctx.model_copy(update={"accommodation_label": label})
 
@@ -621,7 +628,7 @@ class TestFestivalSendMethods:
             "registration_token": "regtoken",
             "status": RegistrationStatus.PARTICIPATING,
             "attendance_slots": ["fr-abend", "sa-tag"],
-            "accommodation": AccommodationType.TENT,
+            "tent_count": 1,
         }
         defaults.update(overrides)
         return Registration(**defaults)
@@ -674,6 +681,40 @@ class TestFestivalSendMethods:
 
         assert result is False
         email_service._messages_table.put_item.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_bulk_invitation_gets_list_unsubscribe(self, email_service, monkeypatch):
+        """Bulk-style mail (FESTIVAL_INVITATION) auto-attaches List-Unsubscribe."""
+        import app.services.email_service as es
+        from app.services.email_client import EmailSettings
+
+        monkeypatch.setattr(
+            es, "get_email_settings",
+            lambda: EmailSettings(smtp_sender_email="funke@mobilemachenschaften.de"),
+        )
+        result = await email_service.send_festival_invitation(self._event(), self._invite())
+
+        assert result is True
+        item = email_service._messages_table.put_item.call_args[1]["Item"]
+        assert item["list_unsubscribe"] == "<mailto:funke@mobilemachenschaften.de?subject=Abmelden>"
+
+    @pytest.mark.asyncio
+    async def test_transactional_confirmation_has_no_list_unsubscribe(
+        self, email_service, monkeypatch,
+    ):
+        """Transactional mail (FESTIVAL_CONFIRMATION) must NOT carry List-Unsubscribe."""
+        import app.services.email_service as es
+        from app.services.email_client import EmailSettings
+
+        monkeypatch.setattr(
+            es, "get_email_settings",
+            lambda: EmailSettings(smtp_sender_email="funke@mobilemachenschaften.de"),
+        )
+        result = await email_service.send_festival_confirmation(self._event(), self._registration())
+
+        assert result is True
+        item = email_service._messages_table.put_item.call_args[1]["Item"]
+        assert "list_unsubscribe" not in item
 
     @pytest.mark.asyncio
     async def test_send_festival_confirmation_queues_message(self, email_service):

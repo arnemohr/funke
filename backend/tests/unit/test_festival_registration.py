@@ -21,7 +21,6 @@ import pytest
 from botocore.exceptions import ClientError
 
 from app.models import (
-    AccommodationType,
     Event,
     EventStatus,
     EventType,
@@ -184,7 +183,7 @@ class TestCreateFestivalRegistrationValidationChain(FestivalTestBase):
             name="Anna Meier",
             email="anna@example.com",
             attendance_slots=["fr"],
-            accommodation=AccommodationType.TENT,
+            tent_count=1,
             phone="0176 12345678",
         ).model_copy(update={"phone": None})
 
@@ -206,20 +205,47 @@ class TestCreateFestivalRegistrationValidationChain(FestivalTestBase):
             name="Anna Meier",
             email="anna@example.com",
             attendance_slots=["fr", "sa"],  # day-only slots, no is_night slot chosen
-            accommodation=AccommodationType.CAMPER,
+            camper_count=1,
             phone="0176 12345678",
         )
 
         reg, error = await self.reg_service.create_festival_registration(invite.token, data)
 
         assert error is None
-        assert reg.accommodation == AccommodationType.CAMPER
+        assert reg.camper_count == 1
         assert reg.phone == "0176 12345678"
 
     @pytest.mark.asyncio
-    async def test_accommodation_none_created_with_phone_kept(self):
-        """Phone is required regardless of accommodation — no longer nulled
-        out when accommodation is absent."""
+    async def test_overnight_counts_persisted_on_create(self):
+        """Ä21: a group bringing two campers AND a tent is stored as-is."""
+        event = self._make_event()
+        self._store_event(event)
+        invite = await self._make_invite(event, max_group_size=5)
+
+        data = FestivalRegistrationCreate(
+            name="Anna Meier",
+            email="anna@example.com",
+            attendance_slots=["fr"],
+            group_size=2,
+            group_members=["Bob Fisch"],
+            camper_count=2,
+            tent_count=1,
+            phone="0176 12345678",
+        )
+
+        reg, error = await self.reg_service.create_festival_registration(invite.token, data)
+
+        assert error is None
+        assert reg.camper_count == 2
+        assert reg.tent_count == 1
+        stored = await self.reg_service.get_registration(event.id, reg.id)
+        assert stored.camper_count == 2
+        assert stored.tent_count == 1
+
+    @pytest.mark.asyncio
+    async def test_no_overnight_created_with_phone_kept(self):
+        """Phone is required regardless of overnight — no longer nulled out
+        when there is no overnight wish."""
         event = self._make_event()
         self._store_event(event)
         invite = await self._make_invite(event)
@@ -228,14 +254,13 @@ class TestCreateFestivalRegistrationValidationChain(FestivalTestBase):
             name="Anna Meier",
             email="anna@example.com",
             attendance_slots=["fr"],
-            accommodation=None,
             phone="0176 12345678",
         )
 
         reg, error = await self.reg_service.create_festival_registration(invite.token, data)
 
         assert error is None
-        assert reg.accommodation is None
+        assert reg.has_overnight is False
         assert reg.phone == "0176 12345678"
 
     @pytest.mark.asyncio
@@ -475,12 +500,12 @@ class TestUpdateFestivalAttendance(FestivalTestBase):
         assert error2 is not None
 
     @pytest.mark.asyncio
-    async def test_a17_reset_on_clearing_accommodation(self):
+    async def test_a17_reset_on_clearing_overnight(self):
         event = self._make_event()
         self._store_event(event)
         invite = await self._make_invite(event)
         reg = await self._register(
-            event, invite, accommodation=AccommodationType.TENT, phone="0176 12345678",
+            event, invite, tent_count=1, phone="0176 12345678",
         )
 
         # Simulate an admin approval (T205, out of scope here) directly on
@@ -488,7 +513,7 @@ class TestUpdateFestivalAttendance(FestivalTestBase):
         approved = reg.model_copy(update={"overnight_approved": True})
         self.tables["registrations_table"].put_item(Item=_registration_to_item(approved))
 
-        clear_patch = FestivalAttendancePatch(accommodation=None)
+        clear_patch = FestivalAttendancePatch(tent_count=0)
         updated, error = await self.reg_service.update_festival_attendance(
             reg.id, reg.registration_token, clear_patch,
         )
@@ -496,7 +521,43 @@ class TestUpdateFestivalAttendance(FestivalTestBase):
         assert error is None
         assert updated.overnight_approved is False
         assert updated.phone == "0176 12345678"
-        assert updated.accommodation is None
+        # Ä21: clearing the whole wish resets the counts.
+        assert updated.has_overnight is False
+        assert updated.tent_count is None
+
+    @pytest.mark.asyncio
+    async def test_overnight_count_edit_both_types_and_group_ceiling(self):
+        """Ä21: guests can raise counts up to group_size (each type) and may
+        bring both; beyond group_size is rejected."""
+        event = self._make_event()
+        self._store_event(event)
+        invite = await self._make_invite(event, max_group_size=5)
+        reg = await self._register(
+            event,
+            invite,
+            group_size=3,
+            group_members=["Bob Fisch", "Carla Muschel"],
+            camper_count=1,
+            phone="0176 12345678",
+        )
+        assert reg.camper_count == 1
+
+        # Raise to 3 campers + 1 tent — allowed (each ≤ group_size).
+        ok_patch = FestivalAttendancePatch(camper_count=3, tent_count=1)
+        updated, error = await self.reg_service.update_festival_attendance(
+            reg.id, reg.registration_token, ok_patch,
+        )
+        assert error is None
+        assert updated.camper_count == 3
+        assert updated.tent_count == 1
+
+        # 4 campers for a 3-person group — rejected.
+        bad_patch = FestivalAttendancePatch(camper_count=4)
+        updated2, error2 = await self.reg_service.update_festival_attendance(
+            reg.id, reg.registration_token, bad_patch,
+        )
+        assert updated2 is None
+        assert error2 == "camper_count_exceeds_group"
 
     @pytest.mark.asyncio
     async def test_a17_approval_untouched_when_patching_only_slots(self):
@@ -504,7 +565,7 @@ class TestUpdateFestivalAttendance(FestivalTestBase):
         self._store_event(event)
         invite = await self._make_invite(event)
         reg = await self._register(
-            event, invite, accommodation=AccommodationType.TENT, phone="0176 12345678",
+            event, invite, tent_count=1, phone="0176 12345678",
         )
 
         approved = reg.model_copy(update={"overnight_approved": True})
@@ -517,7 +578,7 @@ class TestUpdateFestivalAttendance(FestivalTestBase):
 
         assert error is None
         assert updated.overnight_approved is True
-        assert updated.accommodation == AccommodationType.TENT
+        assert updated.tent_count == 1
 
     @pytest.mark.asyncio
     async def test_group_members_tombstone_then_append(self):
@@ -777,32 +838,32 @@ class TestBuildGateRows:
     def test_schlafplatz_states_and_telefon_only_when_overnight(self):
         event = self._event()
 
-        no_overnight = _make_gate_registration(event.id, accommodation=None, phone=None)
+        no_overnight = _make_gate_registration(event.id, tent_count=None, camper_count=None, phone=None)
         tent_requested = _make_gate_registration(
-            event.id, accommodation=AccommodationType.TENT, overnight_approved=False, phone="0123",
+            event.id, tent_count=1, overnight_approved=False, phone="0123",
         )
         tent_approved = _make_gate_registration(
-            event.id, accommodation=AccommodationType.TENT, overnight_approved=True, phone="0123",
+            event.id, tent_count=1, overnight_approved=True, phone="0123",
         )
         camper_requested = _make_gate_registration(
-            event.id, accommodation=AccommodationType.CAMPER, overnight_approved=False, phone="0456",
+            event.id, camper_count=1, overnight_approved=False, phone="0456",
         )
-        camper_approved = _make_gate_registration(
-            event.id, accommodation=AccommodationType.CAMPER, overnight_approved=True, phone="0456",
+        both_approved = _make_gate_registration(
+            event.id, tent_count=2, camper_count=1, overnight_approved=True, phone="0456",
         )
 
         rows = {
             reg.id: build_gate_rows([reg], event)[0]
-            for reg in [no_overnight, tent_requested, tent_approved, camper_requested, camper_approved]
+            for reg in [no_overnight, tent_requested, tent_approved, camper_requested, both_approved]
         }
 
         assert rows[no_overnight.id]["Schlafplatz"] == "Nein"
         assert rows[no_overnight.id]["Telefon"] == ""
-        assert rows[tent_requested.id]["Schlafplatz"] == "Zelt — angefragt"
+        assert rows[tent_requested.id]["Schlafplatz"] == "1 Zelt — angefragt"
         assert rows[tent_requested.id]["Telefon"] == "0123"
-        assert rows[tent_approved.id]["Schlafplatz"] == "Zelt — zugesagt"
-        assert rows[camper_requested.id]["Schlafplatz"] == "Camper — angefragt"
-        assert rows[camper_approved.id]["Schlafplatz"] == "Camper — zugesagt"
+        assert rows[tent_approved.id]["Schlafplatz"] == "1 Zelt — zugesagt"
+        assert rows[camper_requested.id]["Schlafplatz"] == "1 Camper — angefragt"
+        assert rows[both_approved.id]["Schlafplatz"] == "2 Zelte, 1 Camper — zugesagt"
 
     def test_tombstoned_group_member_yields_no_row(self):
         event = self._event()

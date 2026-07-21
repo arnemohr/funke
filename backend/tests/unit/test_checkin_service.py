@@ -18,7 +18,6 @@ from boto3.dynamodb.conditions import Key
 
 import app.services.registration_service as registration_service_module
 from app.models import (
-    AccommodationType,
     Event,
     EventStatus,
     Registration,
@@ -445,7 +444,9 @@ class TestOvernightStatus(CheckinServiceTestBase):
     async def test_approved_camper(self):
         event = _festival_event()
         registration = _registration(
-            event.id, accommodation=AccommodationType.CAMPER, overnight_approved=True,
+            event.id,
+            camper_count=2,
+            overnight_approved=True,
         )
         self._seed(registration)
         code = sign_ticket(event.ticket_secret, registration.id, 0, registration.name, None)
@@ -453,13 +454,15 @@ class TestOvernightStatus(CheckinServiceTestBase):
         result = await self.service.scan_ticket(event, code)
 
         assert result["card"]["overnight_status"] == "approved"
-        assert result["card"]["accommodation"] == "CAMPER"
+        # Ä21: separate counts reach the gate card so staff can verify pitches.
+        assert result["card"]["camper_count"] == 2
+        assert result["card"]["tent_count"] is None
 
     @pytest.mark.asyncio
     async def test_requested_not_approved(self):
         event = _festival_event()
         registration = _registration(
-            event.id, accommodation=AccommodationType.TENT, overnight_approved=False,
+            event.id, tent_count=1, overnight_approved=False,
         )
         self._seed(registration)
         code = sign_ticket(event.ticket_secret, registration.id, 0, registration.name, None)
@@ -471,20 +474,21 @@ class TestOvernightStatus(CheckinServiceTestBase):
     @pytest.mark.asyncio
     async def test_none_when_no_accommodation(self):
         event = _festival_event()
-        registration = _registration(event.id, accommodation=None)
+        registration = _registration(event.id, tent_count=None, camper_count=None)
         self._seed(registration)
         code = sign_ticket(event.ticket_secret, registration.id, 0, registration.name, None)
 
         result = await self.service.scan_ticket(event, code)
 
         assert result["card"]["overnight_status"] == "none"
-        assert result["card"]["accommodation"] is None
+        assert result["card"]["tent_count"] is None
+        assert result["card"]["camper_count"] is None
 
     @pytest.mark.asyncio
     async def test_approval_after_signing_flips_the_card_on_next_scan(self):
         event = _festival_event()
         registration = _registration(
-            event.id, accommodation=AccommodationType.TENT, overnight_approved=False,
+            event.id, tent_count=1, overnight_approved=False,
         )
         self._seed(registration)
         # Signed while only "requested" — the offline `o` flag would be False.

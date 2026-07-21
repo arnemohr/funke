@@ -3,7 +3,7 @@
     <header>
       <hgroup>
         <h2>Festivals</h2>
-        <p>Mehrtägige Feste mit Einladungslinks — von der Gästeliste bis zum Einlass</p>
+        <p>Mehrtägige Feste: Einladungslinks verschicken, Anmeldungen sammeln, am Einlass scannen.</p>
       </hgroup>
       <button type="button" @click="goToNew">Neues Festival</button>
     </header>

@@ -206,7 +206,14 @@ class InviteService:
                 response = self.table.query(**query_kwargs)
                 items.extend(response.get("Items", []))
 
-            return [_item_to_invite(item) for item in items]
+            # Stable, deterministic order — the raw DynamoDB order is by
+            # sk (`INVITE#{uuid}`), i.e. effectively random, which makes a
+            # freshly created list jump around in the chase view. Oldest-first
+            # by creation keeps existing rows put and appends new ones at the
+            # end (the frontend groups by batch_label preserving this order).
+            invites = [_item_to_invite(item) for item in items]
+            invites.sort(key=lambda inv: inv.created_at)
+            return invites
 
         except ClientError as e:
             logger.error(

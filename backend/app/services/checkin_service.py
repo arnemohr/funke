@@ -112,7 +112,7 @@ class CheckinService:
         """Ä17: tri-state overnight status from the CURRENT registration —
         never from a ticket payload snapshot, so a post-issuance approval
         shows correctly at the gate."""
-        if registration.accommodation is None:
+        if not registration.has_overnight:
             return "none"
         return "approved" if registration.overnight_approved else "requested"
 
@@ -155,7 +155,11 @@ class CheckinService:
             # Slots are never enforced at the gate (Ä13) — informational only,
             # rendered from the current registration (like overnight status).
             "attendance_slots": registration.attendance_slots or [],
-            "accommodation": registration.accommodation.value if registration.accommodation else None,
+            # Ä21: separate tent/camper counts — a group may bring both. Shown
+            # at the gate so staff can verify pitches against the scarce
+            # Stellplätze.
+            "tent_count": registration.tent_count,
+            "camper_count": registration.camper_count,
             "overnight_status": self._overnight_status(registration),
         }
 
@@ -240,13 +244,34 @@ class CheckinService:
             response = self.table.get_item(Key={"pk": f"EVENT#{event_id}", "sk": scan_id})
             item = response.get("Item")
             if not item:
+                logger.info(
+                    "Festival check-in undo rejected — scan not found",
+                    extra={
+                        "flow": "festival", "step": "checkin_undo", "outcome": "rejected",
+                        "reason": "not_found", "event_id": str(event_id), "scan_id": scan_id,
+                    },
+                )
                 return False
 
             scanned_at = datetime.fromisoformat(item["scanned_at"])
             if datetime.now(timezone.utc) - scanned_at > UNDO_WINDOW:
+                logger.info(
+                    "Festival check-in undo rejected — window expired",
+                    extra={
+                        "flow": "festival", "step": "checkin_undo", "outcome": "rejected",
+                        "reason": "window_expired", "event_id": str(event_id), "scan_id": scan_id,
+                    },
+                )
                 return False
 
             self.table.delete_item(Key={"pk": f"EVENT#{event_id}", "sk": scan_id})
+            logger.info(
+                "Festival check-in undone",
+                extra={
+                    "flow": "festival", "step": "checkin_undo", "outcome": "ok",
+                    "event_id": str(event_id), "scan_id": scan_id,
+                },
+            )
             return True
 
         except ClientError as e:
@@ -269,15 +294,19 @@ class CheckinService:
           "already_checked_in": bool}` (`already_checked_in` is only present
           when true — first-time scans omit it).
         """
+        def _reject(reason: str, **extra: object) -> dict:
+            self._log_scan_reject(event.id, reason, via="qr", override=override, **extra)
+            return {"result": "invalid", "reason": reason}
+
         payload = verify_ticket(event.ticket_secret, code)
         if payload is None:
-            return {"result": "invalid", "reason": "invalid_signature"}
+            return _reject("invalid_signature")
 
         registration_id_raw = payload.get("r")
         person_index = payload.get("p")
         ticket_name = payload.get("n")
         if registration_id_raw is None or person_index is None:
-            return {"result": "invalid", "reason": "unknown_registration"}
+            return _reject("unknown_registration")
 
         # A validly-signed payload can still carry a non-int "p" (the
         # verification_secret is handed to every gate device, Risk 6) —
@@ -285,26 +314,36 @@ class CheckinService:
         # break the router's always-200 contract. bool is excluded
         # explicitly (it's an int subclass, but never a valid index).
         if not isinstance(person_index, int) or isinstance(person_index, bool):
-            return {"result": "invalid", "reason": "unknown_registration"}
+            return _reject("unknown_registration")
 
         try:
             registration_id = UUID(str(registration_id_raw))
         except (ValueError, TypeError):
-            return {"result": "invalid", "reason": "unknown_registration"}
+            return _reject("unknown_registration")
 
         registration_service = get_registration_service()
         registration = await registration_service.get_registration(event.id, registration_id)
         if registration is None:
-            return {"result": "invalid", "reason": "unknown_registration"}
+            return _reject("unknown_registration", registration_id=str(registration_id))
 
         if registration.status == RegistrationStatus.CANCELLED:
-            return {"result": "invalid", "reason": "cancelled"}
+            return _reject(
+                "cancelled",
+                registration_id=str(registration_id),
+                person_index=person_index,
+            )
 
         current_name = self._current_name(registration, person_index)
         if current_name is None or current_name != ticket_name:
-            return {"result": "invalid", "reason": "stale_ticket"}
+            return _reject(
+                "stale_ticket",
+                registration_id=str(registration_id),
+                person_index=person_index,
+            )
 
-        return await self._checkin(event, registration, person_index, current_name, override)
+        return await self._checkin(
+            event, registration, person_index, current_name, override, via="qr",
+        )
 
     async def checkin_person(self, event: Event, registration_id: UUID, person_index: int) -> dict:
         """Name-search check-in target — always a specific
@@ -313,16 +352,56 @@ class CheckinService:
         registration_service = get_registration_service()
         registration = await registration_service.get_registration(event.id, registration_id)
         if registration is None:
+            self._log_scan_reject(
+                event.id, "unknown_registration", via="name_search",
+                override=True, registration_id=str(registration_id),
+            )
             return {"result": "invalid", "reason": "unknown_registration"}
 
         if registration.status == RegistrationStatus.CANCELLED:
+            self._log_scan_reject(
+                event.id, "cancelled", via="name_search", override=True,
+                registration_id=str(registration_id), person_index=person_index,
+            )
             return {"result": "invalid", "reason": "cancelled"}
 
         current_name = self._current_name(registration, person_index)
         if current_name is None:
+            self._log_scan_reject(
+                event.id, "stale_ticket", via="name_search", override=True,
+                registration_id=str(registration_id), person_index=person_index,
+            )
             return {"result": "invalid", "reason": "stale_ticket"}
 
-        return await self._checkin(event, registration, person_index, current_name, override=True)
+        return await self._checkin(
+            event, registration, person_index, current_name, override=True, via="name_search",
+        )
+
+    def _log_scan_reject(
+        self,
+        event_id: UUID,
+        reason: str,
+        via: str,
+        override: bool,
+        **extra: object,
+    ) -> None:
+        """Structured log for a rejected check-in (green never reaches here).
+
+        `flow=festival step=checkin outcome=invalid` — filterable in the
+        same CloudWatch query as the rest of the flow."""
+        logger.info(
+            "Festival check-in rejected",
+            extra={
+                "flow": "festival",
+                "step": "checkin",
+                "outcome": "invalid",
+                "reason": reason,
+                "via": via,
+                "override": override,
+                "event_id": str(event_id),
+                **extra,
+            },
+        )
 
     async def _checkin(
         self,
@@ -331,6 +410,7 @@ class CheckinService:
         person_index: int,
         person_name: str,
         override: bool,
+        via: str = "qr",
     ) -> dict:
         """Shared steps 6-7 of the scan/check-in flow: look up current
         check-in state, build the card, and — unless already checked in
@@ -341,11 +421,31 @@ class CheckinService:
 
         card = self._build_card(registration, person_index, person_name, checked_in_map)
 
+        def _log_green(scan_id: str | None) -> None:
+            logger.info(
+                "Festival check-in accepted",
+                extra={
+                    "flow": "festival",
+                    "step": "checkin",
+                    "outcome": "green",
+                    "via": via,
+                    "override": override,
+                    "event_id": str(event.id),
+                    "registration_id": str(registration.id),
+                    "person_index": person_index,
+                    "person_name": person_name,
+                    "already_checked_in": already,
+                    "scan_id": scan_id,
+                },
+            )
+
         if already and not override:
             # No second wristband — the shift lead decides via override.
+            _log_green(None)
             return {"result": "green", "already_checked_in": True, "card": card}
 
         scan_id = await self.record_scan(event.id, registration.id, person_index, person_name, override=override)
+        _log_green(scan_id)
         result: dict = {"result": "green", "scan_id": scan_id, "card": card}
         if already:
             result["already_checked_in"] = True
@@ -388,6 +488,17 @@ class CheckinService:
                     },
                 )
 
+        logger.info(
+            "Festival gate name search",
+            extra={
+                "flow": "festival",
+                "step": "checkin_search",
+                "outcome": "ok",
+                "event_id": str(event.id),
+                "query_len": len(q),
+                "match_count": len(matches),
+            },
+        )
         return matches
 
 

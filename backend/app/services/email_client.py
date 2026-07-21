@@ -8,12 +8,13 @@ Provides:
 
 import secrets
 import smtplib
+from datetime import datetime, timezone
 from email.header import Header
 from email.mime.application import MIMEApplication
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from email.utils import formataddr
+from email.utils import format_datetime, formataddr
 from functools import lru_cache
 
 from pydantic import BaseModel, ConfigDict
@@ -76,6 +77,7 @@ class EmailMessage(BaseModel):
     reply_to: str | None = None
     in_reply_to: str | None = None  # Message-ID of parent email for threading
     message_id: str | None = None  # Custom Message-ID (auto-generated if not provided)
+    list_unsubscribe: str | None = None  # RFC 2369 List-Unsubscribe header value (bulk mail)
     attachments: list[Attachment] = []
     inline_images: list[InlineImage] = []
 
@@ -91,8 +93,13 @@ class EmailResult(BaseModel):
 class SmtpClient:
     """SMTP client for sending emails via Strato."""
 
-    def _generate_message_id(self, domain: str = "funke.app") -> str:
-        """Generate a unique Message-ID."""
+    def _generate_message_id(self, domain: str) -> str:
+        """Generate a unique Message-ID scoped to the sender's own domain.
+
+        Aligning the Message-ID host with the From/DKIM domain avoids the
+        classic "unrelated mailer" spam signal (previously hardcoded to
+        funke.app, which the org does not control).
+        """
         unique_id = secrets.token_hex(16)
         return f"<{unique_id}@{domain}>"
 
@@ -148,8 +155,18 @@ class SmtpClient:
         )
         msg["Subject"] = email.subject
 
-        # Generate or use provided Message-ID
-        message_id = email.message_id or self._generate_message_id()
+        # RFC 5322 Date: set an accurate send-time header ourselves — mail is
+        # queued and sent later, and a missing Date is a classic spam signal
+        # (we don't rely on the MSA to backfill it).
+        msg["Date"] = format_datetime(datetime.now(timezone.utc))
+
+        # Generate or use provided Message-ID, scoped to the sender's domain.
+        sender_domain = (
+            settings.smtp_sender_email.split("@", 1)[-1]
+            if "@" in settings.smtp_sender_email
+            else "funke.app"
+        )
+        message_id = email.message_id or self._generate_message_id(sender_domain)
         msg["Message-ID"] = message_id
 
         # Set threading headers
@@ -159,6 +176,11 @@ class SmtpClient:
 
         if email.reply_to:
             msg["Reply-To"] = email.reply_to
+
+        # List-Unsubscribe (RFC 2369) — set only for bulk-style mail; a
+        # positive complaint-friction / reputation signal at Gmail/GMX/Web.de.
+        if email.list_unsubscribe:
+            msg["List-Unsubscribe"] = email.list_unsubscribe
 
         return msg
 

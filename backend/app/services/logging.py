@@ -44,6 +44,17 @@ def get_log_settings() -> LogSettings:
     return LogSettings()
 
 
+# The set of attributes the stdlib puts on every LogRecord. Anything NOT in
+# here that shows up on a record's __dict__ was passed by the caller via
+# `extra={...}` (Python spreads those onto the record as attributes — there is
+# no `record.extra` dict), so it's a structured field we want in the JSON.
+_STANDARD_LOGRECORD_ATTRS = set(logging.makeLogRecord({}).__dict__) | {
+    "message",
+    "asctime",
+    "taskName",
+}
+
+
 class StructuredFormatter(logging.Formatter):
     """JSON formatter for structured logging in CloudWatch."""
 
@@ -67,11 +78,13 @@ class StructuredFormatter(logging.Formatter):
         if correlation_id:
             log_data["correlation_id"] = correlation_id
 
-        # Add extra fields
-        if hasattr(record, "extra"):
-            log_data.update(record.extra)
-        elif record.__dict__.get("extra"):
-            log_data.update(record.__dict__["extra"])
+        # Add caller-supplied `extra={...}` fields (flow/step/outcome/reason,
+        # message_id, etc.). These land as individual record attributes, so
+        # emit every non-standard attribute — this is what makes the logs
+        # queryable in CloudWatch Insights (`filter flow = "festival"`).
+        for key, value in record.__dict__.items():
+            if key not in _STANDARD_LOGRECORD_ATTRS and not key.startswith("_"):
+                log_data.setdefault(key, value)
 
         # Add exception info if present
         if record.exc_info:
@@ -80,7 +93,9 @@ class StructuredFormatter(logging.Formatter):
         # Add location info
         log_data["location"] = f"{record.filename}:{record.lineno}"
 
-        return json.dumps(log_data)
+        # default=str keeps a stray non-JSON value (UUID, datetime, Enum) from
+        # crashing the whole log line.
+        return json.dumps(log_data, default=str)
 
 
 class ContextualLogger(logging.LoggerAdapter):
@@ -144,6 +159,19 @@ def get_logger(name: str) -> ContextualLogger:
     """
     base_logger = logging.getLogger(name)
     return ContextualLogger(base_logger, {})
+
+
+def token_hint(token: str | None) -> str:
+    """Return a short, non-secret prefix of an opaque token for log correlation.
+
+    Enough to correlate a guest's steps across log lines (invite boot ->
+    register) and match against an admin's generated link, without ever
+    writing the full redeemable secret (invite/registration/gate token) to
+    CloudWatch.
+    """
+    if not token:
+        return ""
+    return f"{token[:6]}…"
 
 
 def generate_request_id() -> str:

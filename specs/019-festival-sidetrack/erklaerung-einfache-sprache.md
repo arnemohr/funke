@@ -59,8 +59,8 @@ Eine Gruppe von Links mit gleichen Regeln nennen wir **Kontingent** — zum Beis
 3. Du meldest dich an. Du gibst an:
    - deinen **vollen Namen (Vor- und Nachname)** und deine E-Mail-Adresse — Spitznamen reichen nicht,
    - wen du mitbringst (auch mit **Vor- und Nachnamen**),
-   - **an welchen Tagen du kommst** — Kästchen zum Ankreuzen: **Freitag / Samstag / Sonntag**.
-   *(Die Übernachtungs-Frage ist vorerst ausgeblendet — die Schlafplätze werden noch geklärt.)*
+   - **an welchen Tagen du kommst** — Kästchen zum Ankreuzen: **Freitag / Samstag / Sonntag**,
+   - ob du **übernachtest** — trag ein, **wie viele Zelte und/oder Camper/Wohnwagen** ihr mitbringt (beides möglich, wenn ihr z. B. mit Zelt *und* Camper kommt). Gezählt werden die Zelte/Fahrzeuge, nicht die Personen — die Stellplätze sind knapp. Nichts eintragen = keine Übernachtung. Deine Angabe ist eine **Anfrage**, keine Zusage — wir melden uns bei dir.
 4. Danach bekommst du eine Bestätigungs-E-Mail. Darin steht alles noch einmal — und ein **Verwaltungs-Link**.
 5. Mit dem Verwaltungs-Link kannst du deine Angaben **jederzeit selbst ändern** — die Anmeldung läuft bis zum letzten Festival-Tag, auch während des Festivals.
 6. **Absagen geht immer.** Bitte sag ab, wenn du nicht kommst — dann stimmen unsere Zahlen fürs Essen und die Stellplätze.
@@ -131,7 +131,7 @@ Alle E-Mails klingen wie immer bei uns („Moin …", freundlich, auf Deutsch):
 - **Kein Geld.** Das Festival kostet keinen Eintritt, also gibt es keine Bezahlung im Werkzeug.
 - **Keine Essens-Abfrage** (vorerst). Falls das Küchen-Team es braucht, reden wir nochmal.
 - **Keine spontanen Gäste.** Wer keinen Einladungs-Link hat und nicht angemeldet ist, kommt nicht rein. Es gibt keine Anmeldung am Eingang.
-- **Keine Übernachtungs-Verwaltung (vorerst).** Die Schlafplatz-Frage ist ausgeblendet, bis die Stellplätze geklärt sind.
+- **Übernachtung ist eine Anfrage, keine Zusage.** Wir fragen Zelt/Camper und wie viele Zelte/Camper ihr mitbringt; die Orga sagt Stellplätze manuell zu (nach Telefon-Absprache). Es gibt keine automatische Zusage-Mail.
 - **Kein Aufbau-Plan.** Aufbau und Abbau werden woanders organisiert — dieses Werkzeug kümmert sich nur um die Festival-Tage.
 
 ---

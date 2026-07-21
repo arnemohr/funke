@@ -242,7 +242,7 @@ export const publicApi = {
    * Self-service edit of a festival registration's attendance (spec 019).
    * @param {string} registrationId - Registration ID
    * @param {string} token - Registration token
-   * @param {object} payload - Attendance patch (slots, accommodation, phone, group_members)
+   * @param {object} payload - Attendance patch (slots, tent_count, camper_count, phone, group_members)
    * @returns {Promise<object>} Updated registration
    */
   async updateFestivalAttendance(registrationId, token, payload) {

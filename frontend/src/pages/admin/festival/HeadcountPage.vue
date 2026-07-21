@@ -97,18 +97,22 @@
         </table>
       </div>
 
-      <!-- Übernachtung card (Ä15/Ä17) -->
+      <!-- Übernachtung card (Ä15/Ä17/Ä21) — counts are UNITS (Zelte/Camper =
+           the real Stellplatz demand). A group may bring both; people who
+           sleep over are counted once, separately. -->
       <article v-if="OVERNIGHT_ENABLED" class="accommodation-card">
         <h4>Übernachtung</h4>
         <p>
-          Zelt: <strong>{{ headcount.accommodation_totals.TENT.approved }}</strong> zugesagt /
-          {{ headcount.accommodation_totals.TENT.requested }} angefragt ·
-          Camper: <strong>{{ headcount.accommodation_totals.CAMPER.approved }}</strong> zugesagt /
-          {{ headcount.accommodation_totals.CAMPER.requested }} angefragt
-          — inkl. Begleitungen
+          Zelte: <strong>{{ headcount.accommodation_totals.TENT.approved_units }}</strong> zugesagt /
+          {{ headcount.accommodation_totals.TENT.requested_units }} angefragt
+          ·
+          Camper: <strong>{{ headcount.accommodation_totals.CAMPER.approved_units }}</strong> zugesagt /
+          {{ headcount.accommodation_totals.CAMPER.requested_units }} angefragt
         </p>
         <p class="hint-text">
-          Die zugesagt-Zahlen sind die reale Stellplatz-Nachfrage. Zusagen erteilst du auf der Anmeldungs-Übersicht.
+          Personen mit Übernachtung: {{ headcount.overnight_people.approved }} zugesagt /
+          {{ headcount.overnight_people.requested }} angefragt.
+          Die zugesagt-Zahlen sind die reale Stellplatz-Nachfrage (Zelte/Camper, inkl. Begleitungen). Zusagen erteilst du auf der Anmeldungs-Übersicht.
         </p>
       </article>
 

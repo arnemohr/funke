@@ -177,6 +177,13 @@
 
         <!-- Festival branch (spec 019) — additive, keyed on event_type; SINGLE below is untouched -->
         <template v-if="isFestival">
+          <!-- Mitmach-Hinweis (Ä16) — shown here + on the success screen, not
+               on the empty registration form. -->
+          <section v-if="eventInfo?.participation_hint" class="mitmach-box">
+            <p class="mitmach-title">Pack mit an!</p>
+            <p class="mitmach-text" v-html="linkify(eventInfo.participation_hint)"></p>
+          </section>
+
           <div class="primary-action">
             <div class="registration-details festival-summary">
               <p><strong>Wann:</strong> {{ chosenSlotLabels.length ? chosenSlotLabels.join(', ') : '–' }}</p>
@@ -243,20 +250,23 @@
 
               <fieldset v-if="OVERNIGHT_ENABLED" class="overnight-fieldset">
                 <legend>Übernachtest du auf dem Gelände?</legend>
-                <label class="slot-checkbox">
-                  <input type="radio" name="edit-accommodation" value="NONE" v-model="editAccommodation" :disabled="saving" />
-                  <span class="slot-checkbox-label">Nein</span>
-                </label>
-                <label class="slot-checkbox">
-                  <input type="radio" name="edit-accommodation" value="TENT" v-model="editAccommodation" :disabled="saving" />
-                  <span class="slot-checkbox-label">Zelt — wir bringen unser eigenes Zelt mit</span>
-                </label>
-                <label class="slot-checkbox">
-                  <input type="radio" name="edit-accommodation" value="CAMPER" v-model="editAccommodation" :disabled="saving" />
-                  <span class="slot-checkbox-label">Camper/Bus — wir schlafen im eigenen Fahrzeug</span>
-                </label>
+                <p class="field-note">
+                  Wie viele Zelte und/oder Camper/Wohnwagen bringt ihr mit? Gezählt werden
+                  Zelte/Fahrzeuge (für die Stellplatz-Planung), nicht Personen. Beides möglich.
+                  Nichts eintragen = keine Übernachtung.
+                </p>
+                <div class="overnight-counts">
+                  <label class="accommodation-count">
+                    Zelte
+                    <input v-model.number="editTentCount" type="number" min="0" :max="editGroupSize" :disabled="saving" />
+                  </label>
+                  <label class="accommodation-count">
+                    Camper/Wohnwagen
+                    <input v-model.number="editCamperCount" type="number" min="0" :max="editGroupSize" :disabled="saving" />
+                  </label>
+                </div>
 
-                <p v-if="editAccommodation !== 'NONE'" class="request-copy">
+                <p v-if="editWantsOvernight" class="request-copy">
                   Schlafplätze sind begrenzt — deine Angabe ist eine Anfrage, keine Zusage. Wir melden uns bei dir.
                 </p>
               </fieldset>
@@ -417,6 +427,7 @@ import { useRoute } from 'vue-router'
 import QRCode from 'qrcode'
 import { publicApi } from '../../services/api'
 import { formatDate } from '../../utils/formatters.js'
+import { linkify } from '../../utils/linkify.js'
 import { OVERNIGHT_ENABLED } from '../../config/festival.js'
 import HelpButton from '../../components/help/HelpButton.vue'
 import HelpPanel from '../../components/help/HelpPanel.vue'
@@ -459,16 +470,29 @@ const showCancelDialog = ref(false)
 
 // Festival branch state (spec 019) — additive, only populated when eventInfo.event_type === 'FESTIVAL'
 const attendanceSlots = ref([])
-const accommodation = ref(null)
+const tentCount = ref(null)
+const camperCount = ref(null)
 const phone = ref(null)
 const overnightApproved = ref(false)
 const editableUntil = ref(null)
 const editingFestival = ref(false)
 const editSlots = ref({})
-const editAccommodation = ref('NONE')
+const editTentCount = ref(0)
+const editCamperCount = ref(0)
 const editPhone = ref('')
 const memberEntries = ref([])
 const nextMemberIndex = ref(0)
+
+// Group size while editing = contact + filled companion rows; caps each
+// tent/camper count (a group can't bring more units than it has people).
+const editGroupSize = computed(
+  () => 1 + memberEntries.value.filter((e) => e.index > 0 && (e.value || '').trim()).length,
+)
+
+// Ä21: any overnight wish = at least one tent or camper.
+const editWantsOvernight = computed(
+  () => Number(editTentCount.value) > 0 || Number(editCamperCount.value) > 0,
+)
 
 // Entry-code QR cards (spec 019 §P3, T309) — freshly signed on every GET,
 // never cached; re-drawn whenever qrPayloads changes (initial load, or
@@ -511,9 +535,11 @@ const chosenSlotLabels = computed(() => {
 })
 
 const overnightStatusLine = computed(() => {
-  if (!accommodation.value) return 'Übernachtung: Nein'
-  const typeLabel = accommodation.value === 'TENT' ? 'Zelt' : 'Camper'
-  return `Übernachtung: ${typeLabel} — ${overnightApproved.value ? 'zugesagt' : 'angefragt'}`
+  const parts = []
+  if (tentCount.value) parts.push(`${tentCount.value} ${tentCount.value === 1 ? 'Zelt' : 'Zelte'}`)
+  if (camperCount.value) parts.push(`${camperCount.value} Camper`)
+  if (parts.length === 0) return 'Übernachtung: Nein'
+  return `Übernachtung: ${parts.join(', ')} — ${overnightApproved.value ? 'zugesagt' : 'angefragt'}`
 })
 
 // Festival group_members are EXCLUSIVE of the contact person (spec §QR
@@ -580,7 +606,8 @@ async function loadRegistration() {
     editableMembers.value = [...result.group_members]
     lastSavedMembers.value = [...result.group_members]
     attendanceSlots.value = result.attendance_slots || []
-    accommodation.value = result.accommodation || null
+    tentCount.value = result.tent_count || null
+    camperCount.value = result.camper_count || null
     phone.value = result.phone || null
     overnightApproved.value = result.overnight_approved || false
     editableUntil.value = result.editable_until || null
@@ -702,7 +729,8 @@ function startEditingFestival() {
     slotMap[slot.key] = attendanceSlots.value.includes(slot.key)
   }
   editSlots.value = slotMap
-  editAccommodation.value = accommodation.value || 'NONE'
+  editTentCount.value = tentCount.value || 0
+  editCamperCount.value = camperCount.value || 0
   editPhone.value = phone.value || ''
 
   // Entry index 0 is the contact person (read-only, not part of
@@ -756,9 +784,12 @@ async function handleSaveFestival() {
   }
 
   // OVERNIGHT_ENABLED gate (Stellplatz ungeklärt, 19.7.): while disabled,
-  // accommodation never leaves this form, regardless of form state. Phone
-  // is required independently of accommodation/OVERNIGHT_ENABLED.
-  const nextAccommodation = OVERNIGHT_ENABLED && editAccommodation.value !== 'NONE' ? editAccommodation.value : null
+  // overnight counts never leave this form. Phone is required independently
+  // of overnight/OVERNIGHT_ENABLED. Counts clamped to 0..group_size.
+  const nextGroupSize = 1 + companionEntries.filter((entry) => entry.value).length
+  const clampCount = (v) => Math.min(Math.max(0, Number(v) || 0), nextGroupSize)
+  const nextTentCount = OVERNIGHT_ENABLED ? clampCount(editTentCount.value) : 0
+  const nextCamperCount = OVERNIGHT_ENABLED ? clampCount(editCamperCount.value) : 0
   const trimmedPhone = editPhone.value.trim()
   if (!trimmedPhone) {
     saveError.value = 'Bitte gib deine Telefonnummer an.'
@@ -779,7 +810,8 @@ async function handleSaveFestival() {
   try {
     await publicApi.updateFestivalAttendance(registrationId, token, {
       attendance_slots: selectedSlotKeys,
-      accommodation: nextAccommodation,
+      tent_count: nextTentCount || null,
+      camper_count: nextCamperCount || null,
       phone: trimmedPhone,
       group_members: groupMembersPatch,
     })
@@ -932,6 +964,25 @@ onMounted(loadRegistration)
   background: var(--color-warning-bg);
   padding: 0.5rem 0.75rem;
   border-radius: var(--pico-border-radius);
+}
+
+/* Mitmach-Hinweis (Ä16) — mirrors the registration page's .callout-warm look. */
+.mitmach-box {
+  background: var(--color-accent-subtle);
+  border-left: 4px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.mitmach-title {
+  font-weight: 700;
+  color: var(--color-accent-hover);
+  margin: 0 0 var(--space-1);
+}
+
+.mitmach-text {
+  margin: 0;
 }
 
 .name-fields {

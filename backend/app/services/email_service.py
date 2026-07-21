@@ -18,7 +18,6 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel
 
 from ..models import (
-    AccommodationType,
     Event,
     InlineImageData,
     Invite,
@@ -29,6 +28,7 @@ from ..models import (
     Registration,
 )
 from .config import get_messages_table, get_settings
+from .email_client import get_email_settings
 from .logging import get_logger
 from .ticket_signing import SignedTicket, build_person_tickets, generate_qr_png
 
@@ -36,6 +36,32 @@ if TYPE_CHECKING:
     from mypy_boto3_dynamodb.service_resource import Table
 
 logger = get_logger(__name__)
+
+
+# Bulk-style mail that benefits from a List-Unsubscribe header — a positive
+# complaint-friction / reputation signal at Gmail/GMX/Web.de. Transactional
+# mail (confirmations, cancellations, single self-service replies) is
+# deliberately excluded: an unsubscribe on a booking confirmation reads wrong.
+_BULK_UNSUBSCRIBE_TYPES = frozenset(
+    {
+        MessageType.FESTIVAL_INVITATION,
+        MessageType.LOTTERY_RESULT,
+        MessageType.WAITLIST_NOTIFICATION,
+        MessageType.REMINDER,
+    },
+)
+
+
+def _unsubscribe_mailto() -> str | None:
+    """RFC 2369 List-Unsubscribe value pointing at the monitored sender mailbox.
+
+    mailto: only — no One-Click POST until a real HTTPS unsubscribe endpoint
+    exists (a One-Click header pointing at a missing endpoint hurts).
+    """
+    sender = get_email_settings().smtp_sender_email
+    if not sender:
+        return None
+    return f"<mailto:{sender}?subject=Abmelden>"
 
 
 class EmailContext(BaseModel):
@@ -142,21 +168,27 @@ def _build_slot_labels(event: Event, attendance_slots: list[str] | None) -> str:
 
 
 def _build_accommodation_label(
-    accommodation: AccommodationType | None, overnight_approved: bool,
+    tent_count: int | None,
+    camper_count: int | None,
+    overnight_approved: bool,
 ) -> str | None:
-    """Render {Schlafplatz}: Ä17 request semantics.
+    """Render {Schlafplatz}: Ä17/Ä21 request semantics.
 
-    None -> None (the "- Schlafplatz: …" line is omitted entirely — no
-    accommodation wish means there's nothing to report); TENT/CAMPER ->
-    "<Zelt|Camper> — angefragt" until an admin sets `overnight_approved`,
-    then "... — zugesagt". There is deliberately no automatic approval email
-    — organizers coordinate by phone (Ä17).
+    No overnight wish -> None (the "- Schlafplatz: …" line is omitted
+    entirely). Otherwise the tent/camper units, e.g. "2 Zelte, 1 Camper —
+    angefragt" until an admin sets `overnight_approved`, then "... —
+    zugesagt". There is deliberately no automatic approval email —
+    organizers coordinate by phone (Ä17).
     """
-    if accommodation is None:
+    parts: list[str] = []
+    if tent_count:
+        parts.append(f"{tent_count} {'Zelt' if tent_count == 1 else 'Zelte'}")
+    if camper_count:
+        parts.append(f"{camper_count} Camper")
+    if not parts:
         return None
-    label = "Zelt" if accommodation == AccommodationType.TENT else "Camper"
     status = "zugesagt" if overnight_approved else "angefragt"
-    return f"{label} — {status}"
+    return f"{', '.join(parts)} — {status}"
 
 
 class EmailTemplates:
@@ -1152,6 +1184,9 @@ def _message_to_item(message: Message) -> dict:
     if message.inline_images:
         item["inline_images"] = [img.model_dump() for img in message.inline_images]
 
+    if message.list_unsubscribe:
+        item["list_unsubscribe"] = message.list_unsubscribe
+
     if message.registration_id:
         item["registration_id"] = str(message.registration_id)
         # GSI uses registration_id directly
@@ -1741,7 +1776,8 @@ Anmeldung verwalten: {manage_url}"""
             ),
             slot_labels=_build_slot_labels(event, registration.attendance_slots),
             accommodation_label=_build_accommodation_label(
-                registration.accommodation,
+                registration.tent_count,
+                registration.camper_count,
                 registration.overnight_approved,
             ),
             contact_hint=event.contact_hint,
@@ -1828,7 +1864,8 @@ Anmeldung verwalten: {manage_url}"""
             ),
             slot_labels=_build_slot_labels(event, registration.attendance_slots),
             accommodation_label=_build_accommodation_label(
-                registration.accommodation,
+                registration.tent_count,
+                registration.camper_count,
                 registration.overnight_approved,
             ),
             contact_hint=event.contact_hint,
@@ -1940,6 +1977,7 @@ Anmeldung verwalten: {manage_url}"""
         html_body: str,
         message_type: MessageType,
         inline_images: list[InlineImageData] | None = None,
+        list_unsubscribe: str | None = None,
     ) -> bool:
         """Queue an email for delivery.
 
@@ -1963,6 +2001,11 @@ Anmeldung verwalten: {manage_url}"""
         Returns:
             True if email was queued successfully.
         """
+        # Auto-attach a List-Unsubscribe header for bulk-style mail (unless the
+        # caller passed one explicitly).
+        if list_unsubscribe is None and message_type in _BULK_UNSUBSCRIBE_TYPES:
+            list_unsubscribe = _unsubscribe_mailto()
+
         message = Message(
             id=uuid4(),
             event_id=event_id,
@@ -1973,6 +2016,7 @@ Anmeldung verwalten: {manage_url}"""
             body=text_body,
             body_html=html_body,
             inline_images=inline_images or [],
+            list_unsubscribe=list_unsubscribe,
             status=MessageStatus.QUEUED,
             retry_count=0,
             recipient_email=to,

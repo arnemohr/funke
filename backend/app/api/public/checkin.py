@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from ...models import Event, EventStatus
 from ...services.checkin_service import get_checkin_service
 from ...services.event_service import get_event_service
-from ...services.logging import get_logger
+from ...services.logging import get_logger, token_hint
 
 logger = get_logger(__name__)
 
@@ -43,8 +43,23 @@ async def _load_gate_event(gate_token: str) -> Event:
     event_service = get_event_service()
     event = await event_service.get_event_by_gate_token(gate_token)
     if not event:
+        logger.info(
+            "Festival gate access rejected",
+            extra={
+                "flow": "festival", "step": "gate_access", "outcome": "rejected",
+                "reason": "unknown_gate_token", "gate_token_hint": token_hint(gate_token),
+            },
+        )
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unbekannter Scanner-Link.")
     if event.status not in _GATE_OPEN_STATUSES:
+        logger.info(
+            "Festival gate access rejected",
+            extra={
+                "flow": "festival", "step": "gate_access", "outcome": "rejected",
+                "reason": "gate_not_active", "event_id": str(event.id),
+                "event_status": event.status.value,
+            },
+        )
         raise HTTPException(
             status_code=status.HTTP_410_GONE,
             detail="Der Einlass ist für dieses Event nicht aktiv.",
@@ -119,6 +134,18 @@ async def get_checkin_boot(gate_token: str) -> BootResponse:
     ensured = await event_service.ensure_gate_credentials(event.org_id, event.id)
     if ensured is not None:
         event = ensured
+
+    logger.info(
+        "Festival scanner booted",
+        extra={
+            "flow": "festival",
+            "step": "checkin_boot",
+            "outcome": "ok",
+            "event_id": str(event.id),
+            "event_name": event.name,
+            "event_status": event.status.value,
+        },
+    )
 
     return BootResponse(
         event_name=event.name,

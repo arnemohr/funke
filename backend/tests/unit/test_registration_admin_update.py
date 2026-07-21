@@ -11,7 +11,6 @@ from uuid import uuid4
 import pytest
 
 from app.models import (
-    AccommodationType,
     EventStatus,
     EventType,
     FestivalSlot,
@@ -336,19 +335,59 @@ class TestFestivalAdminPatch:
         _store_event(mock_dynamodb, event)
         _store_registration(mock_dynamodb, reg)
 
-        patch = RegistrationAdminPatch(accommodation=AccommodationType.TENT)
+        patch = RegistrationAdminPatch(tent_count=1)
         updated, error = await admin_service.admin_update_registration(event.id, reg.id, patch)
         assert updated is None
         assert error == "phone_required_for_accommodation"
 
-        patch2 = RegistrationAdminPatch(accommodation=AccommodationType.TENT, phone="+49 111")
+        patch2 = RegistrationAdminPatch(tent_count=1, phone="+49 111")
         updated2, error2 = await admin_service.admin_update_registration(event.id, reg.id, patch2)
         assert error2 is None
-        assert updated2.accommodation == AccommodationType.TENT
+        assert updated2.tent_count == 1
         assert updated2.phone == "+49 111"
 
     @pytest.mark.asyncio
-    async def test_clearing_accommodation_clears_phone_and_resets_approval(
+    async def test_overnight_counts_set_ceiling_and_reset(
+        self, admin_service, mock_dynamodb, sample_event, sample_registration,
+    ):
+        """Ä21: admins can correct counts (each ≤ group_size) and set both;
+        clearing the whole wish resets the counts."""
+        event = self._festival_event(sample_event)
+        reg = sample_registration(
+            event_id=event.id,
+            status=RegistrationStatus.REGISTERED,
+            attendance_slots=["fr"],
+            group_size=2,
+            group_members=["Bob Fisch"],
+            phone="+49 111",
+            camper_count=1,
+        )
+        _store_event(mock_dynamodb, event)
+        _store_registration(mock_dynamodb, reg)
+
+        # 3 campers for a 2-person group — rejected.
+        bad = RegistrationAdminPatch(camper_count=3)
+        updated, error = await admin_service.admin_update_registration(event.id, reg.id, bad)
+        assert updated is None
+        assert error == "camper_count_exceeds_group"
+
+        # 2 campers + 1 tent — allowed (each ≤ group_size).
+        ok = RegistrationAdminPatch(camper_count=2, tent_count=1)
+        updated2, error2 = await admin_service.admin_update_registration(event.id, reg.id, ok)
+        assert error2 is None
+        assert updated2.camper_count == 2
+        assert updated2.tent_count == 1
+
+        # Clearing the whole wish clears the counts.
+        clear = RegistrationAdminPatch(camper_count=0, tent_count=0)
+        updated3, error3 = await admin_service.admin_update_registration(event.id, reg.id, clear)
+        assert error3 is None
+        assert updated3.has_overnight is False
+        assert updated3.camper_count is None
+        assert updated3.tent_count is None
+
+    @pytest.mark.asyncio
+    async def test_clearing_overnight_clears_phone_and_resets_approval(
         self, admin_service, mock_dynamodb, sample_event, sample_registration,
     ):
         event = self._festival_event(sample_event)
@@ -356,18 +395,18 @@ class TestFestivalAdminPatch:
             event_id=event.id,
             status=RegistrationStatus.REGISTERED,
             attendance_slots=["fr"],
-            accommodation=AccommodationType.TENT,
+            tent_count=1,
             phone="+49 111",
             overnight_approved=True,
         )
         _store_event(mock_dynamodb, event)
         _store_registration(mock_dynamodb, reg)
 
-        patch = RegistrationAdminPatch(accommodation=None)
+        patch = RegistrationAdminPatch(tent_count=0)
         updated, error = await admin_service.admin_update_registration(event.id, reg.id, patch)
 
         assert error is None
-        assert updated.accommodation is None
+        assert updated.has_overnight is False
         assert updated.phone is None
         assert updated.overnight_approved is False
 
@@ -380,7 +419,7 @@ class TestFestivalAdminPatch:
             event_id=event.id,
             status=RegistrationStatus.REGISTERED,
             attendance_slots=["fr"],
-            accommodation=AccommodationType.CAMPER,
+            camper_count=1,
             phone="+49 222",
         )
         _store_event(mock_dynamodb, event)

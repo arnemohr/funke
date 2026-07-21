@@ -286,6 +286,7 @@ async def process_email_queue() -> dict:
                     body_text=body_text,
                     body_html=body_html,
                     inline_images=inline_images,
+                    list_unsubscribe=item.get("list_unsubscribe"),
                 )
                 result = await smtp_client.send_email(email_msg)
 
@@ -465,10 +466,13 @@ async def retry_failed_emails() -> dict:
     """
     logger.info("Starting email retry task")
 
+    import base64
+
+    from ..models import MessageStatus
     from ..services.config import get_messages_table
     from ..services.email_client import EmailMessage as GmailEmailMessage
+    from ..services.email_client import InlineImage as SmtpInlineImage
     from ..services.email_client import get_gmail_client
-    from ..models import MessageStatus
 
     max_retries = 3
     retried = 0
@@ -518,10 +522,21 @@ async def retry_failed_emails() -> dict:
 
             try:
                 gmail_client = get_gmail_client()
+                retry_inline_images = [
+                    SmtpInlineImage(
+                        content_id=img["content_id"],
+                        content=base64.b64decode(img["content_b64"]),
+                        content_type=img.get("content_type", "image/png"),
+                    )
+                    for img in item.get("inline_images", [])
+                ]
                 gmail_message = GmailEmailMessage(
                     to=recipient_email,
                     subject=item.get("subject", ""),
                     body_text=item.get("body", ""),
+                    body_html=item.get("body_html"),
+                    inline_images=retry_inline_images,
+                    list_unsubscribe=item.get("list_unsubscribe"),
                 )
                 result = await gmail_client.send_email(gmail_message)
 

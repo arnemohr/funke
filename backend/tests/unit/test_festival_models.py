@@ -393,7 +393,8 @@ class TestFestivalRegistrationPersistence:
             "invite_label": "Werft-Team",
             "tier": "werft",
             "attendance_slots": ["fr-abend", "sa-tag"],
-            "accommodation": AccommodationType.TENT,
+            "tent_count": 2,
+            "camper_count": 1,
             "overnight_approved": True,
         }
         defaults.update(overrides)
@@ -408,9 +409,20 @@ class TestFestivalRegistrationPersistence:
         assert restored.invite_label == registration.invite_label
         assert restored.tier == registration.tier
         assert restored.attendance_slots == registration.attendance_slots
-        assert restored.accommodation == AccommodationType.TENT
+        assert restored.tent_count == 2
+        assert restored.camper_count == 1
         assert restored.overnight_approved is True
         assert restored.phone == registration.phone
+
+    def test_legacy_accommodation_item_maps_to_counts(self):
+        """Pre-Ä21 rows (single accommodation + count) map into tent/camper."""
+        registration = self._festival_registration(tent_count=None, camper_count=None)
+        item = _registration_to_item(registration)
+        item["accommodation"] = AccommodationType.CAMPER.value
+        item["accommodation_count"] = 2
+        restored = _item_to_registration(item)
+        assert restored.camper_count == 2
+        assert restored.tent_count is None
 
     def test_group_members_tombstone_roundtrips_with_gap_intact(self):
         members = ["Bob Fisch", None, "Carla Muschel"]
@@ -426,7 +438,8 @@ class TestFestivalRegistrationPersistence:
             invite_label=None,
             tier=None,
             attendance_slots=None,
-            accommodation=None,
+            tent_count=None,
+            camper_count=None,
             overnight_approved=False,
         )
         item = _registration_to_item(registration)
@@ -437,7 +450,8 @@ class TestFestivalRegistrationPersistence:
             "invite_label",
             "tier",
             "attendance_slots",
-            "accommodation",
+            "tent_count",
+            "camper_count",
             "overnight_approved",
         )
         for key in legacy_keys:
@@ -448,7 +462,8 @@ class TestFestivalRegistrationPersistence:
         assert restored.invite_label is None
         assert restored.tier is None
         assert restored.attendance_slots is None
-        assert restored.accommodation is None
+        assert restored.tent_count is None
+        assert restored.camper_count is None
         assert restored.overnight_approved is False
 
 
@@ -499,13 +514,13 @@ class TestFestivalRegistrationCreate:
         registration = FestivalRegistrationCreate(**_create_kwargs(group_members=["Bob Fisch"]))
         assert registration.group_members == ["Bob Fisch"]
 
-    def test_accommodation_tent_without_phone_rejected(self):
-        kwargs = _create_kwargs(accommodation=AccommodationType.TENT)
+    def test_overnight_tent_without_phone_rejected(self):
+        kwargs = _create_kwargs(tent_count=1)
         del kwargs["phone"]
         with pytest.raises(ValidationError, match="phone is required"):
             FestivalRegistrationCreate(**kwargs)
 
-    def test_missing_phone_rejected_without_accommodation(self):
+    def test_missing_phone_rejected_without_overnight(self):
         kwargs = _create_kwargs()
         del kwargs["phone"]
         with pytest.raises(ValidationError, match="phone is required"):
@@ -515,20 +530,49 @@ class TestFestivalRegistrationCreate:
         with pytest.raises(ValidationError, match="phone is required"):
             FestivalRegistrationCreate(**_create_kwargs(phone="   "))
 
-    def test_accommodation_tent_with_phone_accepted(self):
+    def test_overnight_tent_with_phone_accepted(self):
         registration = FestivalRegistrationCreate(
-            **_create_kwargs(accommodation=AccommodationType.TENT, phone="0176 1234567"),
+            **_create_kwargs(tent_count=1, phone="0176 1234567"),
         )
         assert registration.phone == "0176 1234567"
 
-    def test_no_accommodation_keeps_phone(self):
-        registration = FestivalRegistrationCreate(
-            **_create_kwargs(accommodation=None, phone="0123"),
-        )
+    def test_no_overnight_keeps_phone(self):
+        registration = FestivalRegistrationCreate(**_create_kwargs(phone="0123"))
         assert registration.phone == "0123"
+        assert registration.tent_count is None
+        assert registration.camper_count is None
 
     def test_no_overnight_approved_field(self):
         assert "overnight_approved" not in FestivalRegistrationCreate.model_fields
+
+    def test_zero_counts_normalize_to_none(self):
+        # Ä21: 0 means "keine" → stored as None.
+        registration = FestivalRegistrationCreate(
+            **_create_kwargs(tent_count=0, camper_count=0),
+        )
+        assert registration.tent_count is None
+        assert registration.camper_count is None
+
+    def test_both_types_accepted(self):
+        # Ä21: a group may bring tents AND campers.
+        registration = FestivalRegistrationCreate(
+            **_create_kwargs(
+                tent_count=2,
+                camper_count=1,
+                group_size=2,
+                group_members=["Bob Fisch"],
+            ),
+        )
+        assert registration.tent_count == 2
+        assert registration.camper_count == 1
+
+    def test_tent_count_exceeding_group_size_rejected(self):
+        with pytest.raises(ValidationError, match="tent_count must not exceed"):
+            FestivalRegistrationCreate(**_create_kwargs(tent_count=3, group_size=2))
+
+    def test_camper_count_exceeding_group_size_rejected(self):
+        with pytest.raises(ValidationError, match="camper_count must not exceed"):
+            FestivalRegistrationCreate(**_create_kwargs(camper_count=3, group_size=2))
 
 
 class TestFestivalAttendancePatch:
@@ -553,3 +597,12 @@ class TestFestivalAttendancePatch:
     def test_group_size_21_rejected(self):
         with pytest.raises(ValidationError):
             FestivalAttendancePatch(group_size=21)
+
+    def test_overnight_counts_accepted(self):
+        patch = FestivalAttendancePatch(tent_count=2, camper_count=1)
+        assert patch.tent_count == 2
+        assert patch.camper_count == 1
+
+    def test_negative_count_rejected(self):
+        with pytest.raises(ValidationError):
+            FestivalAttendancePatch(tent_count=-1)

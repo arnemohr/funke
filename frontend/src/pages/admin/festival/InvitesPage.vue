@@ -377,10 +377,11 @@ async function confirmRevoke() {
 function handleBatchCreated(result) {
   showBatchModal.value = false
   const n = result.items.length
-  showToast(
-    n === 1 ? 'Gästeliste mit 1 verantwortlichen Person angelegt' : `Gästeliste mit ${n} Verantwortlichen angelegt`,
-    'success',
-  )
+  const base =
+    n === 1 ? 'Gästeliste mit 1 verantwortlichen Person angelegt' : `Gästeliste mit ${n} Verantwortlichen angelegt`
+  const emailed = result.emailed_count || 0
+  const suffix = emailed === 1 ? ' · 1 Einladung verschickt' : emailed > 1 ? ` · ${emailed} Einladungen verschickt` : ''
+  showToast(base + suffix, 'success')
   loadInvites()
 }
 

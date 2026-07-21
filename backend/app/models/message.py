@@ -81,6 +81,7 @@ class Message(BaseModel):
     body: str
     body_html: str | None = None  # HTML version for queued sending
     inline_images: list[InlineImageData] = Field(default_factory=list)
+    list_unsubscribe: str | None = None  # RFC 2369 List-Unsubscribe value (bulk mail only)
     email_message_id: str | None = None  # RFC 822 Message-ID
     in_reply_to: str | None = None  # Parent Message-ID
     status: MessageStatus = MessageStatus.QUEUED

@@ -113,7 +113,8 @@
             bei {{ card.contactName }}
           </p>
 
-          <p v-if="OVERNIGHT_ENABLED" class="scan-card-overnight" :class="`tone-${card.overnight.tone}`">
+          <p v-if="OVERNIGHT_ENABLED" class="scan-card-overnight">
+            <span aria-hidden="true">{{ card.overnight.icon }}</span>
             {{ card.overnight.text }}
           </p>
 
@@ -162,12 +163,42 @@
         <!-- 🟡 Yellow: already checked in -->
         <template v-else-if="card.type === 'yellow'">
           <p class="scan-card-glyph" aria-hidden="true">⚠</p>
-          <h1 class="scan-card-headline">Bereits eingecheckt — kein zweites Bändchen.</h1>
+          <h1 class="scan-card-headline">Bereits eingecheckt</h1>
           <p class="scan-card-name">{{ card.personName }}</p>
           <p v-if="card.contactName && card.contactName !== card.personName" class="scan-card-sub">
             bei {{ card.contactName }}
           </p>
-          <p class="scan-card-sub">Bändchen verloren? Schichtleitung entscheidet.</p>
+          <p class="scan-card-sub">Bändchen verloren? Ihr entscheidet vor Ort.</p>
+
+          <p v-if="OVERNIGHT_ENABLED" class="scan-card-overnight">
+            <span aria-hidden="true">{{ card.overnight.icon }}</span>
+            {{ card.overnight.text }}
+          </p>
+
+          <div v-if="card.slotLabelsList.length" class="scan-card-slots">
+            <p class="scan-card-slots-label">Zeitfenster (nur Info):</p>
+            <ul class="scan-card-list">
+              <li v-for="label in card.slotLabelsList" :key="label" class="scan-card-list-row">
+                <span class="scan-card-row-text">{{ label }}</span>
+              </li>
+            </ul>
+          </div>
+
+          <div v-if="card.group && card.group.length" class="scan-card-group">
+            <p class="scan-card-slots-label">Gruppe:</p>
+            <ul class="scan-card-list">
+              <li
+                v-for="member in card.group"
+                :key="member.person_index"
+                class="scan-card-list-row"
+                :class="{ 'is-current': member.person_index === card.personIndex }"
+              >
+                <span class="scan-card-row-state" aria-hidden="true">{{ member.checked_in ? '✓' : '○' }}</span>
+                <span class="scan-card-row-text">{{ member.name }}</span>
+                <span class="visually-hidden">{{ member.checked_in ? 'eingecheckt' : 'noch nicht eingecheckt' }}</span>
+              </li>
+            </ul>
+          </div>
 
           <p v-if="card.overrideError" role="alert" class="scan-card-inline-error">
             {{ card.overrideError }}
@@ -304,29 +335,33 @@ function slotLabels(keys) {
   return (keys || []).map((k) => slotLabelMap.value[k] || k)
 }
 
-function accommodationLabel(acc) {
-  if (acc === 'TENT') return 'Zelt'
-  if (acc === 'CAMPER') return 'Camper'
-  return null
+// Ä21: render tent/camper counts as "2 Zelte, 1 Camper" (empty when none).
+function overnightUnitsLabel(tentCount, camperCount) {
+  const parts = []
+  if (tentCount) parts.push(`${tentCount} ${tentCount === 1 ? 'Zelt' : 'Zelte'}`)
+  if (camperCount) parts.push(`${camperCount} Camper`)
+  return parts.join(', ')
 }
 
-function buildOvernightLine(overnightStatus, accommodation) {
-  const label = accommodationLabel(accommodation)
+// Overnight state as a subtle info line (two states only): approved =
+// "✅ Übernachtung", anything else = "⛔ Keine Übernachtung". The emoji carries
+// the state; the box blends with the card colour rather than shouting.
+// Ä21: the tent/camper counts are appended (e.g. "Übernachtung · 2 Zelte,
+// 1 Camper") so the crew can verify pitches/vehicles against the Stellplätze.
+function buildOvernightLine(overnightStatus, tentCount, camperCount) {
+  const label = overnightUnitsLabel(tentCount, camperCount)
   if (overnightStatus === 'approved') {
-    return { text: `Übernachtung zugesagt ✓${label ? ` (${label})` : ''}`, tone: 'success' }
+    return { text: `Übernachtung${label ? ` · ${label}` : ''}`, icon: '✅' }
   }
-  if (overnightStatus === 'requested') {
-    return { text: 'Übernachtung nur angefragt ⚠ — nicht zugesagt', tone: 'warning' }
-  }
-  return { text: 'Keine Übernachtung —', tone: 'neutral' }
+  return { text: 'Keine Übernachtung', icon: '⛔' }
 }
 
-// Ä17, offline: the ticket's `o` snapshot can't distinguish "requested" from
-// "none", and may be stale — the online card (buildOvernightLine) is always
-// authoritative once back online.
+// Ä17, offline: the ticket's `o` snapshot may be stale, but we keep the same
+// two-state model — flag true = Übernachtung, anything else = keine. Gate-safe
+// by default; online is authoritative.
 function buildOfflineOvernightLine(oFlag) {
-  if (oFlag) return { text: 'Übernachtung zugesagt ✓', tone: 'success' }
-  return { text: 'Übernachtung: keine Zusage im Ticket', tone: 'neutral' }
+  if (oFlag) return { text: 'Übernachtung', icon: '✅' }
+  return { text: 'Keine Übernachtung', icon: '⛔' }
 }
 
 // -- boot ---------------------------------------------------------------
@@ -418,6 +453,12 @@ function showYellowCard(response, code) {
     code,
     personName: c.person_name,
     contactName: c.contact_name,
+    personIndex: c.person_index,
+    // Same registration info box as the green card — the crew needs the
+    // group state and overnight decision even on a repeat scan.
+    group: (c.group || []).filter((m) => m && m.name),
+    slotLabelsList: slotLabels(c.attendance_slots),
+    overnight: buildOvernightLine(c.overnight_status, c.tent_count, c.camper_count),
     overrideError: null,
   }
 }
@@ -435,7 +476,7 @@ function showGreenCard(response) {
     // they never render as empty rows on the card.
     group: (c.group || []).filter((m) => m && m.name),
     slotLabelsList: slotLabels(c.attendance_slots),
-    overnight: buildOvernightLine(c.overnight_status, c.accommodation),
+    overnight: buildOvernightLine(c.overnight_status, c.tent_count, c.camper_count),
     undoFailed: false,
   }
   if (card.value.scanId) startUndoCountdown()
@@ -535,10 +576,15 @@ function clearUndoTimer() {
   undoSecondsLeft.value = 0
 }
 
+// 30s grace period at the gate — long enough for the crew to notice a
+// mis-scan and react. The backend undo window (UNDO_WINDOW = 60s) is the
+// hard limit; keep this comfortably under it.
+const UNDO_GRACE_SECONDS = 30
+
 function startUndoCountdown() {
   clearUndoTimer()
-  undoDeadline = Date.now() + 3000
-  undoSecondsLeft.value = 3
+  undoDeadline = Date.now() + UNDO_GRACE_SECONDS * 1000
+  undoSecondsLeft.value = UNDO_GRACE_SECONDS
   undoInterval = setInterval(() => {
     const remaining = Math.ceil((undoDeadline - Date.now()) / 1000)
     undoSecondsLeft.value = Math.max(remaining, 0)
@@ -932,18 +978,20 @@ onUnmounted(() => {
   overflow-wrap: anywhere;
 }
 
+/* Subtle info line — blends with the card colour (like the slots/group
+   boxes); the ✅/⛔ emoji carries the state, no loud fill. */
 .scan-card-overnight {
-  font-size: 1.15rem;
-  font-weight: 700;
-  margin: var(--space-4) 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  max-width: 360px;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  margin: var(--space-3) 0;
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
-  background: rgba(0, 0, 0, 0.18);
-}
-
-.scan-card-overnight.tone-warning {
-  background: #fbbf24;
-  color: #451a03;
+  background: rgba(0, 0, 0, 0.15);
 }
 
 .scan-card-slots,

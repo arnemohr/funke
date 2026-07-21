@@ -71,6 +71,10 @@ class InviteBatchCreate(BaseModel):
 
     batch_label: str | None = Field(None, max_length=200)
     invites: list[InviteCreate] = Field(..., min_length=1)
+    # When true, the F1 invitation is sent immediately to every invite in the
+    # batch that has an email (and `sent_at` stamped). Defaults False so API
+    # clients never fire mail unexpectedly; the create modal sends true.
+    send_emails: bool = False
 
 
 class InviteUpdate(BaseModel):

@@ -25,7 +25,7 @@ from ...models import (
 from ...services.config import get_settings
 from ...services.event_service import get_event_service
 from ...services.invite_service import get_invite_service
-from ...services.logging import get_logger
+from ...services.logging import get_logger, token_hint
 from ...services.registration_service import compute_very_full_slots, get_registration_service
 
 logger = get_logger(__name__)
@@ -76,6 +76,14 @@ _GERMAN_ERROR_COPY: list[tuple[str, str]] = [
         "Begleitungen können nicht gelöscht werden — bitte lade die Seite neu.",
     ),
     ("exceeds group_size", "Mehr Begleitungen als Plätze in der Gruppe."),
+    (
+        "tent_count_exceeds_group",
+        "Es können nicht mehr Zelte als Personen sein.",
+    ),
+    (
+        "camper_count_exceeds_group",
+        "Es können nicht mehr Camper als Personen sein.",
+    ),
     (
         "failed to update festival attendance",
         "Speichern hat nicht geklappt. Bitte versuche es erneut.",
@@ -230,6 +238,16 @@ async def get_invite_info(invite_token: str) -> InviteInfoResponse:
     invite = await invite_service.get_invite_by_token(invite_token)
 
     if not invite or invite.revoked_at is not None:
+        logger.info(
+            "Festival invite boot rejected",
+            extra={
+                "flow": "festival",
+                "step": "invite_boot",
+                "outcome": "rejected",
+                "reason": "revoked" if invite else "not_found",
+                "invite_token_hint": token_hint(invite_token),
+            },
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dieser Einladungslink ist ungültig.",
@@ -238,19 +256,42 @@ async def get_invite_info(invite_token: str) -> InviteInfoResponse:
     event_service = get_event_service()
     event = await event_service.get_event(invite.org_id, invite.event_id)
     if not event:
+        logger.warning(
+            "Festival invite boot rejected — event missing",
+            extra={
+                "flow": "festival",
+                "step": "invite_boot",
+                "outcome": "rejected",
+                "reason": "event_not_found",
+                "invite_id": str(invite.id),
+                "event_id": str(invite.event_id),
+            },
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dieser Einladungslink ist ungültig.",
         )
 
-    if invite.use_count >= invite.max_uses:
-        raise HTTPException(
-            status_code=status.HTTP_410_GONE,
-            detail=_with_contact_hint(
-                "Dieser Einladungslink ist bereits vollständig eingelöst.",
-                event.contact_hint,
-            ),
+    def _reject_boot(reason: str, detail: str) -> HTTPException:
+        logger.info(
+            "Festival invite boot rejected",
+            extra={
+                "flow": "festival",
+                "step": "invite_boot",
+                "outcome": "rejected",
+                "reason": reason,
+                "invite_id": str(invite.id),
+                "invite_label": invite.label,
+                "event_id": str(event.id),
+            },
         )
+        return HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=_with_contact_hint(detail, event.contact_hint),
+        )
+
+    if invite.use_count >= invite.max_uses:
+        raise _reject_boot("exhausted", "Dieser Einladungslink ist bereits vollständig eingelöst.")
 
     now = datetime.now(timezone.utc)
 
@@ -259,25 +300,13 @@ async def get_invite_info(invite_token: str) -> InviteInfoResponse:
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
         if now >= expires_at:
-            raise HTTPException(
-                status_code=status.HTTP_410_GONE,
-                detail=_with_contact_hint(
-                    "Dieser Einladungslink ist abgelaufen.",
-                    event.contact_hint,
-                ),
-            )
+            raise _reject_boot("expired", "Dieser Einladungslink ist abgelaufen.")
 
     deadline = event.registration_deadline
     if deadline.tzinfo is None:
         deadline = deadline.replace(tzinfo=timezone.utc)
     if now >= deadline:
-        raise HTTPException(
-            status_code=status.HTTP_410_GONE,
-            detail=_with_contact_hint(
-                "Die Anmeldung ist leider geschlossen.",
-                event.contact_hint,
-            ),
-        )
+        raise _reject_boot("deadline_passed", "Die Anmeldung ist leider geschlossen.")
 
     # Ä4 (if-time): per-slot "very_full" soft warning, computed from the
     # same headcount aggregation as the admin board (T201) — booleans
@@ -285,6 +314,20 @@ async def get_invite_info(invite_token: str) -> InviteInfoResponse:
     registration_service = get_registration_service()
     headcount = await registration_service.get_headcount(event)
     very_full_by_key = compute_very_full_slots(headcount)
+
+    logger.info(
+        "Festival invite boot served",
+        extra={
+            "flow": "festival",
+            "step": "invite_boot",
+            "outcome": "ok",
+            "invite_id": str(invite.id),
+            "invite_label": invite.label,
+            "event_id": str(event.id),
+            "use_count": invite.use_count,
+            "max_uses": invite.max_uses,
+        },
+    )
 
     return InviteInfoResponse(
         event_name=event.name,
@@ -327,6 +370,16 @@ async def get_invite_guestlist(invite_token: str) -> InviteGuestlistResponse:
     invite = await invite_service.get_invite_by_token(invite_token)
 
     if not invite or invite.revoked_at is not None:
+        logger.info(
+            "Festival guestlist view rejected",
+            extra={
+                "flow": "festival",
+                "step": "guestlist",
+                "outcome": "rejected",
+                "reason": "revoked" if invite else "not_found",
+                "invite_token_hint": token_hint(invite_token),
+            },
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dieser Einladungslink ist ungültig.",
@@ -335,6 +388,17 @@ async def get_invite_guestlist(invite_token: str) -> InviteGuestlistResponse:
     event_service = get_event_service()
     event = await event_service.get_event(invite.org_id, invite.event_id)
     if not event:
+        logger.warning(
+            "Festival guestlist view rejected — event missing",
+            extra={
+                "flow": "festival",
+                "step": "guestlist",
+                "outcome": "rejected",
+                "reason": "event_not_found",
+                "invite_id": str(invite.id),
+                "event_id": str(invite.event_id),
+            },
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dieser Einladungslink ist ungültig.",
@@ -355,6 +419,22 @@ async def get_invite_guestlist(invite_token: str) -> InviteGuestlistResponse:
         for reg in sorted(all_registrations, key=lambda r: r.registered_at)
         if reg.invite_id == invite.id and reg.status != RegistrationStatus.CANCELLED
     ]
+
+    logger.info(
+        "Festival guestlist view served",
+        extra={
+            "flow": "festival",
+            "step": "guestlist",
+            "outcome": "ok",
+            "invite_id": str(invite.id),
+            "invite_label": invite.label,
+            "event_id": str(event.id),
+            "can_register": can_register,
+            "use_count": invite.use_count,
+            "max_uses": invite.max_uses,
+            "registrations_shown": len(rows),
+        },
+    )
 
     return InviteGuestlistResponse(
         invite_label=invite.label,
@@ -392,13 +472,34 @@ async def submit_festival_registration(
     )
 
     if error:
+        logger.info(
+            "Festival registration rejected",
+            extra={
+                "flow": "festival",
+                "step": "register",
+                "outcome": "rejected",
+                "reason": error,
+                "invite_token_hint": token_hint(invite_token),
+                "group_size": registration_data.group_size,
+            },
+        )
         raise _map_festival_error(error)
 
     logger.info(
         "Festival registration submitted via public API",
         extra={
+            "flow": "festival",
+            "step": "register",
+            "outcome": "ok",
             "registration_id": str(registration.id),
             "event_id": str(registration.event_id),
+            "invite_id": str(registration.invite_id) if registration.invite_id else None,
+            "invite_label": registration.invite_label,
+            "tier": registration.tier,
+            "group_size": registration.group_size,
+            "attendance_slots": registration.attendance_slots or [],
+            "tent_count": registration.tent_count,
+            "camper_count": registration.camper_count,
         },
     )
 
@@ -433,6 +534,32 @@ async def update_festival_attendance(
     )
 
     if error:
+        logger.info(
+            "Festival attendance edit rejected",
+            extra={
+                "flow": "festival",
+                "step": "edit",
+                "outcome": "rejected",
+                "reason": error,
+                "registration_id": str(registration_id),
+                "fields": sorted(patch.model_dump(exclude_unset=True).keys()),
+            },
+        )
         raise _map_festival_error(error)
+
+    logger.info(
+        "Festival attendance edited via public API",
+        extra={
+            "flow": "festival",
+            "step": "edit",
+            "outcome": "ok",
+            "registration_id": str(registration.id),
+            "event_id": str(registration.event_id),
+            "group_size": registration.group_size,
+            "attendance_slots": registration.attendance_slots or [],
+            "tent_count": registration.tent_count,
+            "camper_count": registration.camper_count,
+        },
+    )
 
     return RegistrationResponse.model_validate(registration)

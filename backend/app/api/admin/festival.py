@@ -343,6 +343,7 @@ class InviteBatchResponse(BaseModel):
     """Response for a batch invite create."""
 
     items: list[InviteBatchRow]
+    emailed_count: int = 0  # How many F1 invitations were auto-sent on create.
 
 
 class InviteStatusRow(BaseModel):
@@ -415,16 +416,39 @@ async def create_invites(
     """Batch-create invites (a Kontingent) for a festival event."""
     org_id = _get_org_id(user)
     admin_id = _get_admin_id(user)
-    await _get_festival_event_or_404(org_id, event_id)
+    event = await _get_festival_event_or_404(org_id, event_id)
 
     invite_service = get_invite_service()
     invites = await invite_service.create_invites_batch(org_id, event_id, batch, admin_id)
+
+    # Optional auto-send (create-modal checkbox): fire F1 to every invite that
+    # has an email and stamp `sent_at`. Resilient — a single failed send never
+    # fails the whole create; the row simply stays "offen" for a manual retry.
+    emailed_count = 0
+    if batch.send_emails:
+        email_service = get_email_service()
+        for invite in invites:
+            if not invite.email:
+                continue
+            try:
+                sent = await email_service.send_festival_invitation(event, invite)
+                if sent:
+                    await invite_service.mark_sent(event_id, invite.id)
+                    emailed_count += 1
+            except Exception:
+                logger.warning(
+                    "Auto-send of festival invitation failed",
+                    extra={
+                        "flow": "festival", "step": "invite_send", "outcome": "error",
+                        "event_id": str(event_id), "invite_id": str(invite.id),
+                    },
+                )
 
     log_admin_action(
         "festival.invites.create",
         user.email,
         str(event_id),
-        {"count": len(invites), "batch_label": batch.batch_label},
+        {"count": len(invites), "batch_label": batch.batch_label, "emailed": emailed_count},
     )
 
     settings = get_settings()
@@ -442,7 +466,7 @@ async def create_invites(
         )
         for invite in invites
     ]
-    return InviteBatchResponse(items=items)
+    return InviteBatchResponse(items=items, emailed_count=emailed_count)
 
 
 @router.get(

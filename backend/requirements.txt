@@ -37,6 +37,7 @@ click==8.3.1
 colorama==0.4.6 ; sys_platform == 'win32'
     # via
     #   click
+    #   qrcode
     #   uvicorn
 cryptography==46.0.3
     # via
@@ -96,7 +97,9 @@ multidict==6.7.1
     #   aiohttp
     #   yarl
 pillow==12.1.1
-    # via fpdf2
+    # via
+    #   fpdf2
+    #   qrcode
 propcache==0.4.1
     # via
     #   aiohttp
@@ -130,6 +133,8 @@ pywebpush==2.3.0
     # via funke-backend
 pyyaml==6.0.3
     # via uvicorn
+qrcode==8.2
+    # via funke-backend
 requests==2.32.5
     # via pywebpush
 rsa==4.9.1

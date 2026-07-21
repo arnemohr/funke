@@ -85,7 +85,7 @@ class TestFestivalHeadcount:
             group_size=2,
             attendance_slots=["fr-abend"],
             tier="werft",
-            accommodation=AccommodationType.TENT,
+            tent_count=1,
             overnight_approved=True,
         )
         self._store_reg(
@@ -93,7 +93,7 @@ class TestFestivalHeadcount:
             group_size=5,
             attendance_slots=["fr-abend"],
             tier="werft",
-            accommodation=AccommodationType.TENT,
+            tent_count=1,
             overnight_approved=True,
             status=RegistrationStatus.CANCELLED,
         )
@@ -103,7 +103,11 @@ class TestFestivalHeadcount:
         fr = next(s for s in result["slots"] if s["key"] == "fr-abend")
         assert fr["total"] == 2
         assert fr["by_tier"] == {"werft": 2}
-        assert result["accommodation_totals"]["TENT"] == {"requested": 2, "approved": 2}
+        # Only the non-cancelled reg counts: 1 tent, approved.
+        assert result["accommodation_totals"]["TENT"] == {
+            "requested_units": 1,
+            "approved_units": 1,
+        }
         assert result["total_registrations"] == 1
         assert result["total_people"] == 2
 
@@ -138,24 +142,65 @@ class TestFestivalHeadcount:
             event,
             group_size=3,
             attendance_slots=["fr-abend"],
-            accommodation=AccommodationType.TENT,
+            tent_count=1,
             overnight_approved=False,
         )
         self._store_reg(
             event,
             group_size=2,
             attendance_slots=["fr-abend"],
-            accommodation=AccommodationType.CAMPER,
+            camper_count=1,
             overnight_approved=True,
         )
-        self._store_reg(event, group_size=10, attendance_slots=["fr-abend"], accommodation=None)
+        self._store_reg(event, group_size=10, attendance_slots=["fr-abend"])
 
         result = await self.service.get_headcount(event)
 
-        assert result["accommodation_totals"]["TENT"] == {"requested": 3, "approved": 0}
-        assert result["accommodation_totals"]["CAMPER"] == {"requested": 2, "approved": 2}
-        assert result["accommodation_totals"]["TENT"]["approved"] <= result["accommodation_totals"]["TENT"]["requested"]
-        assert result["accommodation_totals"]["CAMPER"]["approved"] <= result["accommodation_totals"]["CAMPER"]["requested"]
+        # *_units count tents/campers per type; overnight_people counts humans.
+        assert result["accommodation_totals"]["TENT"] == {
+            "requested_units": 1,
+            "approved_units": 0,
+        }
+        assert result["accommodation_totals"]["CAMPER"] == {
+            "requested_units": 1,
+            "approved_units": 1,
+        }
+        assert result["overnight_people"] == {"requested": 5, "approved": 2}
+
+    @pytest.mark.asyncio
+    async def test_accommodation_units_sum_counts_vehicles_not_people(self):
+        """Ä21: *_units sum vehicles/tents, and a group bringing BOTH types
+        contributes to both buckets. Covers the feedback case — contact and a
+        companion each bring their own caravan, plus a tent."""
+        event = self._make_event()
+        # A 2-person group bringing 2 campers AND 1 tent, approved.
+        self._store_reg(
+            event,
+            group_size=2,
+            attendance_slots=["fr-abend"],
+            camper_count=2,
+            tent_count=1,
+            overnight_approved=True,
+        )
+        # A 4-person group sharing a single camper, only requested.
+        self._store_reg(
+            event,
+            group_size=4,
+            attendance_slots=["fr-abend"],
+            camper_count=1,
+            overnight_approved=False,
+        )
+
+        result = await self.service.get_headcount(event)
+
+        camper = result["accommodation_totals"]["CAMPER"]
+        tent = result["accommodation_totals"]["TENT"]
+        assert camper["requested_units"] == 3  # campers: 2 + 1
+        assert camper["approved_units"] == 2  # only the first group's 2 campers
+        assert tent["requested_units"] == 1  # the first group's tent
+        assert tent["approved_units"] == 1
+        # People with any overnight wish: both groups (2 + 4); only first approved.
+        assert result["overnight_people"] == {"requested": 6, "approved": 2}
 
     @pytest.mark.asyncio
     async def test_per_slot_overnight_demand_independent_of_is_night(self):
@@ -165,9 +210,9 @@ class TestFestivalHeadcount:
             event,
             group_size=3,
             attendance_slots=["sa-tag"],
-            accommodation=AccommodationType.TENT,
+            tent_count=1,
         )
-        self._store_reg(event, group_size=2, attendance_slots=["sa-tag"], accommodation=None)
+        self._store_reg(event, group_size=2, attendance_slots=["sa-tag"])
 
         result = await self.service.get_headcount(event)
 

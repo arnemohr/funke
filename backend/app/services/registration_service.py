@@ -42,21 +42,34 @@ def _generate_registration_token() -> str:
     return secrets.token_urlsafe(32)
 
 
+def format_overnight_units(tent_count: int | None, camper_count: int | None) -> str:
+    """Render tent/camper counts as German text, e.g. "2 Zelte, 1 Camper".
+
+    Empty string when there is no overnight wish. "Zelt/Zelte" pluralizes;
+    "Camper" is invariant. Shared shape with
+    `email_service._build_accommodation_label` (Ä21).
+    """
+    parts: list[str] = []
+    if tent_count:
+        parts.append(f"{tent_count} {'Zelt' if tent_count == 1 else 'Zelte'}")
+    if camper_count:
+        parts.append(f"{camper_count} Camper")
+    return ", ".join(parts)
+
+
 def _gate_accommodation_label(registration: Registration) -> str:
     """Render the Schlafplatz column: Ä17 approval semantics.
 
     Same mapping as `{Schlafplatz}` in the F1-F4 email templates
-    (`email_service._build_accommodation_label`) — kept as a small local
-    copy rather than a cross-module import of a private helper: `None` ->
-    "Nein"; TENT/CAMPER -> "<Zelt|Camper> — angefragt" until an admin sets
-    `overnight_approved`, then "... — zugesagt". Never empty, never the
-    dropped NEEDS_SPOT state.
+    (`email_service._build_accommodation_label`): no wish -> "Nein";
+    otherwise "<2 Zelte, 1 Camper> — angefragt" until an admin sets
+    `overnight_approved`, then "... — zugesagt" (Ä21).
     """
-    if registration.accommodation is None:
+    units = format_overnight_units(registration.tent_count, registration.camper_count)
+    if not units:
         return "Nein"
-    label = "Zelt" if registration.accommodation == AccommodationType.TENT else "Camper"
     status = "zugesagt" if registration.overnight_approved else "angefragt"
-    return f"{label} — {status}"
+    return f"{units} — {status}"
 
 
 def build_gate_rows(registrations: list[Registration], event: Event) -> list[dict]:
@@ -85,7 +98,7 @@ def build_gate_rows(registrations: list[Registration], event: Event) -> list[dic
         kontingent = registration.invite_label or ""
         tier = registration.tier or ""
         schlafplatz = _gate_accommodation_label(registration)
-        telefon = registration.phone or "" if registration.accommodation is not None else ""
+        telefon = registration.phone or "" if registration.has_overnight else ""
         chosen_slots = set(registration.attendance_slots or [])
         slot_values = {label: ("x" if key in chosen_slots else "") for key, label in zip(slot_keys, slot_labels)}
 
@@ -185,8 +198,11 @@ def _registration_to_item(registration: Registration) -> dict:
     if registration.attendance_slots is not None:
         item["attendance_slots"] = registration.attendance_slots
 
-    if registration.accommodation is not None:
-        item["accommodation"] = registration.accommodation.value
+    if registration.tent_count is not None:
+        item["tent_count"] = registration.tent_count
+
+    if registration.camper_count is not None:
+        item["camper_count"] = registration.camper_count
 
     if registration.invite_id is not None:
         item["invite_id"] = str(registration.invite_id)
@@ -238,11 +254,27 @@ def _item_to_registration(item: dict) -> Registration:
         invite_label=item.get("invite_label"),
         tier=item.get("tier"),
         attendance_slots=item.get("attendance_slots"),
-        accommodation=(
-            AccommodationType(item["accommodation"]) if item.get("accommodation") else None
-        ),
         overnight_approved=item.get("overnight_approved", False),
+        **_overnight_counts_from_item(item),
     )
+
+
+def _overnight_counts_from_item(item: dict) -> dict:
+    """Read tent/camper counts, mapping legacy pre-Ä21 rows (single
+    `accommodation` + `accommodation_count`) into the new two-count shape."""
+    if "tent_count" in item or "camper_count" in item:
+        return {
+            "tent_count": item.get("tent_count"),
+            "camper_count": item.get("camper_count"),
+        }
+    # Legacy: a single TENT/CAMPER choice with an optional count (default 1).
+    legacy = item.get("accommodation")
+    if not legacy:
+        return {"tent_count": None, "camper_count": None}
+    count = item.get("accommodation_count") or 1
+    if legacy == AccommodationType.TENT.value:
+        return {"tent_count": count, "camper_count": None}
+    return {"tent_count": None, "camper_count": count}
 
 
 class RegistrationService:
@@ -595,12 +627,10 @@ class RegistrationService:
         ):
             return None, "Unknown attendance slot selected"
 
-        # Overnight (Ä15): accommodation is optional and independent of the
-        # chosen slots — is_night no longer gates anything. Phone is
-        # required for every registration regardless of accommodation; the
-        # schema already enforces this, re-checked here at service level as
-        # defense in depth.
-        accommodation = data.accommodation
+        # Overnight (Ä15/Ä21): tent/camper counts are optional and independent
+        # of the chosen slots — is_night no longer gates anything. Phone is
+        # required for every registration regardless of overnight; the schema
+        # already enforces this, re-checked here as defense in depth.
         phone = data.phone
         if not phone or not phone.strip():
             return None, "Phone number is required"
@@ -633,7 +663,8 @@ class RegistrationService:
             invite_label=invite.label,
             tier=invite.tier,
             attendance_slots=data.attendance_slots,
-            accommodation=accommodation,
+            tent_count=data.tent_count,
+            camper_count=data.camper_count,
         )
 
         item = _registration_to_item(registration)
@@ -646,7 +677,10 @@ class RegistrationService:
         except ClientError as e:
             logger.error(
                 "Failed to create festival registration",
-                extra={"error": str(e), "event_id": str(event.id)},
+                extra={
+                    "flow": "festival", "step": "register_persist", "outcome": "error",
+                    "error": str(e), "event_id": str(event.id), "invite_id": str(invite.id),
+                },
             )
             # Undo the consume — the registration never made it to storage.
             await invite_service.release_use(event.id, invite.id)
@@ -655,6 +689,9 @@ class RegistrationService:
         logger.info(
             "Festival registration created",
             extra={
+                "flow": "festival",
+                "step": "register_persist",
+                "outcome": "ok",
                 "registration_id": str(registration.id),
                 "event_id": str(event.id),
                 "invite_id": str(invite.id),
@@ -673,7 +710,11 @@ class RegistrationService:
         except Exception as e:
             logger.error(
                 "Failed to send festival confirmation email",
-                extra={"error": str(e), "registration_id": str(registration.id)},
+                extra={
+                    "flow": "festival", "step": "confirmation_email", "outcome": "error",
+                    "error": str(e), "registration_id": str(registration.id),
+                    "event_id": str(event.id),
+                },
             )
 
         return registration, None
@@ -898,20 +939,12 @@ class RegistrationService:
                 return None, "Unknown attendance slot selected"
 
         # Phone is required for every festival registration, independent of
-        # accommodation. Ä17 approval still resets when the wish is cleared.
-        target_accommodation = updates.get("accommodation", registration.accommodation)
+        # overnight. Ä17 approval resets when the whole wish is cleared.
         target_phone = updates.get("phone", registration.phone)
         overnight_approved = registration.overnight_approved
 
         if not target_phone or not target_phone.strip():
             return None, "Phone number is required"
-
-        if (
-            target_accommodation is None
-            and "accommodation" in updates
-            and registration.accommodation is not None
-        ):
-            overnight_approved = False
 
         # Grandfathering (spec §Invite): a group may grow to
         # max(current group_size, invite.max_group_size) — reducing the
@@ -954,10 +987,25 @@ class RegistrationService:
         if non_none_count > target_group_size - 1:
             return None, "group_members exceeds group_size"
 
+        # Overnight counts (Ä21): 0 normalizes to None; neither may exceed the
+        # resulting group size. Clearing the whole wish (both None) resets the
+        # Ä17 approval flag.
+        target_tent = updates.get("tent_count", registration.tent_count)
+        target_camper = updates.get("camper_count", registration.camper_count)
+        target_tent = target_tent or None
+        target_camper = target_camper or None
+        if target_tent and target_tent > target_group_size:
+            return None, "tent_count_exceeds_group"
+        if target_camper and target_camper > target_group_size:
+            return None, "camper_count_exceeds_group"
+        if not target_tent and not target_camper and registration.has_overnight:
+            overnight_approved = False
+
         updated = registration.model_copy(
             update={
                 "attendance_slots": target_slots,
-                "accommodation": target_accommodation,
+                "tent_count": target_tent,
+                "camper_count": target_camper,
                 "phone": target_phone,
                 "overnight_approved": overnight_approved,
                 "group_size": target_group_size,
@@ -970,13 +1018,20 @@ class RegistrationService:
         except ClientError as e:
             logger.error(
                 "Failed to update festival attendance",
-                extra={"error": str(e), "registration_id": str(registration_id)},
+                extra={
+                    "flow": "festival", "step": "edit_persist", "outcome": "error",
+                    "error": str(e), "registration_id": str(registration_id),
+                    "event_id": str(registration.event_id),
+                },
             )
             return None, "Failed to update festival attendance"
 
         logger.info(
             "Festival attendance updated",
             extra={
+                "flow": "festival",
+                "step": "edit_persist",
+                "outcome": "ok",
                 "registration_id": str(registration_id),
                 "event_id": str(registration.event_id),
             },
@@ -988,7 +1043,11 @@ class RegistrationService:
         except Exception as e:
             logger.error(
                 "Failed to send festival update confirmation email",
-                extra={"error": str(e), "registration_id": str(registration_id)},
+                extra={
+                    "flow": "festival", "step": "update_email", "outcome": "error",
+                    "error": str(e), "registration_id": str(registration_id),
+                    "event_id": str(registration.event_id),
+                },
             )
 
         return updated, None
@@ -1309,12 +1368,14 @@ class RegistrationService:
         counting, not person-splitting). Keys not present in
         `event.festival_slots` (orphaned after a slot-config edit) are
         collected into `unknown_slots` instead of silently vanishing.
-        Accommodation totals are OVERALL, not per slot (Ä15), split into
-        `requested` (all non-cancelled regs with that accommodation value)
-        vs. `approved` (the subset with `overnight_approved=True`, Ä17) —
-        `approved` is always <= `requested`. Per-slot `overnight` demand is
-        Σ group_size of regs on that slot with `accommodation` set,
-        independent of `is_night` (Ä15).
+        Accommodation totals are OVERALL, not per slot (Ä15/Ä21). Each type
+        (TENT/CAMPER) reports `requested_units`/`approved_units` = Σ of that
+        type's count (the real Stellplatz demand); `approved_units` is the
+        subset with `overnight_approved=True` (Ä17). A group may bring both
+        types, so `overnight_people` (Σ group_size of regs with any wish,
+        split requested/approved) counts humans separately. Per-slot
+        `overnight` demand is Σ group_size of regs on that slot with any
+        overnight wish, independent of `is_night` (Ä15).
 
         Soft-cap semantics (Ä4/Ä8): `overbooked` is a display flag only —
         this method never raises and blocks nothing.
@@ -1333,9 +1394,14 @@ class RegistrationService:
         slot_overnight: dict[str, int] = {slot.key: 0 for slot in slots}
 
         unknown_slots: dict[str, int] = {}
+        # Per type: units = tents/campers themselves (the real Stellplatz
+        # demand); `*_units` requested vs. approved (Ä17/Ä21). A group may
+        # bring both types, so people are counted once in `overnight_people`.
         accommodation_totals: dict[str, dict[str, int]] = {
-            accommodation.value: {"requested": 0, "approved": 0} for accommodation in AccommodationType
+            accommodation.value: {"requested_units": 0, "approved_units": 0}
+            for accommodation in AccommodationType
         }
+        overnight_people = {"requested": 0, "approved": 0}
         total_registrations = 0
         total_people = 0
         registrations_without_slots = 0
@@ -1356,16 +1422,25 @@ class RegistrationService:
                     if key in slot_totals:
                         slot_totals[key] += reg.group_size
                         slot_by_tier[key][tier] = slot_by_tier[key].get(tier, 0) + reg.group_size
-                        if reg.accommodation is not None:
+                        if reg.has_overnight:
                             slot_overnight[key] += reg.group_size
                     else:
                         unknown_slots[key] = unknown_slots.get(key, 0) + reg.group_size
 
-            if reg.accommodation is not None:
-                bucket = accommodation_totals[reg.accommodation.value]
-                bucket["requested"] += reg.group_size
+            tent_bucket = accommodation_totals[AccommodationType.TENT.value]
+            camper_bucket = accommodation_totals[AccommodationType.CAMPER.value]
+            if reg.tent_count:
+                tent_bucket["requested_units"] += reg.tent_count
                 if reg.overnight_approved:
-                    bucket["approved"] += reg.group_size
+                    tent_bucket["approved_units"] += reg.tent_count
+            if reg.camper_count:
+                camper_bucket["requested_units"] += reg.camper_count
+                if reg.overnight_approved:
+                    camper_bucket["approved_units"] += reg.camper_count
+            if reg.has_overnight:
+                overnight_people["requested"] += reg.group_size
+                if reg.overnight_approved:
+                    overnight_people["approved"] += reg.group_size
 
         slot_rows = [
             {
@@ -1390,6 +1465,7 @@ class RegistrationService:
             "overall_cap": event.capacity,
             "overall_overbooked": peak_total > event.capacity,
             "accommodation_totals": accommodation_totals,
+            "overnight_people": overnight_people,
             "total_registrations": total_registrations,
             "total_people": total_people,
             "registrations_without_slots": registrations_without_slots,
@@ -2041,7 +2117,12 @@ class RegistrationService:
 
         fields_set = patch.model_fields_set
         is_festival = event.event_type == EventType.FESTIVAL
-        festival_only_fields = {"attendance_slots", "accommodation", "overnight_approved"}
+        festival_only_fields = {
+            "attendance_slots",
+            "tent_count",
+            "camper_count",
+            "overnight_approved",
+        }
         if not is_festival and (fields_set & festival_only_fields):
             return None, "not_festival_event"
 
@@ -2057,28 +2138,32 @@ class RegistrationService:
             ):
                 return None, "invalid_slots"
 
-        target_accommodation = registration.accommodation
+        target_tent = registration.tent_count
+        target_camper = registration.camper_count
         target_overnight_approved = registration.overnight_approved
         if is_festival:
-            if "accommodation" in fields_set:
-                target_accommodation = patch.accommodation
+            if "tent_count" in fields_set:
+                target_tent = patch.tent_count or None
+            if "camper_count" in fields_set:
+                target_camper = patch.camper_count or None
+            has_overnight = bool(target_tent or target_camper)
 
-            # Ä15 phone-iff-accommodation rule, enforced on the RESULTING
-            # (patched-or-existing) state.
-            if target_accommodation is not None:
+            # Ä15 phone-iff-overnight rule (admin path only), enforced on the
+            # RESULTING state; clearing the whole wish clears phone + approval.
+            if has_overnight:
                 if not target_phone or not target_phone.strip():
                     return None, "phone_required_for_accommodation"
             else:
                 target_phone = None
-                # Ä17: clearing the wish resets the approval flag too —
-                # mirrors T109's self-service reset.
-                if "accommodation" in fields_set and registration.accommodation is not None:
+                if registration.has_overnight and (
+                    "tent_count" in fields_set or "camper_count" in fields_set
+                ):
                     target_overnight_approved = False
 
             if "overnight_approved" in fields_set:
                 target_overnight_approved = patch.overnight_approved
 
-            if target_overnight_approved and target_accommodation is None:
+            if target_overnight_approved and not has_overnight:
                 return None, "overnight_approval_requires_accommodation"
 
         # group_members / group_size: a FESTIVAL registration touching
@@ -2120,6 +2205,15 @@ class RegistrationService:
 
             if target_group_size < 1 or target_group_size > registration.group_size:
                 return None, "invalid_group_size"
+
+        # Overnight counts (Ä21): neither may exceed the resulting group size.
+        # Only reconciled on festival events (single-event patches never carry
+        # the fields — rejected above).
+        if is_festival:
+            if target_tent and target_tent > target_group_size:
+                return None, "tent_count_exceeds_group"
+            if target_camper and target_camper > target_group_size:
+                return None, "camper_count_exceeds_group"
 
         set_parts: list[str] = []
         remove_parts: list[str] = []
@@ -2170,13 +2264,21 @@ class RegistrationService:
                 expr_values[":attendance_slots"] = target_attendance_slots
             changed_fields.append("attendance_slots")
 
-        if target_accommodation != registration.accommodation:
-            if target_accommodation is None:
-                remove_parts.append("accommodation")
+        if target_tent != registration.tent_count:
+            if target_tent is None:
+                remove_parts.append("tent_count")
             else:
-                set_parts.append("accommodation = :accommodation")
-                expr_values[":accommodation"] = target_accommodation.value
-            changed_fields.append("accommodation")
+                set_parts.append("tent_count = :tent_count")
+                expr_values[":tent_count"] = target_tent
+            changed_fields.append("tent_count")
+
+        if target_camper != registration.camper_count:
+            if target_camper is None:
+                remove_parts.append("camper_count")
+            else:
+                set_parts.append("camper_count = :camper_count")
+                expr_values[":camper_count"] = target_camper
+            changed_fields.append("camper_count")
 
         if target_overnight_approved != registration.overnight_approved:
             set_parts.append("overnight_approved = :overnight_approved")

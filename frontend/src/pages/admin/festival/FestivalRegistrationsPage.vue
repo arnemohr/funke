@@ -111,7 +111,7 @@
               >
                 <span v-if="(reg.attendance_slots || []).includes(slot.key)" aria-label="dabei">✓</span>
               </td>
-              <td v-if="OVERNIGHT_ENABLED" data-label="Schlafplatz">{{ accommodationLabel(reg.accommodation) }}</td>
+              <td v-if="OVERNIGHT_ENABLED" data-label="Schlafplatz">{{ accommodationLabel(reg) }}</td>
               <td data-label="Telefon">{{ reg.phone || '–' }}</td>
               <td v-if="OVERNIGHT_ENABLED && statusFilter === 'OVERNIGHT'" data-label="Übernachtung">
                 <span :class="['chip', reg.overnight_approved ? 'chip-success' : 'chip-warn']">
@@ -236,10 +236,16 @@ function tierLabel(tier) {
   return TIER_LABELS[tier] || tier || '–'
 }
 
-function accommodationLabel(accommodation) {
-  if (accommodation === 'TENT') return 'Zelt'
-  if (accommodation === 'CAMPER') return 'Camper'
-  return 'Nein'
+// Ä21: a registration may bring tents AND campers — render both counts.
+function accommodationLabel(reg) {
+  const parts = []
+  if (reg.tent_count) parts.push(`${reg.tent_count} ${reg.tent_count === 1 ? 'Zelt' : 'Zelte'}`)
+  if (reg.camper_count) parts.push(`${reg.camper_count} Camper`)
+  return parts.length ? parts.join(', ') : 'Nein'
+}
+
+function hasOvernight(reg) {
+  return !!(reg.tent_count || reg.camper_count)
 }
 
 // group_members is EXCLUSIVE of the contact and may contain `null` tombstones
@@ -256,7 +262,7 @@ const filterCounts = computed(() => {
   return {
     all: all.length,
     active: all.filter((r) => r.status !== 'CANCELLED').length,
-    overnight: all.filter((r) => !!r.accommodation).length,
+    overnight: all.filter(hasOvernight).length,
     cancelled: all.filter((r) => r.status === 'CANCELLED').length,
   }
 })
@@ -267,7 +273,7 @@ const filteredRegistrations = computed(() => {
   if (statusFilter.value === 'ACTIVE') {
     list = list.filter((r) => r.status !== 'CANCELLED')
   } else if (statusFilter.value === 'OVERNIGHT') {
-    list = list.filter((r) => !!r.accommodation)
+    list = list.filter(hasOvernight)
   } else if (statusFilter.value === 'CANCELLED') {
     list = list.filter((r) => r.status === 'CANCELLED')
   }

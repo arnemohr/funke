@@ -14,7 +14,6 @@
     <!-- Event info and registration form -->
     <template v-else-if="invite">
       <header class="festival-header">
-        <p class="eyebrow">Du bist eingeladen</p>
         <h2>{{ invite.event_name }}</h2>
         <dl class="event-facts">
           <dt>Wann</dt>
@@ -26,12 +25,6 @@
           <dd>{{ formatDateLong(invite.registration_deadline) }}</dd>
         </dl>
       </header>
-
-      <!-- Mitmach-Hinweis box (Ä16) -->
-      <section v-if="invite.participation_hint && !submitted" class="callout callout-warm">
-        <p class="callout-title">Pack mit an!</p>
-        <p class="participation-hint-text">{{ invite.participation_hint }}</p>
-      </section>
 
       <!-- Registration form -->
       <section v-if="!submitted" class="registration-section">
@@ -104,6 +97,10 @@
 
           <fieldset class="slot-grid">
             <legend>Wann bist du dabei? *</legend>
+            <p class="slot-intro">
+              Damit wir besser planen können, sag uns bitte, an welchen Tagen du dabei bist —
+              das erleichtert uns die Planung und die Arbeit ungemein.
+            </p>
             <div v-for="group in slotsByDate" :key="group.date" class="slot-day-group">
               <p class="slot-day-heading">{{ formatWeekdayHeading(group.date) }}</p>
               <label
@@ -133,38 +130,35 @@
 
           <fieldset v-if="OVERNIGHT_ENABLED" class="overnight-fieldset">
             <legend>Übernachtest du auf dem Gelände?</legend>
-            <label class="slot-checkbox">
-              <input
-                type="radio"
-                name="accommodation"
-                value="NONE"
-                v-model="form.accommodation"
-                :disabled="submitting"
-              />
-              <span class="slot-checkbox-label">Nein</span>
-            </label>
-            <label class="slot-checkbox">
-              <input
-                type="radio"
-                name="accommodation"
-                value="TENT"
-                v-model="form.accommodation"
-                :disabled="submitting"
-              />
-              <span class="slot-checkbox-label">Zelt — wir bringen unser eigenes Zelt mit</span>
-            </label>
-            <label class="slot-checkbox">
-              <input
-                type="radio"
-                name="accommodation"
-                value="CAMPER"
-                v-model="form.accommodation"
-                :disabled="submitting"
-              />
-              <span class="slot-checkbox-label">Camper/Bus — wir schlafen im eigenen Fahrzeug</span>
-            </label>
+            <p class="field-note">
+              Sag uns, wie viele Zelte und/oder Camper/Wohnwagen ihr mitbringt — gezählt werden
+              die Zelte/Fahrzeuge (für die Stellplatz-Planung), nicht die Personen. Wenn ihr beides
+              mitbringt, trag einfach beides ein. Nichts eintragen = keine Übernachtung.
+            </p>
+            <div class="overnight-counts">
+              <label class="accommodation-count">
+                Zelte
+                <input
+                  v-model.number="form.tentCount"
+                  type="number"
+                  min="0"
+                  :max="currentGroupSize"
+                  :disabled="submitting"
+                />
+              </label>
+              <label class="accommodation-count">
+                Camper/Wohnwagen
+                <input
+                  v-model.number="form.camperCount"
+                  type="number"
+                  min="0"
+                  :max="currentGroupSize"
+                  :disabled="submitting"
+                />
+              </label>
+            </div>
 
-            <p v-if="form.accommodation !== 'NONE'" class="callout callout-warning request-copy">
+            <p v-if="wantsOvernight" class="callout callout-warning request-copy">
               Schlafplätze sind begrenzt — deine Angabe ist eine Anfrage, keine Zusage. Wir melden uns bei dir.
             </p>
           </fieldset>
@@ -222,6 +216,13 @@
             </button>
           </div>
         </div>
+
+        <!-- Mitmach-Hinweis box (Ä16) — shown on success + on the manage page,
+             not on the empty registration form. -->
+        <section v-if="invite.participation_hint" class="callout callout-warm">
+          <p class="callout-title">Pack mit an!</p>
+          <p class="participation-hint-text" v-html="linkify(invite.participation_hint)"></p>
+        </section>
       </section>
     </template>
   </article>
@@ -231,6 +232,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { publicApi } from '../../services/api'
 import { formatDateLong } from '../../utils/formatters.js'
+import { linkify } from '../../utils/linkify.js'
 import { OVERNIGHT_ENABLED } from '../../config/festival.js'
 import FestivalHelp from '../../components/help/FestivalHelp.vue'
 
@@ -257,11 +259,21 @@ const form = ref({
   email: '',
   extraMembers: [],
   slots: {},
-  accommodation: 'NONE',
+  tentCount: 0,
+  camperCount: 0,
   phone: '',
 })
 
+// Ä21: any overnight wish = at least one tent or camper.
+const wantsOvernight = computed(() => Number(form.value.tentCount) > 0 || Number(form.value.camperCount) > 0)
+
 const maxExtraMembers = computed(() => Math.max(0, (invite.value?.max_group_size || 1) - 1))
+
+// A group cannot bring more tents/campers than it has people. Group size =
+// contact + filled companion names (mirrors the submit payload's group_size).
+const currentGroupSize = computed(
+  () => 1 + form.value.extraMembers.map((n) => (n || '').trim()).filter(Boolean).length,
+)
 
 // Group slots by day, weekday heading via Intl (formatters.js has no per-day-only helper).
 const slotsByDate = computed(() => {
@@ -336,9 +348,13 @@ async function handleSubmit() {
   }
 
   // OVERNIGHT_ENABLED gate (Stellplatz ungeklärt, 19.7.): while disabled,
-  // accommodation never leaves this form, regardless of form state. Phone
-  // is required independently of accommodation/OVERNIGHT_ENABLED.
-  const accommodation = OVERNIGHT_ENABLED && form.value.accommodation !== 'NONE' ? form.value.accommodation : null
+  // overnight counts never leave this form. Phone is required independently
+  // of overnight/OVERNIGHT_ENABLED. Counts are clamped to 0..group_size — the
+  // backend rejects a count larger than the group, so mirror that ceiling.
+  const groupSize = 1 + filledExtras.length
+  const clampCount = (v) => Math.min(Math.max(0, Number(v) || 0), groupSize)
+  const tentCount = OVERNIGHT_ENABLED ? clampCount(form.value.tentCount) : 0
+  const camperCount = OVERNIGHT_ENABLED ? clampCount(form.value.camperCount) : 0
   const trimmedPhone = form.value.phone.trim()
   if (!trimmedPhone) {
     submitError.value = 'Bitte gib deine Telefonnummer an.'
@@ -350,9 +366,10 @@ async function handleSubmit() {
   const payload = {
     name: trimmedName,
     email: form.value.email.trim().toLowerCase(),
-    group_size: 1 + filledExtras.length,
+    group_size: groupSize,
     attendance_slots: selectedSlotKeys,
-    accommodation,
+    tent_count: tentCount || null,
+    camper_count: camperCount || null,
     phone: trimmedPhone,
   }
   if (filledExtras.length > 0) {
@@ -419,15 +436,6 @@ onMounted(loadInvite)
 /* === Header: the invitation moment === */
 .festival-header {
   margin-bottom: var(--space-5);
-}
-
-.eyebrow {
-  color: var(--color-accent);
-  font-size: var(--text-sm);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  margin: 0 0 var(--space-1);
 }
 
 .festival-header h2 {
@@ -506,6 +514,12 @@ onMounted(loadInvite)
   display: block;
   color: var(--color-warning-text);
   margin: -0.5rem 0 var(--space-4);
+}
+
+.slot-intro {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  margin: 0 0 var(--space-3);
 }
 
 .field-note {

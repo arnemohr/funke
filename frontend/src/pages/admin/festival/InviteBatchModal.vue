@@ -98,6 +98,22 @@
           </p>
         </fieldset>
 
+        <label class="send-toggle">
+          <input type="checkbox" v-model="sendEmails" role="switch" :disabled="creating" />
+          Einladungen direkt per E-Mail verschicken
+        </label>
+        <p class="field-hint send-hint">
+          <template v-if="emailCount > 0">
+            {{ emailCount === 1 ? '1 Person hat' : `${emailCount} Personen haben` }} eine E-Mail-Adresse
+            — {{ emailCount === 1 ? 'sie bekommt' : 'sie bekommen' }} die Einladung sofort.
+            Verantwortliche ohne Adresse teilst du den Link selbst (Kopieren).
+          </template>
+          <template v-else>
+            Noch keine E-Mail-Adressen eingetragen — es wird nichts verschickt. Du kannst die Links
+            später mit „Kopieren" selbst teilen.
+          </template>
+        </p>
+
         <div v-if="error" role="alert" class="error">{{ error }}</div>
 
         <footer>
@@ -135,6 +151,7 @@ const batchLabel = ref('')
 const tier = ref('werft')
 const maxUses = ref(1)
 const maxGroupSize = ref(1)
+const sendEmails = ref(true)
 const creating = ref(false)
 const error = ref(null)
 
@@ -143,6 +160,8 @@ const validGuests = computed(() =>
     .map((g) => ({ label: g.name.trim(), email: g.email.trim() || null }))
     .filter((g) => g.label),
 )
+
+const emailCount = computed(() => validGuests.value.filter((g) => g.email).length)
 
 const maxSeats = computed(() => (maxUses.value || 1) * (maxGroupSize.value || 1))
 
@@ -214,6 +233,7 @@ watch(
       tier.value = 'werft'
       maxUses.value = 1
       maxGroupSize.value = 1
+      sendEmails.value = true
       creating.value = false
       error.value = null
     }
@@ -233,6 +253,7 @@ async function handleCreate() {
   try {
     const batch = {
       batch_label: batchLabel.value.trim(),
+      send_emails: sendEmails.value,
       invites: validGuests.value.map((row) => ({
         label: row.label,
         email: row.email,
@@ -328,6 +349,18 @@ async function handleCreate() {
   font-size: var(--text-sm, 0.875rem);
   color: var(--color-text-muted);
   margin: 0 0 0.5rem;
+}
+
+.send-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+
+.send-hint {
+  margin-bottom: 1rem;
 }
 
 .error {

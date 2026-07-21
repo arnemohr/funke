@@ -13,7 +13,6 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
 from ...models import (
-    AccommodationType,
     EventPublic,
     EventType,
     Registration,
@@ -198,6 +197,7 @@ class EventInfo(BaseModel):
     # Festival sidetrack (spec 019) — additive optional fields
     event_type: str = EventType.SINGLE.value
     contact_hint: str | None = None
+    participation_hint: str | None = None
     festival_slots: list[FestivalSlotInfo] | None = None
 
 
@@ -221,7 +221,8 @@ class ManageRegistrationResponse(BaseModel):
     message: str
     # Festival sidetrack (spec 019) — additive optional fields
     attendance_slots: list[str] | None = None
-    accommodation: AccommodationType | None = None
+    tent_count: int | None = None
+    camper_count: int | None = None
     phone: str | None = None
     # Ä17: read-only for guests — drives the „angefragt"/„zugesagt" display;
     # no public endpoint ever accepts this field.
@@ -306,6 +307,7 @@ async def get_registration_manage(
                 location=event.location,
                 event_type=event.event_type.value,
                 contact_hint=event.contact_hint,
+                participation_hint=event.participation_hint,
                 festival_slots=(
                     [
                         FestivalSlotInfo(
@@ -374,7 +376,8 @@ async def get_registration_manage(
         original_group_size=registration.group_size,
         message=message,
         attendance_slots=registration.attendance_slots,
-        accommodation=registration.accommodation,
+        tent_count=registration.tent_count,
+        camper_count=registration.camper_count,
         phone=registration.phone,
         overnight_approved=registration.overnight_approved,
         editable_until=editable_until,

@@ -76,3 +76,57 @@ class TestInlineImages:
             p.get_content_disposition() == "attachment" and p.get_filename() == "bericht.pdf"
             for p in parts
         )
+
+
+class TestHeaderHygiene:
+    """Deliverability header fixes: Date, aligned Message-ID, List-Unsubscribe."""
+
+    def _settings(self, monkeypatch, sender="funke@mobilemachenschaften.de"):
+        from app.services import email_client
+
+        email_client.get_email_settings.cache_clear()
+        monkeypatch.setattr(email_client, "get_email_settings", lambda: email_client.EmailSettings(
+            smtp_sender_email=sender, smtp_sender_name="Verein",
+        ))
+
+    def test_date_header_present(self, monkeypatch):
+        self._settings(monkeypatch)
+        mime = SmtpClient()._create_mime_message(
+            EmailMessage(to="a@example.com", subject="s", body_text="hi"),
+        )
+        assert mime["Date"] is not None
+        # RFC 5322 date carries a weekday + GMT/UTC offset.
+        assert "+0000" in mime["Date"] or "GMT" in mime["Date"]
+
+    def test_message_id_domain_matches_sender(self, monkeypatch):
+        self._settings(monkeypatch, sender="funke@mobilemachenschaften.de")
+        mime = SmtpClient()._create_mime_message(
+            EmailMessage(to="a@example.com", subject="s", body_text="hi"),
+        )
+        assert mime["Message-ID"].endswith("@mobilemachenschaften.de>")
+        assert "funke.app" not in mime["Message-ID"]
+
+    def test_message_id_falls_back_when_sender_has_no_at(self, monkeypatch):
+        self._settings(monkeypatch, sender="")
+        mime = SmtpClient()._create_mime_message(
+            EmailMessage(to="a@example.com", subject="s", body_text="hi"),
+        )
+        # No crash; a syntactically valid Message-ID is still produced.
+        assert mime["Message-ID"].startswith("<") and mime["Message-ID"].endswith(">")
+
+    def test_list_unsubscribe_emitted_when_set(self, monkeypatch):
+        self._settings(monkeypatch)
+        mime = SmtpClient()._create_mime_message(
+            EmailMessage(
+                to="a@example.com", subject="s", body_text="hi",
+                list_unsubscribe="<mailto:funke@mobilemachenschaften.de?subject=Abmelden>",
+            ),
+        )
+        assert mime["List-Unsubscribe"] == "<mailto:funke@mobilemachenschaften.de?subject=Abmelden>"
+
+    def test_list_unsubscribe_absent_when_unset(self, monkeypatch):
+        self._settings(monkeypatch)
+        mime = SmtpClient()._create_mime_message(
+            EmailMessage(to="a@example.com", subject="s", body_text="hi"),
+        )
+        assert mime["List-Unsubscribe"] is None

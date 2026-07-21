@@ -48,6 +48,21 @@ def _has_two_words(value: str) -> bool:
     return len(value.split()) >= 2
 
 
+def _normalize_overnight_counts(model: BaseModel, group_size: int) -> None:
+    """Normalize `tent_count`/`camper_count` in place (Ä21).
+
+    A count of 0 becomes None ("keine"); neither may exceed `group_size`.
+    Shared by `FestivalRegistrationCreate`; the patch schemas leave the
+    resulting-state check to the service (it needs the stored group size).
+    """
+    for field in ("tent_count", "camper_count"):
+        value = getattr(model, field)
+        if value in (None, 0):
+            object.__setattr__(model, field, None)
+        elif value > group_size:
+            raise ValueError(f"{field} must not exceed group_size")
+
+
 class RegistrationCreate(BaseModel):
     """Schema for creating a registration."""
 
@@ -93,7 +108,10 @@ class FestivalRegistrationCreate(BaseModel):
     group_size: int = Field(default=1, ge=1, le=20)
     group_members: list[str] | None = Field(default=None)
     attendance_slots: list[str] = Field(..., min_length=1)
-    accommodation: AccommodationType | None = None
+    # Ä20/Ä21: overnight is captured as two independent unit counts — a group
+    # may bring tents AND campers. `None`/0 on both means "übernachtet nicht".
+    tent_count: int | None = Field(None, ge=0, le=20)
+    camper_count: int | None = Field(None, ge=0, le=20)
     phone: str | None = Field(None, max_length=50)
 
     @field_validator("email")
@@ -164,6 +182,17 @@ class FestivalRegistrationCreate(BaseModel):
             raise ValueError("phone is required")
         return self
 
+    @model_validator(mode="after")
+    def _normalize_overnight_counts(self) -> "FestivalRegistrationCreate":
+        """Normalize the tent/camper counts (Ä21).
+
+        0 is stored as None ("keine"), and neither count may exceed the group
+        size (a group cannot bring more tents — or more campers — than it has
+        people). Bringing both is allowed; the two are independent.
+        """
+        _normalize_overnight_counts(self, self.group_size)
+        return self
+
 
 class FestivalAttendancePatch(BaseModel):
     """Partial-update payload for public self-service festival attendance edits.
@@ -175,7 +204,8 @@ class FestivalAttendancePatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     attendance_slots: list[str] | None = None
-    accommodation: AccommodationType | None = None
+    tent_count: int | None = Field(None, ge=0, le=20)
+    camper_count: int | None = Field(None, ge=0, le=20)
     phone: str | None = Field(None, max_length=50)
     group_size: int | None = Field(None, ge=1, le=20)
     # None entries are tombstones for removed members (T109) — indices never shift.
@@ -259,7 +289,8 @@ class RegistrationAdminPatch(BaseModel):
     group_members: list[str | None] | None = None
     # Festival sidetrack (spec 019, T205) — additive optional fields.
     attendance_slots: list[str] | None = None
-    accommodation: AccommodationType | None = None
+    tent_count: int | None = Field(None, ge=0, le=20)
+    camper_count: int | None = Field(None, ge=0, le=20)
     overnight_approved: bool | None = None
 
     @field_validator("name")
@@ -352,11 +383,22 @@ class Registration(BaseModel):
     invite_label: str | None = None
     tier: str | None = None  # Denormalized invite tier, for boards/CSV
     attendance_slots: list[str] | None = None  # Keys of the chosen FestivalSlots
-    # Overnight accommodation is a REQUEST, not an entitlement (Ä17)
-    accommodation: AccommodationType | None = None
+    # Overnight is a REQUEST, not an entitlement (Ä17). Captured as two
+    # independent unit counts (Ä21) — a group may bring tents AND campers.
+    # `None` = none of that kind; the scarce resource is Stellplätze, so these
+    # count vehicles/tents, not people. Legacy rows (pre-Ä21) are mapped from
+    # the old single `accommodation`/`accommodation_count` on read.
+    tent_count: int | None = None
+    camper_count: int | None = None
     # Ä17: set ONLY by admins (RegistrationAdminPatch / the T208 toggle), never
-    # via any public endpoint; drives the „angefragt"/„zugesagt" display.
+    # via any public endpoint; a single flag confirms the whole overnight wish
+    # (tents + campers together); drives the „angefragt"/„zugesagt" display.
     overnight_approved: bool = False
+
+    @property
+    def has_overnight(self) -> bool:
+        """True when the group requested any overnight (tent or camper)."""
+        return bool(self.tent_count or self.camper_count)
 
     def can_cancel(self) -> bool:
         """Check if registration can be cancelled."""
@@ -458,7 +500,8 @@ class RegistrationResponse(BaseModel):
     promoted: bool = False
     # Festival sidetrack (spec 019) — additive optional fields
     attendance_slots: list[str] | None = None
-    accommodation: AccommodationType | None = None
+    tent_count: int | None = None
+    camper_count: int | None = None
     phone: str | None = None
     overnight_approved: bool = False
     invite_label: str | None = None

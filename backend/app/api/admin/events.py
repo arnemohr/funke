@@ -891,6 +891,14 @@ _PATCH_ERROR_STATUS = {
         status.HTTP_400_BAD_REQUEST,
         "Übernachtung kann nur zugesagt werden, wenn ein Übernachtungswunsch vorliegt",
     ),
+    "tent_count_exceeds_group": (
+        status.HTTP_400_BAD_REQUEST,
+        "Es können nicht mehr Zelte als Personen sein",
+    ),
+    "camper_count_exceeds_group": (
+        status.HTTP_400_BAD_REQUEST,
+        "Es können nicht mehr Camper als Personen sein",
+    ),
     "update_failed": (
         status.HTTP_500_INTERNAL_SERVER_ERROR,
         "Failed to update registration",
