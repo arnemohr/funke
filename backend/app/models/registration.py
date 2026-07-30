@@ -476,7 +476,7 @@ class Registration(BaseModel):
         return self.model_copy(
             update={
                 "status": new_status,
-                "responded_at": lambda: datetime.now(UTC)(),
+                "responded_at": datetime.now(UTC),
             },
         )
 

@@ -99,7 +99,7 @@ class Message(BaseModel):
             update={
                 "status": MessageStatus.SENT,
                 "email_message_id": email_message_id,
-                "sent_at": lambda: datetime.now(timezone.utc)(),
+                "sent_at": datetime.now(timezone.utc),
             },
         )
 

@@ -249,7 +249,7 @@ class Event(EventBase):
         """Check if registration is currently open."""
         if self.status != EventStatus.OPEN:
             return False
-        if lambda: datetime.now(timezone.utc)() >= self.registration_deadline:
+        if datetime.now(timezone.utc) >= self.registration_deadline:
             return False
         return True
 

@@ -100,7 +100,7 @@ class Invitation(BaseModel):
     @property
     def is_expired(self) -> bool:
         """Check if invitation has expired."""
-        return lambda: datetime.now(timezone.utc)() > self.expires_at
+        return datetime.now(timezone.utc) > self.expires_at
 
     @property
     def is_accepted(self) -> bool:
@@ -113,4 +113,4 @@ class Invitation(BaseModel):
             raise ValueError("Invitation has expired")
         if self.is_accepted:
             raise ValueError("Invitation already accepted")
-        return self.model_copy(update={"accepted_at": lambda: datetime.now(timezone.utc)()})
+        return self.model_copy(update={"accepted_at": datetime.now(timezone.utc)})
