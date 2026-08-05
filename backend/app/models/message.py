@@ -25,6 +25,11 @@ class MessageType(str, Enum):
     FESTIVAL_CONFIRMATION = "festival_confirmation"
     FESTIVAL_UPDATE = "festival_update"
     FESTIVAL_CANCELLATION = "festival_cancellation"
+    # Spec 020 — one mail per companion who supplied an address: F5 carries
+    # only that person's QR, F6 tells them their code died with the group's
+    # cancellation.
+    FESTIVAL_COMPANION_TICKET = "festival_companion_ticket"
+    FESTIVAL_COMPANION_CANCELLATION = "festival_companion_cancellation"
 
 
 class MessageDirection(str, Enum):
@@ -134,3 +139,8 @@ class CustomMessageRequest(BaseModel):
     subject: str = Field(..., min_length=1, max_length=500)
     body: str = Field(..., min_length=1, max_length=50000)
     include_links: bool = False
+    # Spec 020 — also mail every companion who supplied an address. Default ON:
+    # the whole point of collecting those addresses is that the Orga-Rundmail
+    # reaches them. Their copy carries the read-only ticket link, never the
+    # group's manage link.
+    include_companions: bool = True

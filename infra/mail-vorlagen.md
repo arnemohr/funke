@@ -24,6 +24,8 @@ Platzhalter stehen in geschweiften Klammern, z. B. `{Name}`, und werden beim Ver
 | `{EinladungsLink}` | Festival: persönlicher oder Kontingent-Link zur Anmeldung |
 | `{KontaktAdresse}` | Festival: die hinterlegte Kontaktadresse für Rückfragen |
 | `{MitmachHinweis}` | Festival: der konfigurierte Mitmach-Hinweis inkl. Schichtplan-Link (nur wenn hinterlegt) |
+| `{Kontaktperson}` | Festival: Name der Person, die die Anmeldung gemacht hat (nur in den Begleitungs-Mails F5/F6) |
+| `{TicketLink}` | Festival: Link zur eigenen, **nur lesbaren** Eintritts-Code-Seite einer Begleitung. Nicht der Verwaltungslink — darüber kann niemand ändern oder absagen |
 
 ---
 
@@ -377,6 +379,8 @@ Dein Orga-Team
 **Hinweis:** Betreff und Text werden vom Admin selbst geschrieben. Wenn die Option „Link zur Anmeldung anhängen“ aktiv ist, wird unten zusätzlich der Verwaltungslink eingefügt.
 **Festival (spec 019):** Diese Vorlage funktioniert unverändert auch für Festival-Anmeldungen — verifiziert am Code (`send_custom_message` / `POST /api/admin/events/{event_id}/messages`): sie hängt nur an `event.name` und `registration.id`/`registration_token`/`email`, keine der Werte unterscheidet sich für `event_type=FESTIVAL`. Es gibt bewusst keine neue automatische Vorlage für die Vor-Festival-Erinnerung („Challenged & decided“ im Spec) — dieser manuelle Versandweg ist der vorgesehene. Die Festival-Sektion selbst bekommt ihre eigene Versandoberfläche dafür erst in **T211** (Wiederverwendung des `MessageComposer`s); bis dahin ist der Endpunkt zwar bereits nutzbar, aber ohne dedizierten UI-Einstieg in der Festival-Sektion.
 
+**Begleitungen (spec 020):** Die Rundmail geht standardmäßig **auch an jede Begleitung, für die eine E-Mail-Adresse hinterlegt ist** (Häkchen „Begleitungen mit E-Mail mitschicken“, per Default an). Betreff und Text sind identisch; jede Empfängerin bekommt eine eigene Nachricht und damit einen eigenen Eintrag im Nachrichten-Log. **Unterschied:** Wo die Kontaktperson den `{Verwaltungslink}` bekommt, steht in der Begleitungs-Fassung der `{TicketLink}` — der Verwaltungslink darf niemals an eine Begleitung gehen, weil man damit die ganze Gruppe absagen könnte.
+
 **Betreff:** wird vom Admin geschrieben.
 
 **Aufbau der E-Mail:**
@@ -385,6 +389,17 @@ Dein Orga-Team
 
 ---
 Anmeldung verwalten: {Verwaltungslink}
+
+(Diese Nachricht bezieht sich auf die Veranstaltung "{Veranstaltung}".)
+Dein Orga-Team
+```
+
+**Aufbau bei einer Begleitung:**
+```
+{Vom Admin geschriebener Text}
+
+---
+Dein Eintritts-Code: {TicketLink}
 
 (Diese Nachricht bezieht sich auf die Veranstaltung "{Veranstaltung}".)
 Dein Orga-Team
@@ -572,6 +587,72 @@ schade, dass du nicht dabei bist — deine Anmeldung für "{Veranstaltung}"
 ist storniert.
 
 Falls du es dir anders überlegst, schreib uns: {KontaktAdresse}
+
+Bis zum nächsten Mal,
+Dein Orga-Team
+```
+
+---
+
+## 18. Festival: Eintritts-Code für Begleitung (F5)
+
+**Wann?** Bei der Anmeldung an jede Begleitung, für die eine E-Mail-Adresse eingetragen wurde — und bei einer Selbst-Änderung an jede Begleitung, deren Adresse **neu oder korrigiert** wurde. Nicht bei einer Änderung der Zeitfenster und nicht bei einer Umbenennung: der Code bleibt gültig, und die Ticket-Seite unterschreibt ihn bei jedem Aufruf neu.
+
+**Enthält genau einen QR-Code** — den dieser Person (`cid:qr-{person_index}`). **Kein Verwaltungslink** in keiner der beiden Fassungen: mit diesem Token könnte man die ganze Gruppe ändern oder absagen. Keine Schlafplatz-Zeile — Zelt/Camper ist ein Gruppen-Wunsch, den die Kontaktperson abstimmt.
+
+**Betreff:**
+```
+Dein Eintritts-Code: {Veranstaltung}
+```
+
+**Text:**
+```
+Moin {Name},
+
+{Kontaktperson} hat dich für "{Veranstaltung}" angemeldet — schön, dass
+du dabei bist!
+
+Deine Anmeldung:
+- Wann: {Zeitfenster}
+
+Dein Eintritts-Code ist unten in dieser Mail eingebettet — am Einlass
+zeigst du ihn einfach vor, ein Screenshot reicht.
+
+Dein Code, immer aktuell:
+{TicketLink}
+
+{MitmachHinweis}
+
+Wenn sich etwas ändert — andere Tage, oder du kannst doch nicht — melde
+dich bei {Kontaktperson}: die Anmeldung für euch alle läuft dort
+zusammen.
+
+Bei Fragen: {KontaktAdresse}
+
+Bis bald,
+Dein Orga-Team
+```
+
+---
+
+## 19. Festival: Absage-Hinweis an Begleitung (F6)
+
+**Wann?** Wenn eine ganze Festival-Anmeldung storniert wird — also überall, wo auch F4 rausgeht (Selbstauskunft und Admin-Absage). Ohne diese Mail steht die Begleitung am Eingang mit einem Code, der nicht mehr funktioniert.
+
+**Betreff:**
+```
+Abgesagt: {Veranstaltung}
+```
+
+**Text:**
+```
+Moin {Name},
+
+{Kontaktperson} hat die Anmeldung für "{Veranstaltung}" storniert — für
+dich damit auch. Dein Eintritts-Code funktioniert nicht mehr.
+
+Wenn das ein Versehen war, melde dich bei {Kontaktperson} — oder schreib
+uns: {KontaktAdresse}
 
 Bis zum nächsten Mal,
 Dein Orga-Team

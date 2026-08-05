@@ -9,6 +9,7 @@ Provides:
 """
 
 import secrets
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
@@ -28,6 +29,7 @@ from ..models import (
     RegistrationCreate,
     RegistrationStatus,
 )
+from ..models.registration import _align_member_emails
 from .config import get_events_table, get_registrations_table
 from .logging import get_logger
 
@@ -70,6 +72,86 @@ def _gate_accommodation_label(registration: Registration) -> str:
         return "Nein"
     status = "zugesagt" if registration.overnight_approved else "angefragt"
     return f"{units} — {status}"
+
+
+@dataclass(frozen=True)
+class CompanionRecipient:
+    """One companion who can be mailed their own ticket (spec 020)."""
+
+    person_index: int
+    name: str
+    email: str
+
+
+def companion_recipients(registration: Registration) -> list[CompanionRecipient]:
+    """Companions of `registration` who supplied a usable address (spec 020).
+
+    Pure and HTTP-free so it is directly unit-testable, and the single source
+    of truth for "who gets their own mail" — shared by the F5 send on create,
+    the self-edit diff, the F6 cancellation notice and the Orga-Rundmail
+    fan-out. Divergence between those four is exactly how someone ends up
+    receiving another person's QR code.
+
+    `person_index` is `i + 1`, matching `build_person_tickets` (index 0 is the
+    contact). Tombstoned members yield nothing but never shift the indices of
+    the members after them.
+
+    Skipped, and why:
+    - CANCELLED registrations — nothing to hand out (returns `[]`).
+    - members without an address — the contact forwards their QR, as before.
+    - an address equal to the contact's — they already get F2 with every QR.
+    - duplicates within the group — first index wins, so one human gets one
+      mail even if the contact typed the same address twice.
+    """
+    if registration.status == RegistrationStatus.CANCELLED:
+        return []
+
+    members = registration.group_members or []
+    emails = registration.group_member_emails or []
+    contact_email = (registration.email or "").strip().lower()
+
+    recipients: list[CompanionRecipient] = []
+    seen: set[str] = set()
+
+    for i, member_name in enumerate(members):
+        if member_name is None:
+            continue
+        email = emails[i] if i < len(emails) else None
+        if not email:
+            continue
+        normalized = email.strip().lower()
+        if not normalized or normalized == contact_email or normalized in seen:
+            continue
+        seen.add(normalized)
+        recipients.append(
+            CompanionRecipient(person_index=i + 1, name=member_name, email=normalized),
+        )
+
+    return recipients
+
+
+def _newly_addressed_companions(
+    before: Registration,
+    after: Registration,
+) -> list[CompanionRecipient]:
+    """Companions whose address is new or changed at their index (spec 020, D2).
+
+    The unit of comparison is `person_index`, not the person: a companion whose
+    address was corrected gets a fresh code, while a rename or a slot change
+    sends nothing (their existing code stays valid, and the ticket page
+    re-signs on every view). Without this diff, every self-edit would re-mail
+    the whole group.
+    """
+    old_emails = before.group_member_emails or []
+    result: list[CompanionRecipient] = []
+
+    for recipient in companion_recipients(after):
+        i = recipient.person_index - 1
+        previous = old_emails[i] if i < len(old_emails) else None
+        if previous is None or previous.strip().lower() != recipient.email:
+            result.append(recipient)
+
+    return result
 
 
 def build_gate_rows(registrations: list[Registration], event: Event) -> list[dict]:
@@ -191,6 +273,10 @@ def _registration_to_item(registration: Registration) -> dict:
     if registration.group_members is not None:
         item["group_members"] = registration.group_members
 
+    # Spec 020 — index-aligned with group_members; absent on legacy rows.
+    if registration.group_member_emails is not None:
+        item["group_member_emails"] = registration.group_member_emails
+
     if registration.ttl:
         item["ttl"] = registration.ttl
 
@@ -227,6 +313,7 @@ def _item_to_registration(item: dict) -> Registration:
         notes=item.get("notes"),
         group_size=item["group_size"],
         group_members=item.get("group_members"),
+        group_member_emails=item.get("group_member_emails"),
         status=RegistrationStatus(item["status"]),
         waitlist_position=item.get("waitlist_position"),
         registration_token=item["registration_token"],
@@ -655,6 +742,7 @@ class RegistrationService:
             notes=data.notes,
             group_size=data.group_size,
             group_members=data.group_members,
+            group_member_emails=data.group_member_emails,
             status=RegistrationStatus.PARTICIPATING,
             registration_token=_generate_registration_token(),
             registered_at=registered_at,
@@ -717,7 +805,60 @@ class RegistrationService:
                 },
             )
 
+        # Spec 020: one F5 per companion who supplied an address, so they get
+        # their own QR instead of the contact forwarding it by hand.
+        await self._send_companion_tickets(event, registration)
+
         return registration, None
+
+    async def _send_companion_tickets(
+        self,
+        event: Event,
+        registration: Registration,
+        recipients: list[CompanionRecipient] | None = None,
+    ) -> None:
+        """Mail F5 to each companion, one try/except per recipient (spec 020).
+
+        Never raises: a bad address, or an email service that is down, must not
+        fail the registration or cost the OTHER companions their code. Pass
+        `recipients` to send to a subset (the self-edit diff does).
+        """
+        targets = recipients if recipients is not None else companion_recipients(registration)
+        if not targets:
+            return
+
+        from .email_service import get_email_service
+
+        for recipient in targets:
+            try:
+                email_service = get_email_service()
+                await email_service.send_festival_companion_ticket(
+                    event, registration, recipient,
+                )
+                logger.info(
+                    "Companion ticket email queued",
+                    extra={
+                        "flow": "festival",
+                        "step": "companion_ticket_email",
+                        "outcome": "ok",
+                        "registration_id": str(registration.id),
+                        "event_id": str(event.id),
+                        "person_index": recipient.person_index,
+                    },
+                )
+            except Exception as e:
+                logger.error(
+                    "Failed to send companion ticket email",
+                    extra={
+                        "flow": "festival",
+                        "step": "companion_ticket_email",
+                        "outcome": "error",
+                        "reason": str(e),
+                        "registration_id": str(registration.id),
+                        "event_id": str(event.id),
+                        "person_index": recipient.person_index,
+                    },
+                )
 
     async def get_registration(
         self,
@@ -972,6 +1113,21 @@ class RegistrationService:
                 )
             target_group_members = new_members
 
+        # Companion addresses (spec 020) — aligned against the RESULTING member
+        # list, which is the only list that knows the final indices. A patch may
+        # send addresses alone, so this can't be settled in the schema.
+        if "group_member_emails" in updates:
+            try:
+                target_member_emails = _align_member_emails(
+                    updates["group_member_emails"],
+                    target_group_members,
+                    collapse_empty=False,
+                )
+            except ValueError as e:
+                return None, str(e)
+        else:
+            target_member_emails = registration.group_member_emails
+
         non_none_count = sum(1 for m in (target_group_members or []) if m is not None)
 
         if "group_size" in updates:
@@ -1010,6 +1166,7 @@ class RegistrationService:
                 "overnight_approved": overnight_approved,
                 "group_size": target_group_size,
                 "group_members": target_group_members,
+                "group_member_emails": target_member_emails,
             },
         )
 
@@ -1049,6 +1206,16 @@ class RegistrationService:
                     "event_id": str(registration.event_id),
                 },
             )
+
+        # Spec 020 (D2): mail F5 only to companions whose ADDRESS is new or
+        # changed at their index. Deliberately not on a slot change (the code
+        # stays valid and the ticket page re-signs) and not on a rename (same
+        # reason) — otherwise every edit would spam the whole group.
+        await self._send_companion_tickets(
+            event,
+            updated,
+            recipients=_newly_addressed_companions(registration, updated),
+        )
 
         return updated, None
 
@@ -1149,6 +1316,32 @@ class RegistrationService:
                     logger.error(
                         "Failed to send festival cancellation email",
                         extra={"error": str(e), "registration_id": str(registration_id)},
+                    )
+
+                # Spec 020: tell every addressed companion their code is dead,
+                # otherwise they show up at the gate with a QR that fails.
+                # Recipients are read from the PRE-cancel registration —
+                # `companion_recipients` returns [] for a CANCELLED one by
+                # design, so passing `cancelled_registration` would send nothing.
+                try:
+                    from .email_service import get_email_service
+
+                    email_service = get_email_service()
+                    await email_service.send_festival_companion_cancellations(
+                        event,
+                        cancelled_registration,
+                        recipients=companion_recipients(registration),
+                    )
+                except Exception as e:
+                    logger.error(
+                        "Failed to send companion cancellation notices",
+                        extra={
+                            "flow": "festival",
+                            "step": "companion_cancellation_email",
+                            "outcome": "error",
+                            "reason": str(e),
+                            "registration_id": str(registration_id),
+                        },
                     )
             elif held_spot:
                 # If held a spot (CONFIRMED or PARTICIPATING), trigger waitlist promotion.
@@ -2122,6 +2315,8 @@ class RegistrationService:
             "tent_count",
             "camper_count",
             "overnight_approved",
+            # Spec 020 — companion addresses only exist on festival groups.
+            "group_member_emails",
         }
         if not is_festival and (fields_set & festival_only_fields):
             return None, "not_festival_event"
@@ -2215,6 +2410,32 @@ class RegistrationService:
             if target_camper and target_camper > target_group_size:
                 return None, "camper_count_exceeds_group"
 
+        # Companion addresses (spec 020) — organizers may correct a typo here.
+        # This path is deliberately mail-SILENT (D3): only the guest-facing
+        # create/self-edit flows send companion mail. Aligned against the
+        # RESULTING member list so a shrink can't leave an orphaned address.
+        target_member_emails = registration.group_member_emails
+        if patch.group_member_emails is not None:
+            try:
+                target_member_emails = _align_member_emails(
+                    patch.group_member_emails,
+                    target_group_members,
+                    collapse_empty=False,
+                )
+            except ValueError:
+                return None, "invalid_group_member_emails"
+        elif target_group_members != registration.group_members:
+            # Members changed without new addresses — re-align so the stored
+            # pair can never drift out of lockstep.
+            try:
+                target_member_emails = _align_member_emails(
+                    registration.group_member_emails,
+                    target_group_members,
+                    collapse_empty=True,
+                )
+            except ValueError:
+                target_member_emails = None
+
         set_parts: list[str] = []
         remove_parts: list[str] = []
         expr_values: dict = {}
@@ -2255,6 +2476,14 @@ class RegistrationService:
                 set_parts.append("group_members = :group_members")
                 expr_values[":group_members"] = target_group_members
             changed_fields.append("group_members")
+
+        if target_member_emails != registration.group_member_emails:
+            if not target_member_emails:
+                remove_parts.append("group_member_emails")
+            else:
+                set_parts.append("group_member_emails = :group_member_emails")
+                expr_values[":group_member_emails"] = target_member_emails
+            changed_fields.append("group_member_emails")
 
         if target_attendance_slots != registration.attendance_slots:
             if not target_attendance_slots:

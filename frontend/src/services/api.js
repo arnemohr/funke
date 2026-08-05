@@ -251,6 +251,26 @@ export const publicApi = {
       body: JSON.stringify(payload),
     })
   },
+
+  /**
+   * Get one companion's read-only ticket page (spec 020).
+   *
+   * The token is a per-person capability, NOT the group's registration token —
+   * it grants read access to this one person's own row and nothing else.
+   * `eventId` is part of the path so the backend can fetch the registration
+   * directly instead of scanning.
+   *
+   * @param {string} eventId - Event ID
+   * @param {string} registrationId - Registration ID
+   * @param {number|string} personIndex - Person index (1.. — 0 is the contact)
+   * @param {string} token - Per-person page token
+   * @returns {Promise<object>} Name, event period, own days, own ticket code
+   */
+  async getPersonTicket(eventId, registrationId, personIndex, token) {
+    return request(
+      `/api/public/tickets/${eventId}/${registrationId}/${personIndex}?token=${token}`,
+    )
+  },
 }
 
 // Scanner check-in API (no auth required — the gate token IS the auth,

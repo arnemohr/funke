@@ -132,6 +132,44 @@ def verify_ticket(secret: str, code: str) -> dict | None:
         return None
 
 
+def person_page_token(registration_token: str, person_index: int) -> str:
+    """Derive a read-only capability token for one person's ticket page (spec 020).
+
+    Companions who supplied an address are mailed a link to their own ticket
+    page. They must NOT get the group's `registration_token` — that one can
+    edit slots, rename people and cancel the entire registration.
+
+    Derived from the **registration token**, deliberately NOT from
+    `event.ticket_secret`: the ticket secret is handed to every gate client by
+    the scanner boot call (spec 019 Risk #6), so a person token derived from it
+    would be forgeable by anyone holding a gate link. HMAC is one-way, so a
+    leaked person token reveals nothing about the group token and grants no
+    write capability anywhere.
+
+    Stateless — nothing is stored, it works for every pre-existing
+    registration, and it stays stable across slot and name edits (unlike the
+    ticket code itself, which re-signs on every change).
+    """
+    mac = hmac.new(
+        registration_token.encode("utf-8"),
+        f"P{person_index}".encode("ascii"),
+        hashlib.sha256,
+    ).digest()[:16]
+    return _b64url_encode(mac)
+
+
+def verify_person_page_token(
+    registration_token: str,
+    person_index: int,
+    token: str,
+) -> bool:
+    """Constant-time check of a `person_page_token`."""
+    if not token:
+        return False
+    expected = person_page_token(registration_token, person_index)
+    return hmac.compare_digest(expected, token)
+
+
 @dataclass(frozen=True)
 class SignedTicket:
     """One person's freshly-signed check-in ticket."""

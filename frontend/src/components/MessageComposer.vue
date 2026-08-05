@@ -49,6 +49,10 @@
                 :disabled="sending"
               />
               {{ reg.name }} ({{ reg.email }})
+              <span v-if="companionCount(reg)" class="companion-count">
+                +{{ companionCount(reg) }}&nbsp;Begleitung{{ companionCount(reg) === 1 ? '' : 'en' }}
+                mit E-Mail
+              </span>
               <span :class="['status-badge', `status-${reg.status.toLowerCase()}`]">
                 {{ formatRegistrationStatus(reg.status) }}
               </span>
@@ -89,6 +93,18 @@
           Verwaltungslink einfügen
         </label>
 
+        <!-- Spec 020: companions who gave an address are recipients in their own
+             right. Their copy carries their read-only Eintritts-Code link, never
+             the group's Verwaltungslink. -->
+        <label v-if="totalCompanions > 0" class="checkbox-label">
+          <input
+            type="checkbox"
+            v-model="includeCompanions"
+            :disabled="sending"
+          />
+          Begleitungen mit E-Mail mitschicken ({{ totalCompanions }})
+        </label>
+
         <div v-if="error" role="alert" class="error">
           {{ error }}
         </div>
@@ -112,7 +128,7 @@
             :disabled="sending || selectedIds.length === 0"
             :aria-busy="sending"
           >
-            {{ sending ? 'Wird gesendet...' : `Senden (${selectedIds.length})` }}
+            {{ sending ? 'Wird gesendet...' : `Senden (${recipientCount})` }}
           </button>
         </footer>
       </form>
@@ -144,6 +160,9 @@ const selectedIds = ref([])
 const subject = ref('')
 const body = ref('')
 const includeLinks = ref(false)
+// Default ON: the whole point of collecting companion addresses is that the
+// Orga-Rundmail reaches them (spec 020).
+const includeCompanions = ref(true)
 const sending = ref(false)
 const error = ref(null)
 const result = ref(null)
@@ -163,6 +182,31 @@ const allSelected = computed(() => {
   return visible.length > 0 && visible.every(r => selectedIds.value.includes(r.id))
 })
 
+// Spec 020 — how many companions of this registration have their own address.
+// Mirrors the backend's `companion_recipients`: an address equal to the
+// contact's is skipped there, so skip it here too or the count would overstate.
+function companionCount(registration) {
+  const contact = (registration.email || '').trim().toLowerCase()
+  const seen = new Set()
+  for (const email of registration.group_member_emails || []) {
+    const normalized = (email || '').trim().toLowerCase()
+    if (!normalized || normalized === contact || seen.has(normalized)) continue
+    seen.add(normalized)
+  }
+  return seen.size
+}
+
+const totalCompanions = computed(() =>
+  activeRegistrations.value
+    .filter(r => selectedIds.value.includes(r.id))
+    .reduce((sum, r) => sum + companionCount(r), 0),
+)
+
+// What the backend will report as `total`, so the button doesn't undercount.
+const recipientCount = computed(
+  () => selectedIds.value.length + (includeCompanions.value ? totalCompanions.value : 0),
+)
+
 function toggleAll(e) {
   const visibleIds = filteredRegistrations.value.map(r => r.id)
   if (e.target.checked) {
@@ -180,6 +224,7 @@ watch(() => props.open, (isOpen) => {
     body.value = ''
     selectedIds.value = []
     includeLinks.value = false
+    includeCompanions.value = true
     error.value = null
     result.value = null
   }
@@ -197,7 +242,8 @@ async function handleSend() {
       registration_ids: selectedIds.value,
       subject: subject.value,
       body: body.value,
-      include_links: includeLinks.value,
+  include_links: includeLinks.value,
+      include_companions: includeCompanions.value,
     })
     result.value = res
     emit('sent', res)
@@ -207,6 +253,7 @@ async function handleSend() {
       subject.value = ''
       body.value = ''
       includeLinks.value = false
+      includeCompanions.value = true
       selectedIds.value = []
     }
   } catch (err) {
@@ -218,6 +265,13 @@ async function handleSend() {
 </script>
 
 <style scoped>
+/* Spec 020 — companion count per recipient row, quieter than the status badge. */
+.companion-count {
+  font-size: 0.8rem;
+  color: var(--pico-muted-color, #6b7280);
+  margin-left: 0.35rem;
+}
+
 .modal-header {
   display: flex;
   align-items: center;

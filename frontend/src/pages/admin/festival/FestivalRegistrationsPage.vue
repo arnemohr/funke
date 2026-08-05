@@ -94,9 +94,17 @@
             >
               <td data-label="Name">
                 <strong>{{ reg.name }}</strong>
-                <template v-if="companions(reg).length > 0">
+                <template v-if="companionRows(reg).length > 0">
                   <br />
-                  <small>+ {{ companions(reg).join(', ') }}</small>
+                  <!-- Spec 020: show which companions are reachable by mail, so
+                       organizers know who got their own Eintritts-Code. -->
+                  <small
+                    v-for="row in companionRows(reg)"
+                    :key="row.personIndex"
+                    class="companion-row"
+                  >
+                    + {{ row.name }}<template v-if="row.email"> · {{ row.email }}</template>
+                  </small>
                 </template>
               </td>
               <td data-label="E-Mail">{{ reg.email }}</td>
@@ -254,6 +262,16 @@ function companions(reg) {
   return (reg.group_members || []).filter((m) => m !== null && m !== undefined)
 }
 
+// Spec 020 — companions paired with their own address, indices preserved.
+// group_member_emails[i] belongs to group_members[i], so pair BEFORE filtering
+// tombstones; filtering first would shift the addresses onto the wrong people.
+function companionRows(reg) {
+  const emails = reg.group_member_emails || []
+  return (reg.group_members || [])
+    .map((name, idx) => ({ name, email: emails[idx] || null, personIndex: idx + 1 }))
+    .filter((row) => row.name !== null && row.name !== undefined)
+}
+
 // Slot columns in the event's own festival_slots order (not attendance_slots' order).
 const slotColumns = computed(() => event.value?.festival_slots || [])
 
@@ -392,6 +410,11 @@ onMounted(loadRegistrations)
 </script>
 
 <style scoped>
+/* Spec 020 — one line per companion so name and address stay paired. */
+.companion-row {
+  display: block;
+}
+
 .error {
   color: var(--color-danger-text);
   padding: 1rem;

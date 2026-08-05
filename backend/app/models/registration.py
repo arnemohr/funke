@@ -63,6 +63,69 @@ def _normalize_overnight_counts(model: BaseModel, group_size: int) -> None:
             raise ValueError(f"{field} must not exceed group_size")
 
 
+def _clean_member_emails(v: list[str | None] | None) -> list[str | None] | None:
+    """Shape-only pre-validation for companion addresses (spec 020).
+
+    Blank/whitespace entries become `None` so an untouched form field reads as
+    "no address" rather than failing `EmailStr`; everything else is lowercased
+    and stripped to match `normalize_email` on the contact address. Actual
+    address syntax is left to `EmailStr`.
+    """
+    if v is None:
+        return None
+    cleaned: list[str | None] = []
+    for entry in v:
+        if entry is None:
+            cleaned.append(None)
+            continue
+        stripped = str(entry).strip().lower()
+        cleaned.append(stripped or None)
+    return cleaned
+
+
+def _align_member_emails(
+    emails: list[str | None] | None,
+    members: list[str | None] | None,
+    *,
+    collapse_empty: bool,
+) -> list[str | None] | None:
+    """Index-align companion addresses with `group_members` (spec 020).
+
+    `group_member_emails` is read positionally in lockstep with
+    `group_members` — index *i* is the address of `group_members[i]`, and
+    `person_index` is `i + 1`. A length mismatch or an address parked on a
+    `None` tombstone would therefore mail a personalised QR to the wrong
+    human, so both are hard errors rather than best-effort repairs. A short
+    list is padded (the common case: only the first companion has an address).
+
+    `collapse_empty` folds an all-`None` list back to `None`. Correct for
+    create schemas, where "field absent" and "no addresses given" mean the
+    same thing — and deliberately WRONG for patch schemas, where `None` means
+    "not provided" and collapsing would silently swallow a request to clear
+    every address.
+    """
+    if emails is None:
+        return None
+    if collapse_empty and not any(email is not None for email in emails):
+        return None
+    if members is None:
+        if any(email is not None for email in emails):
+            raise ValueError("group_member_emails requires group_members")
+        return None if collapse_empty else emails
+    if len(emails) > len(members):
+        raise ValueError("group_member_emails must not be longer than group_members")
+
+    padded: list[str | None] = list(emails) + [None] * (len(members) - len(emails))
+    # strict=True: padded is built to match members exactly, so a mismatch
+    # here means the padding logic above broke, not bad input.
+    for i, (member, email) in enumerate(zip(members, padded, strict=True)):
+        if member is None and email is not None:
+            raise ValueError(
+                f"group_member_emails[{i}] is set but group_members[{i}] was removed",
+            )
+    return padded
+
+
 class RegistrationCreate(BaseModel):
     """Schema for creating a registration."""
 
@@ -107,6 +170,10 @@ class FestivalRegistrationCreate(BaseModel):
     notes: str | None = Field(None, max_length=500)
     group_size: int = Field(default=1, ge=1, le=20)
     group_members: list[str] | None = Field(default=None)
+    # Spec 020: optional per-companion address, index-aligned with
+    # `group_members`. Given one, that companion gets their own F5 with only
+    # their own QR instead of the contact forwarding it by hand.
+    group_member_emails: list[EmailStr | None] | None = Field(default=None)
     attendance_slots: list[str] = Field(..., min_length=1)
     # Ä20/Ä21: overnight is captured as two independent unit counts — a group
     # may bring tents AND campers. `None`/0 on both means "übernachtet nicht".
@@ -176,6 +243,21 @@ class FestivalRegistrationCreate(BaseModel):
             raise ValueError("attendance_slots must not be empty")
         return cleaned
 
+    _clean_emails = field_validator("group_member_emails", mode="before")(
+        staticmethod(_clean_member_emails),
+    )
+
+    @model_validator(mode="after")
+    def _align_emails(self) -> "FestivalRegistrationCreate":
+        object.__setattr__(
+            self,
+            "group_member_emails",
+            _align_member_emails(
+                self.group_member_emails, self.group_members, collapse_empty=True,
+            ),
+        )
+        return self
+
     @model_validator(mode="after")
     def _phone_required(self) -> "FestivalRegistrationCreate":
         if not self.phone or not self.phone.strip():
@@ -210,6 +292,10 @@ class FestivalAttendancePatch(BaseModel):
     group_size: int | None = Field(None, ge=1, le=20)
     # None entries are tombstones for removed members (T109) — indices never shift.
     group_members: list[str | None] | None = None
+    # Spec 020: index-aligned with `group_members`. NOT collapsed when every
+    # entry is None — on a patch that is a request to clear every address, and
+    # folding it to None would make it indistinguishable from "not provided".
+    group_member_emails: list[EmailStr | None] | None = None
 
     @field_validator("group_members")
     @classmethod
@@ -230,6 +316,25 @@ class FestivalAttendancePatch(BaseModel):
                 raise ValueError("Bitte Vor- und Nachnamen angeben")
             cleaned.append(stripped)
         return cleaned
+
+    _clean_emails = field_validator("group_member_emails", mode="before")(
+        staticmethod(_clean_member_emails),
+    )
+
+    @model_validator(mode="after")
+    def _align_emails(self) -> "FestivalAttendancePatch":
+        # Only checkable here when the patch carries both arrays; a patch
+        # sending addresses alone is aligned against the STORED members in
+        # `update_festival_attendance`, which is the only place that knows them.
+        if self.group_member_emails is not None and self.group_members is not None:
+            object.__setattr__(
+                self,
+                "group_member_emails",
+                _align_member_emails(
+                    self.group_member_emails, self.group_members, collapse_empty=False,
+                ),
+            )
+        return self
 
     @field_validator("attendance_slots")
     @classmethod
@@ -287,6 +392,10 @@ class RegistrationAdminPatch(BaseModel):
     # handling) — indices never shift. SINGLE-event admin edits never send
     # them (that flow stays shrink-only), so the wider type is harmless there.
     group_members: list[str | None] | None = None
+    # Spec 020 — organizers may correct a companion address here. This path is
+    # deliberately mail-SILENT (D3): only the guest-facing create/self-edit
+    # flows send companion mail.
+    group_member_emails: list[EmailStr | None] | None = None
     # Festival sidetrack (spec 019, T205) — additive optional fields.
     attendance_slots: list[str] | None = None
     tent_count: int | None = Field(None, ge=0, le=20)
@@ -368,6 +477,11 @@ class Registration(BaseModel):
     # entry is a tombstone for a removed member — indices never shift, since QR
     # `person_index` depends on them (spec 019 §Registration index stability).
     group_members: list[str | None] | None = None
+    # Spec 020: optional per-companion address, index-aligned with
+    # `group_members` (index i = address of group_members[i], person_index
+    # i+1). `None` = no address; that companion's QR still goes to the contact.
+    # Not in the `email-index` GSI, so it never affects the duplicate check.
+    group_member_emails: list[EmailStr | None] | None = None
     status: RegistrationStatus = RegistrationStatus.REGISTERED
     waitlist_position: int | None = None
     registration_token: str  # For cancellation/confirmation links
@@ -394,6 +508,23 @@ class Registration(BaseModel):
     # via any public endpoint; a single flag confirms the whole overnight wish
     # (tents + campers together); drives the „angefragt"/„zugesagt" display.
     overnight_approved: bool = False
+
+    @model_validator(mode="after")
+    def _align_member_emails(self) -> "Registration":
+        """Keep the two companion arrays index-aligned (spec 020).
+
+        Last line of defence: every write path already aligns, but this is the
+        model that gets persisted, and a drift here would mail a personalised
+        QR to the wrong person. Pads a short list; raises on anything worse.
+        """
+        object.__setattr__(
+            self,
+            "group_member_emails",
+            _align_member_emails(
+                self.group_member_emails, self.group_members, collapse_empty=True,
+            ),
+        )
+        return self
 
     @property
     def has_overnight(self) -> bool:
@@ -495,6 +626,9 @@ class RegistrationResponse(BaseModel):
     waitlist_position: int | None
     registration_token: str
     group_members: list[str | None] | None = None
+    # Spec 020 — index-aligned with `group_members`; lets the manage page show
+    # per-companion "Code geschickt" vs "leite ihren QR weiter".
+    group_member_emails: list[str | None] | None = None
     registered_at: datetime
     responded_at: datetime | None
     promoted: bool = False

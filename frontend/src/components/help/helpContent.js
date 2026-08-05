@@ -103,6 +103,10 @@ export default {
         html: '<p>Sobald die <strong>Eintritts-Codes</strong> freigeschaltet sind, findest du sie hier — jede Person zeigt ihren Code einmal am Einlass und bekommt ihr Bändchen. Danach reicht das Bändchen.</p>'
       },
       {
+        heading: 'Codes für Begleitungen',
+        html: '<p>Trag bei einer Begleitung eine <strong>E-Mail-Adresse</strong> ein, dann schicken wir ihr den eigenen Eintritts-Code direkt zu — du musst nichts weiterleiten. Ohne Adresse bekommst du alle Codes und gibst sie selbst weiter. In der Liste oben steht bei jeder Person, ob ihr Code schon raus ist.</p>'
+      },
+      {
         heading: 'Absagen',
         html: '<p>Falls ihr doch nicht könnt: „Doch nicht dabei“ storniert die ganze Anmeldung — das lässt sich nicht rückgängig machen.</p>'
       }

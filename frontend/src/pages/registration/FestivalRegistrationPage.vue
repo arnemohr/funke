@@ -80,18 +80,33 @@
             <legend>Wen bringst du mit? <span class="legend-optional">(optional)</span></legend>
             <div v-for="(_, i) in form.extraMembers" :key="i" class="extra-member-row">
               <input
-                v-model="form.extraMembers[i]"
+                v-model="form.extraMembers[i].name"
                 type="text"
                 maxlength="200"
                 placeholder="Vor- und Nachname"
                 :disabled="submitting"
               />
-              <small v-if="form.extraMembers[i] && !hasTwoWords(form.extraMembers[i])" class="field-hint">
+              <input
+                v-model="form.extraMembers[i].email"
+                type="email"
+                maxlength="200"
+                placeholder="E-Mail (optional)"
+                :disabled="submitting"
+                class="extra-member-email"
+              />
+              <small v-if="form.extraMembers[i].name && !hasTwoWords(form.extraMembers[i].name)" class="field-hint">
                 Bitte Vor- und Nachnamen angeben
+              </small>
+              <small v-else-if="form.extraMembers[i].email && !looksLikeEmail(form.extraMembers[i].email)" class="field-hint">
+                Diese E-Mail-Adresse sieht nicht richtig aus
               </small>
             </div>
             <small class="field-note">
               Du kannst {{ maxExtraMembers === 1 ? 'eine Person' : `bis zu ${maxExtraMembers} Personen` }} mitbringen — einfach Namen eintragen.
+            </small>
+            <small class="field-note">
+              E-Mail (optional) — dann schicken wir den Eintritts-Code direkt an die Person.
+              Ohne E-Mail bekommst du alle Codes und leitest sie selbst weiter.
             </small>
           </fieldset>
 
@@ -272,7 +287,7 @@ const maxExtraMembers = computed(() => Math.max(0, (invite.value?.max_group_size
 // A group cannot bring more tents/campers than it has people. Group size =
 // contact + filled companion names (mirrors the submit payload's group_size).
 const currentGroupSize = computed(
-  () => 1 + form.value.extraMembers.map((n) => (n || '').trim()).filter(Boolean).length,
+  () => 1 + form.value.extraMembers.filter((row) => (row?.name || '').trim()).length,
 )
 
 // Group slots by day, weekday heading via Intl (formatters.js has no per-day-only helper).
@@ -301,6 +316,12 @@ function hasTwoWords(value) {
   return (value || '').trim().split(/\s+/).filter(Boolean).length >= 2
 }
 
+// Shape check only — the backend's EmailStr is the authority. Purely to catch
+// an obvious typo before the round trip; a missing address is always fine.
+function looksLikeEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((value || '').trim())
+}
+
 async function loadInvite() {
   const inviteToken = props.inviteToken
   if (!inviteToken) {
@@ -316,7 +337,11 @@ async function loadInvite() {
       slotMap[slot.key] = false
     }
     form.value.slots = slotMap
-    form.value.extraMembers = Array(maxExtraMembers.value).fill('')
+    // Fresh object per row — `fill({})` would share one object across all rows.
+    form.value.extraMembers = Array.from(
+      { length: maxExtraMembers.value },
+      () => ({ name: '', email: '' }),
+    )
   } catch (err) {
     // Backend already returns a distinct, contact-hint-aware German message
     // for every 404/410 state (unknown/revoked, exhausted, expired, deadline).
@@ -335,9 +360,25 @@ async function handleSubmit() {
     return
   }
 
-  const filledExtras = form.value.extraMembers.map((n) => n.trim()).filter(Boolean)
+  // Filter by NAME and carry the address along in the same step: the two
+  // payload arrays are read positionally in lockstep by the backend
+  // (group_member_emails[i] belongs to group_members[i], person_index i+1), so
+  // filtering them separately could mail a personalised QR to the wrong person.
+  const filledRows = form.value.extraMembers
+    .map((row) => ({
+      name: (row.name || '').trim(),
+      email: (row.email || '').trim().toLowerCase(),
+    }))
+    .filter((row) => row.name)
+  const filledExtras = filledRows.map((row) => row.name)
   if (filledExtras.some((n) => !hasTwoWords(n))) {
     submitError.value = 'Bitte Vor- und Nachnamen angeben'
+    return
+  }
+
+  const badEmailRow = filledRows.find((row) => row.email && !looksLikeEmail(row.email))
+  if (badEmailRow) {
+    submitError.value = `Die E-Mail-Adresse von ${badEmailRow.name} sieht nicht richtig aus.`
     return
   }
 
@@ -376,6 +417,11 @@ async function handleSubmit() {
     // EXCLUSIVE convention (spec §QR payload): group_members are the
     // companions only — person_index 0 (the contact) is `name` itself.
     payload.group_members = filledExtras
+    // Spec 020: only sent when at least one companion has an address; empty
+    // fields go as null so the arrays stay the same length and aligned.
+    if (filledRows.some((row) => row.email)) {
+      payload.group_member_emails = filledRows.map((row) => row.email || null)
+    }
   }
 
   try {
@@ -547,6 +593,20 @@ onMounted(loadInvite)
 
 .extra-member-row input {
   margin-bottom: var(--space-2);
+}
+
+/* Name and address side by side on wide screens, stacked on narrow ones.
+   The name carries more weight — an empty name drops the whole row. */
+@media (min-width: 40rem) {
+  .extra-member-row {
+    display: grid;
+    grid-template-columns: 3fr 2fr;
+    gap: var(--space-2);
+  }
+
+  .extra-member-row .field-hint {
+    grid-column: 1 / -1;
+  }
 }
 
 .slot-grid,

@@ -20,13 +20,23 @@ from ...models import (
     RegistrationResponse,
     RegistrationStatus,
 )
-from ...services.email_service import get_email_service
+from ...services.email_service import _format_date_range, get_email_service
 from ...services.event_service import get_event_service
 from ...services.logging import get_logger
 from ...services.registration_service import get_registration_service
-from ...services.ticket_signing import build_person_tickets
+from ...services.ticket_signing import build_person_tickets, verify_person_page_token
 
 logger = get_logger(__name__)
+
+
+def _format_event_period(event) -> str:
+    """German event period for the companion ticket page (spec 020).
+
+    Reuses the email formatter so the page and F5 never disagree about the
+    festival's dates.
+    """
+    return _format_date_range(event.start_at, event.end_at)
+
 
 router = APIRouter()
 
@@ -217,6 +227,11 @@ class ManageRegistrationResponse(BaseModel):
     # `None` entries are tombstones for removed festival members (T109) —
     # indices never shift; SINGLE flows never contain None.
     group_members: list[str | None]
+    # Spec 020 — index-aligned with `group_members` above. Only ever populated
+    # for FESTIVAL registrations, where the derived list equals the stored
+    # `registration.group_members` exactly, so the indices match. Lets the
+    # manage page show per-companion „Code geschickt" vs „QR weiterleiten".
+    group_member_emails: list[str | None] | None = None
     original_group_size: int
     message: str
     # Festival sidetrack (spec 019) — additive optional fields
@@ -365,6 +380,7 @@ async def get_registration_manage(
             email=registration.email,
             group_size=registration.group_size,
             group_members=registration.group_members,
+            group_member_emails=registration.group_member_emails,
             status=registration.status,
             waitlist_position=registration.waitlist_position,
             registration_token=registration.registration_token,
@@ -373,6 +389,7 @@ async def get_registration_manage(
             promoted=registration.promoted,
         ),
         group_members=group_members,
+        group_member_emails=registration.group_member_emails,
         original_group_size=registration.group_size,
         message=message,
         attendance_slots=registration.attendance_slots,
@@ -382,6 +399,144 @@ async def get_registration_manage(
         overnight_approved=registration.overnight_approved,
         editable_until=editable_until,
         qr_payloads=qr_payloads,
+    )
+
+
+class PersonTicketResponse(BaseModel):
+    """One companion's read-only ticket page payload (spec 020).
+
+    Deliberately minimal. Absent by design: the group's `registration_token`,
+    every other member's name, phone numbers, e-mail addresses, and the
+    tent/camper request. A companion holds a read capability for exactly one
+    person — themselves — and every write goes through the contact person.
+    """
+
+    person_index: int
+    name: str
+    event_name: str
+    event_period: str
+    slot_labels: list[str]
+    group_size: int
+    contact_name: str
+    contact_hint: str | None = None
+    participation_hint: str | None = None
+    # Freshly signed on every GET, so a rename or slot edit never leaves the
+    # companion holding a code the gate rejects. Empty when cancelled.
+    ticket_code: str = ""
+    cancelled: bool = False
+
+
+@router.get(
+    "/tickets/{event_id}/{registration_id}/{person_index}",
+)
+async def get_person_ticket(
+    event_id: UUID,
+    registration_id: UUID,
+    person_index: int,
+    token: str,
+) -> PersonTicketResponse:
+    """Read-only ticket page for one companion (spec 020).
+
+    Authenticated by a `person_page_token` — an HMAC over the group's
+    registration token scoped to this one `person_index`. That token is
+    read-only by construction: there is no write endpoint that accepts it, and
+    it cannot be reversed into the group token that could cancel everyone.
+
+    `event_id` is in the path because registrations are keyed
+    `pk=EVENT#{event_id}` / `sk=REG#{id}` — without it this would need a table
+    scan on a public, unauthenticated endpoint. The URL is only ever clicked
+    from a mail, so the extra segment costs nothing.
+
+    Every rejection returns the same bare 404 — unknown registration, wrong
+    token, index 0 (the contact, who uses the manage page), out of range, or a
+    tombstoned member. Distinguishing them would turn this into an oracle for
+    probing group sizes and membership.
+    """
+    registration_service = get_registration_service()
+    registration = await registration_service.get_registration(event_id, registration_id)
+
+    not_found = HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Eintritts-Code nicht gefunden",
+    )
+
+    if not registration:
+        raise not_found
+
+    # person_index 0 is the contact person — they have the manage page, and
+    # issuing them a read-only view here would only confuse.
+    if person_index < 1:
+        raise not_found
+
+    if not verify_person_page_token(registration.registration_token, person_index, token):
+        logger.info(
+            "Person ticket access denied",
+            extra={
+                "flow": "festival", "step": "person_ticket", "outcome": "invalid",
+                "reason": "bad_token", "registration_id": str(registration_id),
+                "person_index": person_index,
+            },
+        )
+        raise not_found
+
+    members = registration.group_members or []
+    if person_index > len(members) or members[person_index - 1] is None:
+        raise not_found
+
+    event_svc = get_event_service()
+    event = await event_svc.get_event_by_id(event_id)
+    if not event or event.event_type != EventType.FESTIVAL:
+        raise not_found
+
+    slot_keys = set(registration.attendance_slots or [])
+    slot_labels = [slot.label for slot in (event.festival_slots or []) if slot.key in slot_keys]
+
+    cancelled = registration.status == RegistrationStatus.CANCELLED
+    ticket_code = ""
+    if not cancelled:
+        # Signed fresh, exactly like the manage page — a rename or slot edit
+        # must never leave this page showing a code the gate would reject.
+        credentialed_event = await event_svc.ensure_gate_credentials(event.org_id, event.id)
+        if credentialed_event is not None and credentialed_event.ticket_secret:
+            ticket = next(
+                (
+                    t
+                    for t in build_person_tickets(
+                        credentialed_event.ticket_secret,
+                        registration.id,
+                        registration.name,
+                        registration.group_members,
+                        registration.attendance_slots,
+                        registration.overnight_approved,
+                    )
+                    if t.person_index == person_index
+                ),
+                None,
+            )
+            if ticket is not None:
+                ticket_code = ticket.code
+
+    logger.info(
+        "Person ticket served",
+        extra={
+            "flow": "festival", "step": "person_ticket", "outcome": "ok",
+            "registration_id": str(registration_id), "person_index": person_index,
+            "cancelled": cancelled,
+        },
+    )
+
+    return PersonTicketResponse(
+        person_index=person_index,
+        name=members[person_index - 1],
+        event_name=event.name,
+        event_period=_format_event_period(event),
+        slot_labels=slot_labels,
+        group_size=registration.group_size,
+        contact_name=registration.name,
+        contact_hint=event.contact_hint,
+        participation_hint=event.participation_hint,
+        ticket_code=ticket_code,
+        cancelled=cancelled,
     )
 
 

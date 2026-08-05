@@ -193,7 +193,18 @@
               </p>
               <p><strong>Wer dabei ist:</strong></p>
               <ul class="group-list">
-                <li v-for="(name, i) in visibleGroupMembers" :key="i">{{ name }}</li>
+                <li>{{ registration?.name }} <span class="member-note">(du)</span></li>
+                <!-- Spec 020: say per companion whether their code went out, so
+                     the contact knows exactly whom they still have to chase. -->
+                <li v-for="entry in companionStatuses" :key="entry.personIndex">
+                  {{ entry.name }}
+                  <span v-if="entry.email" class="member-note member-note-sent">
+                    Code an {{ maskEmail(entry.email) }} geschickt
+                  </span>
+                  <span v-else class="member-note">
+                    Kein Code verschickt — leite ihren QR weiter
+                  </span>
+                </li>
               </ul>
             </div>
 
@@ -206,10 +217,16 @@
                 Schick jeder Begleitung ihren Code — am Einlass zeigt jede Person ihren
                 eigenen vor. Ein Screenshot reicht völlig.
               </p>
+              <!-- All codes stay here even when a companion got their own mail:
+                   the contact can always forward, and a badge marks who already
+                   has theirs (spec 020). -->
               <div class="qr-card-grid">
                 <div v-for="payload in qrPayloads" :key="payload.person_index" class="qr-card">
                   <canvas :ref="(el) => setQrCanvasRef(payload.person_index, el)"></canvas>
                   <p class="qr-card-name">{{ payload.name }}</p>
+                  <p v-if="emailedPersonIndices.has(payload.person_index)" class="qr-card-sent">
+                    hat ihren Code per Mail
+                  </p>
                 </div>
               </div>
             </div>
@@ -273,6 +290,10 @@
 
               <fieldset class="extra-members">
                 <legend>Wen bringst du mit?</legend>
+                <p class="field-note">
+                  E-Mail (optional) — dann schicken wir den Eintritts-Code direkt an die Person.
+                  Ohne E-Mail bekommst du alle Codes und leitest sie selbst weiter.
+                </p>
                 <div v-for="(entry, i) in memberEntries" :key="entry.index" class="name-field-row">
                   <label :for="`festival-member-${entry.index}`">
                     {{ entry.index === 0 ? 'Dein Name (Vor- & Nachname)' : `Begleitung (Vor- & Nachname)` }}
@@ -294,6 +315,23 @@
                       type="button"
                     >✕</button>
                   </div>
+                  <!-- Spec 020: give a companion an address and they get their
+                       own Eintritts-Code by mail instead of you forwarding it. -->
+                  <input
+                    v-if="entry.index > 0"
+                    v-model="entry.email"
+                    type="email"
+                    maxlength="200"
+                    placeholder="E-Mail (optional)"
+                    :disabled="saving"
+                    class="member-email-input"
+                  />
+                  <small
+                    v-if="entry.index > 0 && entry.email && !looksLikeEmail(entry.email)"
+                    class="hint-text hint-warning"
+                  >
+                    Diese E-Mail-Adresse sieht nicht richtig aus
+                  </small>
                 </div>
                 <button type="button" class="outline" @click="addFestivalMember" :disabled="saving">
                   + Noch jemand kommt mit
@@ -482,6 +520,10 @@ const editCamperCount = ref(0)
 const editPhone = ref('')
 const memberEntries = ref([])
 const nextMemberIndex = ref(0)
+// Spec 020 — index-aligned with `group_members`: entry i is the address of
+// group_members[i] (person_index i+1). Drives the per-companion "Code
+// geschickt" line and is round-tripped on save.
+const groupMemberEmails = ref([])
 
 // Group size while editing = contact + filled companion rows; caps each
 // tent/camper count (a group can't bring more units than it has people).
@@ -581,6 +623,42 @@ function hasTwoWords(value) {
   return (value || '').trim().split(/\s+/).filter(Boolean).length >= 2
 }
 
+// Shape check only — the backend's EmailStr is the authority. Catches a typo
+// before the round trip; a missing address is always fine (spec 020 D4).
+function looksLikeEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((value || '').trim())
+}
+
+// Masked for display: the contact typed it, but this page can be open on a
+// shared screen, and they only need to recognise WHICH address it was.
+function maskEmail(value) {
+  const raw = (value || '').trim()
+  const at = raw.indexOf('@')
+  if (at < 1) return raw
+  return `${raw[0]}…@${raw.slice(at + 1)}`
+}
+
+// Companions paired with their stored address, for the summary list. Index i of
+// group_members is person_index i+1; tombstones are dropped for display but
+// never renumbered.
+// person_index values that already received their own mail — badges the QR cards.
+const emailedPersonIndices = computed(
+  () =>
+    new Set(
+      (groupMemberEmails.value || [])
+        .map((email, idx) => (email ? idx + 1 : null))
+        .filter((v) => v !== null),
+    ),
+)
+
+const companionStatuses = computed(() => {
+  const members = registration.value?.group_members || []
+  const emails = groupMemberEmails.value || []
+  return members
+    .map((name, idx) => ({ name, email: emails[idx] || null, personIndex: idx + 1 }))
+    .filter((entry) => entry.name)
+})
+
 const hasUnsavedChanges = computed(() => {
   if (editableMembers.value.length !== lastSavedMembers.value.length) return true
   return editableMembers.value.some((name, i) => name !== lastSavedMembers.value[i])
@@ -613,6 +691,7 @@ async function loadRegistration() {
     editableUntil.value = result.editable_until || null
     editingFestival.value = false
     qrPayloads.value = result.qr_payloads || []
+    groupMemberEmails.value = result.group_member_emails || []
   } catch (err) {
     if (err.message?.includes('404')) {
       error.value = 'Anmeldung nicht gefunden. Schau nochmal in deiner E-Mail nach.'
@@ -737,10 +816,16 @@ function startEditingFestival() {
   // group_members); companions live at entry index i+1 for
   // group_members[i] — the EXCLUSIVE convention (spec §QR payload).
   const companions = registration.value?.group_members || []
+  const companionEmails = groupMemberEmails.value || []
   memberEntries.value = [
-    { index: 0, value: registration.value?.name || '' },
+    { index: 0, value: registration.value?.name || '', email: '' },
     ...companions
-      .map((name, idx) => ({ index: idx + 1, value: name }))
+      .map((name, idx) => ({
+        index: idx + 1,
+        value: name,
+        // Same index on purpose — the two arrays are read in lockstep.
+        email: companionEmails[idx] || '',
+      }))
       .filter((entry) => entry.value !== null && entry.value !== undefined),
   ]
   nextMemberIndex.value = companions.length + 1
@@ -751,7 +836,7 @@ function startEditingFestival() {
 }
 
 function addFestivalMember() {
-  memberEntries.value.push({ index: nextMemberIndex.value, value: '' })
+  memberEntries.value.push({ index: nextMemberIndex.value, value: '', email: '' })
   nextMemberIndex.value += 1
 }
 
@@ -777,9 +862,21 @@ async function handleSaveFestival() {
   // validated and sent (group_members is EXCLUSIVE of the contact).
   const companionEntries = memberEntries.value
     .filter((entry) => entry.index > 0)
-    .map((entry) => ({ index: entry.index, value: entry.value.trim() }))
+    .map((entry) => ({
+      index: entry.index,
+      value: entry.value.trim(),
+      email: (entry.email || '').trim().toLowerCase(),
+    }))
   if (companionEntries.some((entry) => !entry.value || !hasTwoWords(entry.value))) {
     saveError.value = 'Bitte Vor- und Nachnamen angeben'
+    return
+  }
+
+  const badEmailEntry = companionEntries.find(
+    (entry) => entry.email && !looksLikeEmail(entry.email),
+  )
+  if (badEmailEntry) {
+    saveError.value = `Die E-Mail-Adresse von ${badEmailEntry.value} sieht nicht richtig aus.`
     return
   }
 
@@ -803,7 +900,12 @@ async function handleSaveFestival() {
   const rawLen = registration.value?.group_members?.length || 0
   const total = Math.max(rawLen, ...companionEntries.map((entry) => entry.index), 0)
   const groupMembersPatch = new Array(total).fill(null)
-  for (const entry of companionEntries) groupMembersPatch[entry.index - 1] = entry.value
+  const groupMemberEmailsPatch = new Array(total).fill(null)
+  for (const entry of companionEntries) {
+    // One loop, both arrays — filling them separately is how they drift apart.
+    groupMembersPatch[entry.index - 1] = entry.value
+    groupMemberEmailsPatch[entry.index - 1] = entry.email || null
+  }
 
   saving.value = true
 
@@ -814,6 +916,7 @@ async function handleSaveFestival() {
       camper_count: nextCamperCount || null,
       phone: trimmedPhone,
       group_members: groupMembersPatch,
+      group_member_emails: groupMemberEmailsPatch,
     })
     editingFestival.value = false
     saveSuccess.value = 'Alles klar — deine Änderung ist gespeichert!'
@@ -1086,6 +1189,28 @@ onMounted(loadRegistration)
 
 .group-list li:last-child {
   border-bottom: none;
+}
+
+/* Spec 020 — per-companion code status, secondary to the name itself. */
+.member-note {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--pico-muted-color, #6b7280);
+}
+
+.member-note-sent {
+  color: var(--pico-ins-color, #16a34a);
+}
+
+.member-email-input {
+  margin-top: 0.5rem;
+  margin-bottom: 0;
+}
+
+.qr-card-sent {
+  margin: 0.25rem 0 0;
+  font-size: 0.8rem;
+  color: var(--pico-muted-color, #6b7280);
 }
 
 .button.secondary {

@@ -44,6 +44,16 @@ const routes = [
     props: true,
   },
 
+  // Companion's read-only personal ticket page (spec 020) — no authGuard, the
+  // per-person token in the query string IS the auth. Read-only by
+  // construction: no endpoint accepts that token for a write.
+  {
+    path: '/ticket/:eventId/:registrationId/:personIndex',
+    name: 'person-ticket',
+    component: () => import('../pages/registration/PersonTicketPage.vue'),
+    props: true,
+  },
+
   // Scanner gate check-in (spec 019 §P3) — no authGuard, the gate token IS
   // the auth (spec.md:336).
   {

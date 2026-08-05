@@ -34,7 +34,11 @@ from ...services.auth import AdminRole, CurrentUser, require_role
 from ...services.email_service import get_email_service
 from ...services.event_service import get_event_service
 from ...services.logging import get_logger, log_admin_action
-from ...services.registration_service import get_registration_service
+from ...services.registration_service import (
+    CompanionRecipient,
+    companion_recipients,
+    get_registration_service,
+)
 
 logger = get_logger(__name__)
 
@@ -1207,40 +1211,64 @@ async def send_custom_message(
 
     sent = 0
     failed = 0
+    total = 0
 
     for reg_id in message_data.registration_ids:
         registration = await registration_service.get_registration(event_id, reg_id)
         if not registration:
             failed += 1
+            total += 1
             continue
 
-        try:
-            success = await email_service.send_custom_message(
-                event, registration, message_data.subject, message_data.body,
-                include_links=message_data.include_links,
-            )
-            if success:
-                sent += 1
-            else:
+        # Spec 020: the contact plus every companion who supplied an address.
+        # Each is its own recipient with its own Message row, so the message log
+        # and the sent/failed counters stay honest about how many mails went out.
+        targets: list[CompanionRecipient | None] = [None]
+        if message_data.include_companions:
+            targets.extend(companion_recipients(registration))
+
+        for companion in targets:
+            total += 1
+            try:
+                success = await email_service.send_custom_message(
+                    event, registration, message_data.subject, message_data.body,
+                    include_links=message_data.include_links,
+                    companion=companion,
+                )
+                if success:
+                    sent += 1
+                else:
+                    failed += 1
+            except Exception as e:
+                # Per-recipient: one bad companion address must not cost the
+                # rest of the group — or the contact — their copy.
                 failed += 1
-        except Exception as e:
-            failed += 1
-            logger.error(
-                "Failed to send custom message",
-                extra={"registration_id": str(reg_id), "error": str(e)},
-            )
+                logger.error(
+                    "Failed to send custom message",
+                    extra={
+                        "registration_id": str(reg_id),
+                        "person_index": companion.person_index if companion else 0,
+                        "error": str(e),
+                    },
+                )
 
     log_admin_action(
         "message.send_custom",
         user.email,
         str(event_id),
-        {"sent": sent, "failed": failed, "total": len(message_data.registration_ids)},
+        {
+            "sent": sent,
+            "failed": failed,
+            "total": total,
+            "registrations": len(message_data.registration_ids),
+            "include_companions": message_data.include_companions,
+        },
     )
 
     return CustomMessageResponse(
         sent=sent,
         failed=failed,
-        total=len(message_data.registration_ids),
+        total=total,
     )
 
 

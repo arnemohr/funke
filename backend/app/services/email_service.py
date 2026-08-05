@@ -30,10 +30,19 @@ from ..models import (
 from .config import get_messages_table, get_settings
 from .email_client import get_email_settings
 from .logging import get_logger
-from .ticket_signing import SignedTicket, build_person_tickets, generate_qr_png
+from .ticket_signing import (
+    SignedTicket,
+    build_person_tickets,
+    generate_qr_png,
+    person_page_token,
+)
 
 if TYPE_CHECKING:
     from mypy_boto3_dynamodb.service_resource import Table
+
+    # Imported lazily at runtime inside the send methods — registration_service
+    # imports email_service, so a module-level import would be circular.
+    from .registration_service import CompanionRecipient
 
 logger = get_logger(__name__)
 
@@ -89,6 +98,11 @@ class EmailContext(BaseModel):
     mitmach_hint: str | None = None  # {MitmachHinweis}, Ä16
     event_period: str | None = None  # {Zeitraum}: "vom 14. bis 16. August 2026" (festival F1)
     event_description: str | None = None  # {Beschreibung}: the event's free-text description (festival F1)
+    # Spec 020 — companion mails (F5/F6). `attendee_name` is the COMPANION's
+    # name on those; `contact_name` is who registered them, since every change
+    # request has to go back through that person.
+    contact_name: str | None = None  # {Kontaktperson}
+    person_ticket_url: str | None = None  # {TicketLink}: read-only personal ticket page
 
 
 _GERMAN_WEEKDAYS = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
@@ -142,6 +156,26 @@ def _build_management_url(registration_id: UUID, token: str) -> str:
     """Build the registration management URL."""
     settings = get_settings()
     return f"{settings.base_url}/registration/{registration_id}?token={token}"
+
+
+def _build_person_ticket_url(
+    event_id: UUID,
+    registration_id: UUID,
+    person_index: int,
+    token: str,
+) -> str:
+    """Build a companion's read-only personal ticket page URL (spec 020).
+
+    Note the token is a `person_page_token`, never the group's
+    `registration_token` — see `ticket_signing.person_page_token`. `event_id`
+    is part of the path so the backend can `get_item` the registration instead
+    of scanning (registrations are keyed `pk=EVENT#{event_id}`).
+    """
+    settings = get_settings()
+    return (
+        f"{settings.base_url}/ticket/{event_id}/{registration_id}/{person_index}"
+        f"?token={token}"
+    )
 
 
 def _build_guestlist_url(token: str) -> str:
@@ -1161,6 +1195,142 @@ Dein Orga-Team
 """
         return subject, text_body, html_body
 
+    @staticmethod
+    def festival_companion_ticket(
+        ctx: EmailContext,
+        ticket: SignedTicket,
+    ) -> tuple[str, str, str]:
+        """Companion ticket mail — **F5** (spec 020).
+
+        Goes to a companion the contact person registered WITH an address, so
+        they get their Eintritts-Code directly instead of the contact playing
+        courier.
+
+        Two hard rules:
+        - Exactly ONE QR, theirs (`cid:qr-{person_index}`). Embedding the whole
+          group's codes here would defeat the point and leak the group.
+        - **No management URL, in either body.** That token can edit and cancel
+          the whole registration (D1); companions get `person_ticket_url`, a
+          read-only page, and are pointed at the contact for changes.
+
+        `ctx.attendee_name` is the COMPANION; `ctx.contact_name` is who
+        registered them.
+
+        Returns: (subject, text_body, html_body)
+        """
+        subject = f"Dein Eintritts-Code: {ctx.event_name}"
+
+        mitmach_paragraph_text = f"\n\n{ctx.mitmach_hint}" if ctx.mitmach_hint else ""
+        contact_line_text = f"\n\nBei Fragen: {ctx.contact_hint}" if ctx.contact_hint else ""
+        ticket_link_text = (
+            f"\n\nDein Code, immer aktuell:\n{ctx.person_ticket_url}"
+            if ctx.person_ticket_url
+            else ""
+        )
+
+        text_body = f"""Moin {ctx.attendee_name},
+
+{ctx.contact_name} hat dich für "{ctx.event_name}" angemeldet — schön, dass
+du dabei bist!
+
+Deine Anmeldung:
+- Wann: {ctx.slot_labels}
+
+Dein Eintritts-Code ist unten in dieser Mail eingebettet — am Einlass
+zeigst du ihn einfach vor, ein Screenshot reicht.{ticket_link_text}{mitmach_paragraph_text}
+
+Wenn sich etwas ändert — andere Tage, oder du kannst doch nicht — melde
+dich bei {ctx.contact_name}: die Anmeldung für euch alle läuft dort
+zusammen.{contact_line_text}
+
+Bis bald,
+Dein Orga-Team
+"""
+
+        mitmach_paragraph_html = f"<p>{ctx.mitmach_hint}</p>" if ctx.mitmach_hint else ""
+        contact_line_html = (
+            f"<p>Bei Fragen: {ctx.contact_hint}</p>" if ctx.contact_hint else ""
+        )
+        ticket_link_html = (
+            f"""
+    <p style="margin-top: 20px;">
+        <a href="{ctx.person_ticket_url}" style="display: inline-block; padding: 10px 20px; background: #2563eb; color: white; text-decoration: none; border-radius: 6px;">Dein Code, immer aktuell</a>
+    </p>"""
+            if ctx.person_ticket_url
+            else ""
+        )
+
+        html_body = f"""
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: sans-serif; line-height: 1.6; color: #333;">
+    <h2 style="color: #16a34a;">Dein Eintritts-Code ✓</h2>
+    <p>Moin {ctx.attendee_name},</p>
+    <p>{ctx.contact_name} hat dich für <strong>"{ctx.event_name}"</strong> angemeldet — schön, dass du dabei bist!</p>
+
+    <h3>Deine Anmeldung</h3>
+    <ul>
+        <li><strong>Wann:</strong> {ctx.slot_labels}</li>
+    </ul>
+
+    <h3>Dein Eintritts-Code</h3>
+    <p style="color: #666; font-size: 0.9em;">Am Einlass zeigst du ihn einfach vor — ein Screenshot reicht.</p>
+    <div style="text-align: center; margin: 8px 0;">
+        <img src="cid:qr-{ticket.person_index}" width="180" height="180" alt="Eintritts-Code {ticket.name}" style="display: block; border: 1px solid #e5e7eb; border-radius: 8px;">
+        <p style="margin: 4px 0 0; font-size: 0.9em;">{ticket.name}</p>
+    </div>{ticket_link_html}
+    {mitmach_paragraph_html}
+
+    <p>Wenn sich etwas ändert — andere Tage, oder du kannst doch nicht — melde dich bei {ctx.contact_name}: die Anmeldung für euch alle läuft dort zusammen.</p>
+    {contact_line_html}
+    <p>Bis bald,<br>Dein Orga-Team</p>
+</body>
+</html>
+"""
+        return subject, text_body, html_body
+
+    @staticmethod
+    def festival_companion_cancelled(ctx: EmailContext) -> tuple[str, str, str]:
+        """Companion cancellation notice — **F6** (spec 020).
+
+        Without this, a companion whose group got cancelled turns up at the
+        gate with a QR that no longer works. `ctx.attendee_name` is the
+        companion; `ctx.contact_name` is who cancelled.
+
+        Returns: (subject, text_body, html_body)
+        """
+        subject = f"Abgesagt: {ctx.event_name}"
+
+        contact_line_text = f" — oder schreib uns: {ctx.contact_hint}" if ctx.contact_hint else ""
+        contact_line_html = f" — oder schreib uns: {ctx.contact_hint}" if ctx.contact_hint else ""
+
+        text_body = f"""Moin {ctx.attendee_name},
+
+{ctx.contact_name} hat die Anmeldung für "{ctx.event_name}" storniert — für
+dich damit auch. Dein Eintritts-Code funktioniert nicht mehr.
+
+Wenn das ein Versehen war, melde dich bei {ctx.contact_name}{contact_line_text}
+
+Bis zum nächsten Mal,
+Dein Orga-Team
+"""
+
+        html_body = f"""
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: sans-serif; line-height: 1.6; color: #333;">
+    <h2 style="color: #555;">Anmeldung storniert</h2>
+    <p>Moin {ctx.attendee_name},</p>
+    <p>{ctx.contact_name} hat die Anmeldung für <strong>"{ctx.event_name}"</strong> storniert — für dich damit auch. <strong>Dein Eintritts-Code funktioniert nicht mehr.</strong></p>
+    <p>Wenn das ein Versehen war, melde dich bei {ctx.contact_name}{contact_line_html}</p>
+    <p>Bis zum nächsten Mal,<br>Dein Orga-Team</p>
+</body>
+</html>
+"""
+        return subject, text_body, html_body
+
 
 def _message_to_item(message: Message) -> dict:
     """Convert Message model to DynamoDB item."""
@@ -1631,15 +1801,20 @@ class EmailService:
         body: str,
         *,
         include_links: bool = False,
+        companion: "CompanionRecipient | None" = None,
     ) -> bool:
-        """Send a custom message to a registration.
+        """Send a custom message to a registration, or to one of its companions.
 
         Args:
             event: The event.
             registration: The registration to send to.
             subject: Email subject.
             body: Email body text.
-            include_links: Whether to append confirmation and cancellation links.
+            include_links: Whether to append a self-service link.
+            companion: When given (spec 020), the mail goes to this companion
+                instead of the contact, and `include_links` appends their
+                READ-ONLY ticket page — never the group's manage link, which
+                could cancel everyone.
 
         Returns:
             True if email was sent successfully.
@@ -1648,19 +1823,31 @@ class EmailService:
         html_links = ""
 
         if include_links:
-            manage_url = _build_management_url(
-                registration.id, registration.registration_token,
-            )
+            if companion is not None:
+                link_url = _build_person_ticket_url(
+                    event.id,
+                    registration.id,
+                    companion.person_index,
+                    person_page_token(
+                        registration.registration_token, companion.person_index,
+                    ),
+                )
+                link_label = "Dein Eintritts-Code"
+            else:
+                link_url = _build_management_url(
+                    registration.id, registration.registration_token,
+                )
+                link_label = "Anmeldung verwalten"
 
             text_links = f"""
 
 ---
-Anmeldung verwalten: {manage_url}"""
+{link_label}: {link_url}"""
 
             html_links = f"""
     <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;">
     <p style="margin: 10px 0;">
-        <a href="{manage_url}" style="display: inline-block; padding: 10px 20px; background: #2563eb; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">Anmeldung verwalten</a>
+        <a href="{link_url}" style="display: inline-block; padding: 10px 20px; background: #2563eb; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">{link_label}</a>
     </p>"""
 
         html_body = f"""
@@ -1681,7 +1868,7 @@ Anmeldung verwalten: {manage_url}"""
         return await self._send_email(
             event_id=event.id,
             registration_id=registration.id,
-            to=registration.email,
+            to=companion.email if companion is not None else registration.email,
             subject=subject,
             text_body=body + text_links,
             html_body=html_body,
@@ -1834,6 +2021,180 @@ Anmeldung verwalten: {manage_url}"""
             message_type=MessageType.FESTIVAL_CONFIRMATION,
             inline_images=inline_images,
         )
+
+    async def send_festival_companion_ticket(
+        self,
+        event: Event,
+        registration: Registration,
+        recipient: "CompanionRecipient",
+    ) -> bool:
+        """Send one companion their own ticket mail — F5 (spec 020).
+
+        Mirrors `send_festival_confirmation`'s QR pipeline but filters
+        `build_person_tickets` down to **this recipient's** `person_index`, so
+        the mail carries exactly one code. If the QR can't be built the mail
+        still goes out (with the ticket-page link but no image) rather than the
+        companion getting nothing at all.
+
+        Args:
+            event: The festival event.
+            registration: The registration the companion belongs to.
+            recipient: The companion, from `companion_recipients`.
+
+        Returns:
+            True if the email was queued successfully.
+        """
+        ticket: SignedTicket | None = None
+        inline_images: list[InlineImageData] = []
+        person_ticket_url: str | None = None
+
+        try:
+            from .event_service import get_event_service
+
+            event_svc = get_event_service()
+            credentialed_event = await event_svc.ensure_gate_credentials(event.org_id, event.id)
+            if credentialed_event is not None and credentialed_event.ticket_secret:
+                tickets = build_person_tickets(
+                    credentialed_event.ticket_secret,
+                    registration.id,
+                    registration.name,
+                    registration.group_members,
+                    registration.attendance_slots,
+                    registration.overnight_approved,
+                )
+                ticket = next(
+                    (t for t in tickets if t.person_index == recipient.person_index),
+                    None,
+                )
+                if ticket is not None:
+                    png = generate_qr_png(ticket.code)
+                    inline_images.append(
+                        InlineImageData(
+                            content_id=f"qr-{ticket.person_index}",
+                            content_b64=base64.b64encode(png).decode("ascii"),
+                        ),
+                    )
+        except Exception as e:
+            logger.error(
+                "Failed to build companion QR ticket image",
+                extra={
+                    "error": str(e),
+                    "registration_id": str(registration.id),
+                    "person_index": recipient.person_index,
+                },
+            )
+            ticket = None
+            inline_images = []
+
+        # The ticket-page link never depends on the QR pipeline — it only needs
+        # the registration token, so it survives an ensure_gate_credentials
+        # failure and is the companion's fallback path to a working code.
+        person_ticket_url = _build_person_ticket_url(
+            event.id,
+            registration.id,
+            recipient.person_index,
+            person_page_token(registration.registration_token, recipient.person_index),
+        )
+
+        ctx = EmailContext(
+            event_name=event.name,
+            event_date=_format_date(event.start_at),
+            event_location=event.location,
+            registration_deadline=_format_date(event.registration_deadline),
+            attendee_name=recipient.name,
+            attendee_email=recipient.email,
+            group_size=registration.group_size,
+            registration_status=registration.status.value,
+            # Deliberately NO management_url (D1) — that token could cancel the
+            # whole group. Companions get the read-only ticket page instead.
+            slot_labels=_build_slot_labels(event, registration.attendance_slots),
+            contact_hint=event.contact_hint,
+            mitmach_hint=event.participation_hint,
+            contact_name=registration.name,
+            person_ticket_url=person_ticket_url,
+        )
+
+        subject, text_body, html_body = EmailTemplates.festival_companion_ticket(
+            ctx,
+            ticket
+            or SignedTicket(person_index=recipient.person_index, name=recipient.name, code=""),
+        )
+
+        return await self._send_email(
+            event_id=event.id,
+            registration_id=registration.id,
+            to=recipient.email,
+            subject=subject,
+            text_body=text_body,
+            html_body=html_body,
+            message_type=MessageType.FESTIVAL_COMPANION_TICKET,
+            inline_images=inline_images,
+        )
+
+    async def send_festival_companion_cancellations(
+        self,
+        event: Event,
+        registration: Registration,
+        recipients: "list[CompanionRecipient] | None" = None,
+    ) -> int:
+        """Tell every addressed companion their code died — F6 (spec 020).
+
+        `recipients` must be passed when the registration has already been
+        flipped to CANCELLED, because `companion_recipients` returns `[]` for a
+        cancelled registration by design. Callers therefore collect the list
+        BEFORE cancelling and hand it in here.
+
+        One try/except per recipient: a single bad address must not deprive the
+        rest of the group of their notice.
+
+        Returns:
+            How many notices were queued.
+        """
+        from .registration_service import companion_recipients
+
+        targets = recipients if recipients is not None else companion_recipients(registration)
+        sent = 0
+
+        for recipient in targets:
+            ctx = EmailContext(
+                event_name=event.name,
+                event_date=_format_date(event.start_at),
+                event_location=event.location,
+                attendee_name=recipient.name,
+                attendee_email=recipient.email,
+                group_size=registration.group_size,
+                registration_status=registration.status.value,
+                contact_hint=event.contact_hint,
+                contact_name=registration.name,
+            )
+            subject, text_body, html_body = EmailTemplates.festival_companion_cancelled(ctx)
+
+            try:
+                ok = await self._send_email(
+                    event_id=event.id,
+                    registration_id=registration.id,
+                    to=recipient.email,
+                    subject=subject,
+                    text_body=text_body,
+                    html_body=html_body,
+                    message_type=MessageType.FESTIVAL_COMPANION_CANCELLATION,
+                )
+                if ok:
+                    sent += 1
+            except Exception as e:
+                logger.error(
+                    "Failed to queue companion cancellation notice",
+                    extra={
+                        "flow": "festival",
+                        "step": "companion_cancellation_email",
+                        "outcome": "error",
+                        "error": str(e),
+                        "registration_id": str(registration.id),
+                        "person_index": recipient.person_index,
+                    },
+                )
+
+        return sent
 
     async def send_festival_update_confirmation(
         self,
