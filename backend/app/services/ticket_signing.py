@@ -132,7 +132,7 @@ def verify_ticket(secret: str, code: str) -> dict | None:
         return None
 
 
-def person_page_token(registration_token: str, person_index: int) -> str:
+def person_page_token(registration_token: str, person_index: int, email: str) -> str:
     """Derive a read-only capability token for one person's ticket page (spec 020).
 
     Companions who supplied an address are mailed a link to their own ticket
@@ -141,18 +141,27 @@ def person_page_token(registration_token: str, person_index: int) -> str:
 
     Derived from the **registration token**, deliberately NOT from
     `event.ticket_secret`: the ticket secret is handed to every gate client by
-    the scanner boot call (spec 019 Risk #6), so a person token derived from it
-    would be forgeable by anyone holding a gate link. HMAC is one-way, so a
-    leaked person token reveals nothing about the group token and grants no
-    write capability anywhere.
+    the scanner boot call (spec 019 Risk #6), and gate clients also learn
+    `(registration_id, person_index)` pairs through name search — so a token
+    derived from the ticket secret would hand every gate volunteer a read
+    capability on every companion's page. HMAC is one-way, so a leaked person
+    token reveals nothing about the group token and grants no write capability.
 
-    Stateless — nothing is stored, it works for every pre-existing
-    registration, and it stays stable across slot and name edits (unlike the
-    ticket code itself, which re-signs on every change).
+    **The address is part of the message on purpose.** `group_members` entries
+    are individually rewritable — the append-only rule only forbids *shortening*
+    the list — so a contact can type over row 1, replacing Lisa with Tim. Were
+    the token keyed on the index alone, Lisa's old link would keep working and
+    would then render Tim's name and a gate-valid QR for Tim. Binding to the
+    address means replacing the occupant (a new address) invalidates the old
+    link, while a pure spelling fix to the same person (same address) keeps it
+    alive — which is what lets a rename skip the resend.
+
+    Stateless: nothing is stored, and it works for every pre-existing
+    registration.
     """
     mac = hmac.new(
         registration_token.encode("utf-8"),
-        f"P{person_index}".encode("ascii"),
+        f"P{person_index}:{(email or '').strip().lower()}".encode(),
         hashlib.sha256,
     ).digest()[:16]
     return _b64url_encode(mac)
@@ -161,12 +170,22 @@ def person_page_token(registration_token: str, person_index: int) -> str:
 def verify_person_page_token(
     registration_token: str,
     person_index: int,
+    email: str | None,
     token: str,
 ) -> bool:
-    """Constant-time check of a `person_page_token`."""
-    if not token:
+    """Constant-time check of a `person_page_token`.
+
+    Returns False for a missing address (a companion without one has no page)
+    and for any non-ASCII token: `hmac.compare_digest` raises `TypeError` on
+    non-ASCII `str`, which would otherwise surface as a 500 and — because the
+    registration is looked up before the token is checked — turn this into an
+    oracle for whether a given registration exists.
+    """
+    if not token or not email:
         return False
-    expected = person_page_token(registration_token, person_index)
+    if not token.isascii():
+        return False
+    expected = person_page_token(registration_token, person_index, email)
     return hmac.compare_digest(expected, token)
 
 

@@ -107,22 +107,16 @@ class TestCompanionEmailModel:
         )
         assert reg.group_member_emails == ["lisa@example.de", None, None]
 
-    def test_longer_than_members_rejected(self):
-        with pytest.raises(ValidationError, match="must not be longer"):
-            _registration(
-                group_members=["Lisa Meier"],
-                group_member_emails=["lisa@example.de", "tim@example.de"],
-                group_size=2,
-            )
-
-    def test_address_on_tombstoned_member_rejected(self):
-        """A removed member must never keep a mailable address."""
-        with pytest.raises(ValidationError, match="was removed"):
-            _registration(
-                group_members=["Lisa Meier", None],
-                group_member_emails=["lisa@example.de", "tim@example.de"],
-                group_size=2,
-            )
+    def test_model_load_truncates_an_over_long_address_list(self):
+        """Must stay LOADABLE — `list_registrations` parses rows in a
+        comprehension, so one unreadable row would take the admin list, the gate
+        CSV and the headcount board down with it. Surviving indices are kept."""
+        reg = _registration(
+            group_members=["Lisa Meier"],
+            group_member_emails=["lisa@example.de", "tim@example.de"],
+            group_size=2,
+        )
+        assert reg.group_member_emails == ["lisa@example.de"]
 
     def test_addresses_without_members_rejected(self):
         with pytest.raises(ValidationError, match="requires group_members"):
@@ -131,6 +125,29 @@ class TestCompanionEmailModel:
     def test_all_none_collapses_to_none(self):
         reg = _registration(
             group_members=["Lisa Meier"], group_member_emails=[None], group_size=2,
+        )
+        assert reg.group_member_emails is None
+
+    def test_model_load_drops_an_orphaned_address_instead_of_raising(self):
+        """A stored row whose member was removed must stay LOADABLE.
+
+        This validator runs on every read from DynamoDB. Raising here would
+        turn one badly-written row into a registration nobody can ever load
+        again — the guest locked out of their manage page and the gate unable
+        to find them. Strictness lives in the input schemas instead.
+        """
+        reg = _registration(
+            group_members=["Lisa Meier", None],
+            group_member_emails=["lisa@example.de", "tim@example.de"],
+            group_size=2,
+        )
+        assert reg.group_member_emails == ["lisa@example.de", None]
+
+    def test_orphan_only_row_collapses_to_none_on_load(self):
+        reg = _registration(
+            group_members=[None],
+            group_member_emails=["tim@example.de"],
+            group_size=1,
         )
         assert reg.group_member_emails is None
 
@@ -342,32 +359,72 @@ class TestNewlyAddressedCompanions:
 
 
 class TestPersonPageToken:
+    MAIL = "lisa@example.de"
+
     def test_stable_across_calls(self):
-        assert person_page_token("regtoken", 2) == person_page_token("regtoken", 2)
+        assert person_page_token("regtoken", 2, self.MAIL) == person_page_token(
+            "regtoken", 2, self.MAIL,
+        )
 
     def test_differs_per_index(self):
-        assert person_page_token("regtoken", 1) != person_page_token("regtoken", 2)
+        assert person_page_token("regtoken", 1, self.MAIL) != person_page_token(
+            "regtoken", 2, self.MAIL,
+        )
 
     def test_differs_per_registration_token(self):
-        assert person_page_token("token-a", 1) != person_page_token("token-b", 1)
+        assert person_page_token("token-a", 1, self.MAIL) != person_page_token(
+            "token-b", 1, self.MAIL,
+        )
+
+    def test_differs_per_address(self):
+        """The point of binding to the address: replacing the occupant of an
+        index invalidates the previous holder's link."""
+        assert person_page_token("regtoken", 1, "lisa@example.de") != person_page_token(
+            "regtoken", 1, "tim@example.de",
+        )
+
+    def test_address_is_normalised(self):
+        assert person_page_token("regtoken", 1, " LISA@Example.DE ") == person_page_token(
+            "regtoken", 1, "lisa@example.de",
+        )
 
     def test_verify_accepts_matching_token(self):
-        assert verify_person_page_token("regtoken", 3, person_page_token("regtoken", 3))
+        assert verify_person_page_token(
+            "regtoken", 3, self.MAIL, person_page_token("regtoken", 3, self.MAIL),
+        )
 
     @pytest.mark.parametrize(
-        ("reg_token", "index"),
-        [("regtoken", 2), ("other-token", 1)],
+        ("reg_token", "index", "email"),
+        [
+            ("regtoken", 2, MAIL),
+            ("other-token", 1, MAIL),
+            ("regtoken", 1, "tim@example.de"),
+        ],
     )
-    def test_verify_rejects_wrong_scope(self, reg_token, index):
-        assert not verify_person_page_token(reg_token, index, person_page_token("regtoken", 1))
+    def test_verify_rejects_wrong_scope(self, reg_token, index, email):
+        issued = person_page_token("regtoken", 1, self.MAIL)
+        assert not verify_person_page_token(reg_token, index, email, issued)
 
     @pytest.mark.parametrize("bad", ["", "garbage", "!!!!"])
     def test_verify_rejects_malformed(self, bad):
-        assert not verify_person_page_token("regtoken", 1, bad)
+        assert not verify_person_page_token("regtoken", 1, self.MAIL, bad)
+
+    @pytest.mark.parametrize("bad", ["ü", "tökén", "\u00fc" * 22])
+    def test_verify_rejects_non_ascii_without_raising(self, bad):
+        """compare_digest raises TypeError on non-ASCII str. Unguarded that
+        became a 500 — and since the registration is looked up BEFORE the token
+        is checked, a 500-vs-404 split leaked whether a registration exists."""
+        assert not verify_person_page_token("regtoken", 1, self.MAIL, bad)
+
+    def test_verify_rejects_when_no_address_is_stored(self):
+        """A companion without an address has no page at all."""
+        assert not verify_person_page_token(
+            "regtoken", 1, None, person_page_token("regtoken", 1, self.MAIL),
+        )
 
     def test_token_does_not_contain_the_registration_token(self):
         """One-way by construction — a leaked person token grants no writes."""
-        assert "regtoken" not in person_page_token("regtoken", 1)
+        assert "regtoken" not in person_page_token("regtoken", 1, self.MAIL)
 
 
 # ------------------------------------------------------------------ T005 mails
@@ -856,6 +913,36 @@ class TestCompanionSendOnSelfEdit(CompanionServiceBase):
         assert len(self._companion_calls()) == 1
 
     @pytest.mark.asyncio
+    async def test_members_only_patch_tombstoning_clears_that_address(self):
+        """Regression: a members-only patch used to orphan the address.
+
+        `model_copy` does not re-run validators, so the orphan was persisted —
+        and the Registration validator then raised on every subsequent load,
+        making the registration permanently unreadable. The service must
+        re-align even when the client sends no addresses.
+        """
+        event, reg = await self._setup_registration(
+            group_member_emails=["lisa@example.de", "tim@example.de"],
+        )
+
+        updated, error = await self.reg_service.update_festival_attendance(
+            reg.id,
+            reg.registration_token,
+            FestivalAttendancePatch(group_members=["Lisa Meier", None]),
+        )
+
+        assert error is None
+        assert updated.group_members == ["Lisa Meier", None]
+        assert updated.group_member_emails == ["lisa@example.de", None]
+
+        # The load that used to blow up.
+        reloaded = await self.reg_service.get_registration(event.id, reg.id)
+        assert reloaded is not None
+        assert reloaded.group_member_emails == ["lisa@example.de", None]
+        # And the removed companion is no longer a mail recipient.
+        assert [r.person_index for r in companion_recipients(reloaded)] == [1]
+
+    @pytest.mark.asyncio
     async def test_address_on_tombstoned_member_rejected_by_schema(self):
         """When the patch carries both arrays, the schema catches it outright."""
         with pytest.raises(ValidationError, match="was removed"):
@@ -980,6 +1067,86 @@ class TestAdminPatchIsMailSilent(CompanionServiceBase):
         assert error == "not_festival_event"
 
 
+class TestLegacyGroupMemberPathsRejectFestival(CompanionServiceBase):
+    """Regression: the pre-020 group-member endpoints corrupted festival rows.
+
+    `update_group_members` writes `group_members` without touching the
+    index-aligned `group_member_emails`, and its `group_members` INCLUDES the
+    contact person while festival's excludes them. On a festival group that
+    produced either a wrong-person QR mailing (reorder) or an emails array
+    longer than the members array — a row that then failed to load at all,
+    500ing the guest's manage page, the gate lookup and the whole admin list.
+    """
+
+    async def _festival_reg(self):
+        event = self._make_event()
+        invite = await self._make_invite(event)
+        reg, error = await self._register(
+            invite,
+            group_size=3,
+            group_members=["Lisa Meier", "Tim Bach"],
+            group_member_emails=["lisa@example.de", "tim@example.de"],
+        )
+        assert error is None
+        return event, reg
+
+    @pytest.mark.asyncio
+    async def test_update_group_members_refuses_festival(self):
+        event, reg = await self._festival_reg()
+
+        updated, error = await self.reg_service.update_group_members(
+            reg.id, reg.registration_token, ["Tim Bach"],
+        )
+
+        assert updated is None
+        assert error == "Not available for festival registrations"
+
+        # The row is untouched and still loads.
+        reloaded = await self.reg_service.get_registration(event.id, reg.id)
+        assert reloaded.group_members == ["Lisa Meier", "Tim Bach"]
+        assert reloaded.group_member_emails == ["lisa@example.de", "tim@example.de"]
+
+    @pytest.mark.asyncio
+    async def test_reorder_via_legacy_path_cannot_swap_addresses(self):
+        """The wrong-QR scenario: reordering names while addresses stay put."""
+        event, reg = await self._festival_reg()
+
+        updated, error = await self.reg_service.update_group_members(
+            reg.id, reg.registration_token, ["Tim Bach", "Lisa Meier"],
+        )
+
+        assert updated is None
+        assert error is not None
+        reloaded = await self.reg_service.get_registration(event.id, reg.id)
+        pairs = [(r.name, r.email) for r in companion_recipients(reloaded)]
+        assert pairs == [
+            ("Lisa Meier", "lisa@example.de"),
+            ("Tim Bach", "tim@example.de"),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_single_event_registration_still_works(self):
+        """The guard must not break the flow this endpoint actually serves."""
+        event = self._make_event(
+            event_type=EventType.SINGLE, festival_slots=None, end_at=None, capacity=100,
+        )
+        reg = _registration(
+            id=uuid4(),
+            event_id=event.id,
+            group_members=["Anna Schmidt", "Lisa Meier"],
+            group_size=2,
+        )
+        self.tables["registrations_table"].put_item(Item=_registration_to_item(reg))
+
+        updated, error = await self.reg_service.update_group_members(
+            reg.id, reg.registration_token, ["Anna Schmidt"],
+        )
+
+        assert error is None
+        assert updated.group_members == ["Anna Schmidt"]
+        assert updated.group_size == 1
+
+
 # --------------------------------------------------------------- T007 endpoint
 
 
@@ -1006,13 +1173,17 @@ class TestPersonTicketEndpoint(CompanionServiceBase):
             "app.api.public.registrations.get_event_service",
             return_value=self.event_service,
         ):
+            if token is None:
+                stored = await self.reg_service.get_registration(event.id, reg.id)
+                emails = stored.group_member_emails or []
+                i = person_index - 1
+                email = emails[i] if 0 <= i < len(emails) else None
+                token = person_page_token(reg.registration_token, person_index, email or "")
             return await get_person_ticket(
                 event_id=event.id,
                 registration_id=reg.id,
                 person_index=person_index,
-                token=token
-                if token is not None
-                else person_page_token(reg.registration_token, person_index),
+                token=token,
             )
 
     @pytest.mark.asyncio
@@ -1048,7 +1219,9 @@ class TestPersonTicketEndpoint(CompanionServiceBase):
     async def test_wrong_token_is_404(self):
         event, reg = await self._setup()
         with pytest.raises(HTTPException) as exc:
-            await self._call(event, reg, 1, token=person_page_token("other-token", 1))
+            await self._call(
+                event, reg, 1, token=person_page_token("other-token", 1, "lisa@example.de"),
+            )
         assert exc.value.status_code == 404
 
     @pytest.mark.asyncio
@@ -1056,7 +1229,12 @@ class TestPersonTicketEndpoint(CompanionServiceBase):
         """A companion's token must not open a sibling's page."""
         event, reg = await self._setup()
         with pytest.raises(HTTPException) as exc:
-            await self._call(event, reg, 2, token=person_page_token(reg.registration_token, 1))
+            await self._call(
+                event,
+                reg,
+                2,
+                token=person_page_token(reg.registration_token, 1, "lisa@example.de"),
+            )
         assert exc.value.status_code == 404
 
     @pytest.mark.parametrize("bad_token", ["", "garbage"])
@@ -1113,6 +1291,60 @@ class TestPersonTicketEndpoint(CompanionServiceBase):
         stored = await self.event_service.get_event_by_id(event.id)
         payload = verify_ticket(stored.ticket_secret, result.ticket_code)
         assert payload["n"] == "Lisa Meier-Bach"
+
+    @pytest.mark.asyncio
+    async def test_replacing_the_occupant_kills_the_old_link(self):
+        """Regression: the token used to be an INDEX capability.
+
+        `group_members` entries are individually rewritable (append-only only
+        forbids shortening), so a contact can type over row 1 — Lisa out, Tim in.
+        With an index-only token, Lisa's old link kept working and rendered Tim's
+        name plus a gate-valid QR for Tim. Binding the token to the address
+        means the replacement invalidates it.
+        """
+        event, reg = await self._setup()
+        lisas_token = person_page_token(reg.registration_token, 1, "lisa@example.de")
+        # Sanity: it works before the swap.
+        assert (await self._call(event, reg, 1, token=lisas_token)).name == "Lisa Meier"
+
+        await self.reg_service.update_festival_attendance(
+            reg.id,
+            reg.registration_token,
+            FestivalAttendancePatch(
+                group_members=["Tim Bach", "Tim Bach"],
+                group_member_emails=["tim@example.de", None],
+            ),
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            await self._call(event, reg, 1, token=lisas_token)
+        assert exc.value.status_code == 404
+
+        # ...and Tim's own token does work.
+        assert (await self._call(event, reg, 1)).name == "Tim Bach"
+
+    @pytest.mark.asyncio
+    async def test_clearing_an_address_revokes_the_page(self):
+        event, reg = await self._setup()
+        lisas_token = person_page_token(reg.registration_token, 1, "lisa@example.de")
+
+        await self.reg_service.update_festival_attendance(
+            reg.id,
+            reg.registration_token,
+            FestivalAttendancePatch(group_member_emails=[None, None]),
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            await self._call(event, reg, 1, token=lisas_token)
+        assert exc.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_non_ascii_token_is_404_not_500(self):
+        """A 500 here would have leaked whether the registration exists."""
+        event, reg = await self._setup()
+        with pytest.raises(HTTPException) as exc:
+            await self._call(event, reg, 1, token="ü" * 22)
+        assert exc.value.status_code == 404
 
     @pytest.mark.asyncio
     async def test_cancelled_registration_renders_a_readable_state(self):

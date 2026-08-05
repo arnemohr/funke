@@ -244,6 +244,12 @@ class ManageRegistrationResponse(BaseModel):
     overnight_approved: bool = False
     # Registration deadline isoformat for FESTIVAL events, None for SINGLE.
     editable_until: str | None = None
+    # Effective group allowance for FESTIVAL registrations: the invite's
+    # `max_group_size`, floored by the group's CURRENT size so the
+    # grandfathering rule holds (lowering an invite's allowance never
+    # invalidates a bigger existing group). Companions allowed = this minus 1,
+    # so `1` means "no companions" and the UI hides the add-person control.
+    max_group_size: int | None = None
     # T308: freshly signed on every GET — never cached/persisted. None for
     # non-FESTIVAL events and CANCELLED registrations (no entry codes).
     qr_payloads: list[QrPayload] | None = None
@@ -310,6 +316,7 @@ async def get_registration_manage(
     # Fetch event details for display
     event_info = None
     editable_until = None
+    max_group_size: int | None = None
     qr_payloads: list[QrPayload] | None = None
     try:
         event_svc = get_event_service()
@@ -336,6 +343,27 @@ async def get_registration_manage(
             )
             if is_festival:
                 editable_until = event.registration_deadline.isoformat()
+
+                # Effective group allowance, so the page knows whether "add a
+                # person" is even possible. Floored by the CURRENT group size to
+                # honour grandfathering (spec 019 §Invite): lowering an invite's
+                # allowance never invalidates a bigger existing group. Mirrors
+                # `update_festival_attendance`'s `allowed_max_group_size`, which
+                # is what actually enforces this on save.
+                max_group_size = registration.group_size
+                if registration.invite_id is not None:
+                    try:
+                        from ...services.invite_service import get_invite_service
+
+                        invite = await get_invite_service().get_invite(
+                            event.id, registration.invite_id,
+                        )
+                        if invite is not None:
+                            max_group_size = max(
+                                registration.group_size, invite.max_group_size,
+                            )
+                    except Exception:
+                        pass  # Non-critical — fall back to the current size.
 
                 # T308: freshly signed per-person QR payloads for the entry
                 # codes section. Signed fresh on every GET (never cached) so
@@ -398,6 +426,7 @@ async def get_registration_manage(
         phone=registration.phone,
         overnight_approved=registration.overnight_approved,
         editable_until=editable_until,
+        max_group_size=max_group_size,
         qr_payloads=qr_payloads,
     )
 
@@ -468,7 +497,17 @@ async def get_person_ticket(
     if person_index < 1:
         raise not_found
 
-    if not verify_person_page_token(registration.registration_token, person_index, token):
+    # Verified against the address CURRENTLY stored at this index, so replacing
+    # the occupant (a different person, a different address) invalidates the old
+    # link rather than showing the newcomer's name and gate-valid QR to whoever
+    # held the previous one.
+    stored_emails = registration.group_member_emails or []
+    current_email = (
+        stored_emails[person_index - 1] if person_index - 1 < len(stored_emails) else None
+    )
+    if not verify_person_page_token(
+        registration.registration_token, person_index, current_email, token,
+    ):
         logger.info(
             "Person ticket access denied",
             extra={

@@ -9,6 +9,7 @@ Provides:
 """
 
 import base64
+import html
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from typing import TYPE_CHECKING
@@ -1260,14 +1261,25 @@ Dein Orga-Team
             else ""
         )
 
+        # Guest-controlled values, escaped (spec 020). F5/F6 are the first
+        # templates in this codebase where one guest's free text is rendered in
+        # a mail sent to a DIFFERENT person, at an address that guest chose —
+        # every earlier template shows the recipient only their own data, where
+        # injection buys nothing. Unescaped, a registrant could put a link in
+        # their own `name` and phish arbitrary recipients from our DKIM-signed
+        # domain. `_has_two_words` + 200 chars leaves ample room for that.
+        safe_attendee = html.escape(ctx.attendee_name or "")
+        safe_contact = html.escape(ctx.contact_name or "")
+        safe_ticket_name = html.escape(ticket.name or "", quote=True)
+
         html_body = f"""
 <!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
 <body style="font-family: sans-serif; line-height: 1.6; color: #333;">
     <h2 style="color: #16a34a;">Dein Eintritts-Code ✓</h2>
-    <p>Moin {ctx.attendee_name},</p>
-    <p>{ctx.contact_name} hat dich für <strong>"{ctx.event_name}"</strong> angemeldet — schön, dass du dabei bist!</p>
+    <p>Moin {safe_attendee},</p>
+    <p>{safe_contact} hat dich für <strong>"{html.escape(ctx.event_name or "")}"</strong> angemeldet — schön, dass du dabei bist!</p>
 
     <h3>Deine Anmeldung</h3>
     <ul>
@@ -1277,12 +1289,12 @@ Dein Orga-Team
     <h3>Dein Eintritts-Code</h3>
     <p style="color: #666; font-size: 0.9em;">Am Einlass zeigst du ihn einfach vor — ein Screenshot reicht.</p>
     <div style="text-align: center; margin: 8px 0;">
-        <img src="cid:qr-{ticket.person_index}" width="180" height="180" alt="Eintritts-Code {ticket.name}" style="display: block; border: 1px solid #e5e7eb; border-radius: 8px;">
-        <p style="margin: 4px 0 0; font-size: 0.9em;">{ticket.name}</p>
+        <img src="cid:qr-{ticket.person_index}" width="180" height="180" alt="Eintritts-Code {safe_ticket_name}" style="display: block; border: 1px solid #e5e7eb; border-radius: 8px;">
+        <p style="margin: 4px 0 0; font-size: 0.9em;">{safe_ticket_name}</p>
     </div>{ticket_link_html}
     {mitmach_paragraph_html}
 
-    <p>Wenn sich etwas ändert — andere Tage, oder du kannst doch nicht — melde dich bei {ctx.contact_name}: die Anmeldung für euch alle läuft dort zusammen.</p>
+    <p>Wenn sich etwas ändert — andere Tage, oder du kannst doch nicht — melde dich bei {safe_contact}: die Anmeldung für euch alle läuft dort zusammen.</p>
     {contact_line_html}
     <p>Bis bald,<br>Dein Orga-Team</p>
 </body>
@@ -1316,15 +1328,19 @@ Bis zum nächsten Mal,
 Dein Orga-Team
 """
 
+        # Escaped for the same reason as F5 — see the note there.
+        safe_attendee = html.escape(ctx.attendee_name or "")
+        safe_contact = html.escape(ctx.contact_name or "")
+
         html_body = f"""
 <!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
 <body style="font-family: sans-serif; line-height: 1.6; color: #333;">
     <h2 style="color: #555;">Anmeldung storniert</h2>
-    <p>Moin {ctx.attendee_name},</p>
-    <p>{ctx.contact_name} hat die Anmeldung für <strong>"{ctx.event_name}"</strong> storniert — für dich damit auch. <strong>Dein Eintritts-Code funktioniert nicht mehr.</strong></p>
-    <p>Wenn das ein Versehen war, melde dich bei {ctx.contact_name}{contact_line_html}</p>
+    <p>Moin {safe_attendee},</p>
+    <p>{safe_contact} hat die Anmeldung für <strong>"{html.escape(ctx.event_name or "")}"</strong> storniert — für dich damit auch. <strong>Dein Eintritts-Code funktioniert nicht mehr.</strong></p>
+    <p>Wenn das ein Versehen war, melde dich bei {safe_contact}{contact_line_html}</p>
     <p>Bis zum nächsten Mal,<br>Dein Orga-Team</p>
 </body>
 </html>
@@ -1829,7 +1845,9 @@ class EmailService:
                     registration.id,
                     companion.person_index,
                     person_page_token(
-                        registration.registration_token, companion.person_index,
+                        registration.registration_token,
+                        companion.person_index,
+                        companion.email,
                     ),
                 )
                 link_label = "Dein Eintritts-Code"
@@ -2093,7 +2111,11 @@ class EmailService:
             event.id,
             registration.id,
             recipient.person_index,
-            person_page_token(registration.registration_token, recipient.person_index),
+            person_page_token(
+                registration.registration_token,
+                recipient.person_index,
+                recipient.email,
+            ),
         )
 
         ctx = EmailContext(

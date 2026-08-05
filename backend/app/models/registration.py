@@ -88,6 +88,7 @@ def _align_member_emails(
     members: list[str | None] | None,
     *,
     collapse_empty: bool,
+    drop_orphans: bool = False,
 ) -> list[str | None] | None:
     """Index-align companion addresses with `group_members` (spec 020).
 
@@ -103,6 +104,12 @@ def _align_member_emails(
     same thing — and deliberately WRONG for patch schemas, where `None` means
     "not provided" and collapsing would silently swallow a request to clear
     every address.
+
+    `drop_orphans` clears an address that landed on a tombstone instead of
+    raising. Use it when RE-aligning an already-stored pair after the member
+    list changed — a companion who was removed simply loses their address, and
+    that is the desired outcome. Leave it off for user-supplied pairs, where an
+    address on a tombstone is a genuine client error worth rejecting.
     """
     if emails is None:
         return None
@@ -113,16 +120,29 @@ def _align_member_emails(
             raise ValueError("group_member_emails requires group_members")
         return None if collapse_empty else emails
     if len(emails) > len(members):
-        raise ValueError("group_member_emails must not be longer than group_members")
+        if not drop_orphans:
+            raise ValueError("group_member_emails must not be longer than group_members")
+        # Same reasoning as the orphan case: this runs on every load, so raising
+        # would make one bad row unreadable forever — and because
+        # `list_registrations` parses rows in a comprehension, a single poisoned
+        # row would take the whole admin list, the gate CSV and the headcount
+        # board down with it. Truncate the tail instead; the surviving entries
+        # keep their indices, which is what alignment actually depends on.
+        emails = emails[: len(members)]
 
     padded: list[str | None] = list(emails) + [None] * (len(members) - len(emails))
     # strict=True: padded is built to match members exactly, so a mismatch
     # here means the padding logic above broke, not bad input.
     for i, (member, email) in enumerate(zip(members, padded, strict=True)):
         if member is None and email is not None:
+            if drop_orphans:
+                padded[i] = None
+                continue
             raise ValueError(
                 f"group_member_emails[{i}] is set but group_members[{i}] was removed",
             )
+    if collapse_empty and not any(email is not None for email in padded):
+        return None
     return padded
 
 
@@ -513,15 +533,26 @@ class Registration(BaseModel):
     def _align_member_emails(self) -> "Registration":
         """Keep the two companion arrays index-aligned (spec 020).
 
-        Last line of defence: every write path already aligns, but this is the
-        model that gets persisted, and a drift here would mail a personalised
-        QR to the wrong person. Pads a short list; raises on anything worse.
+        Last line of defence: every write path aligns explicitly, but this is
+        the model that gets persisted and re-read, and a drift here would mail a
+        personalised QR to the wrong person.
+
+        Deliberately **forgiving** (`drop_orphans=True`): this validator runs on
+        every load from DynamoDB, so raising would turn one badly-written row
+        into a registration that can never be read again — the guest locked out
+        of their manage page and the gate unable to look them up. Dropping an
+        address that lost its member is both the safe and the correct outcome.
+        Strictness belongs in the input schemas (`FestivalRegistrationCreate`,
+        `FestivalAttendancePatch`), which reject such a pair outright.
         """
         object.__setattr__(
             self,
             "group_member_emails",
             _align_member_emails(
-                self.group_member_emails, self.group_members, collapse_empty=True,
+                self.group_member_emails,
+                self.group_members,
+                collapse_empty=True,
+                drop_orphans=True,
             ),
         )
         return self

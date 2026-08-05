@@ -1126,7 +1126,17 @@ class RegistrationService:
             except ValueError as e:
                 return None, str(e)
         else:
-            target_member_emails = registration.group_member_emails
+            # Members may have changed WITHOUT the client sending addresses (a
+            # members-only patch that tombstones someone). Re-align, dropping
+            # any address whose member is gone: `model_copy` below does not
+            # re-run validators, so an orphan left here would be persisted and
+            # would then make the registration unreadable on the next load.
+            target_member_emails = _align_member_emails(
+                registration.group_member_emails,
+                target_group_members,
+                collapse_empty=True,
+                drop_orphans=True,
+            )
 
         non_none_count = sum(1 for m in (target_group_members or []) if m is not None)
 
@@ -2090,6 +2100,14 @@ class RegistrationService:
         if registration.status != RegistrationStatus.CONFIRMED:
             return None, f"Cannot confirm with status {registration.status.value}"
 
+        # Same guard as `update_group_members` (spec 020). Currently inert —
+        # festival registrations are created PARTICIPATING and never reach
+        # CONFIRMED — but the write here has the identical
+        # `group_members`-without-`group_member_emails` defect, so it must not
+        # become a live hole if that status assumption ever changes.
+        if await self._is_festival_registration(registration):
+            return None, "Not available for festival registrations"
+
         # Validate group_members
         if not group_members or len(group_members) < 1:
             return None, "At least one group member name is required"
@@ -2165,6 +2183,32 @@ class RegistrationService:
             logger.error("Failed to confirm with names", extra={"error": str(e)})
             return None, "Failed to confirm participation"
 
+    async def _is_festival_registration(self, registration: Registration) -> bool:
+        """True when this registration belongs to a FESTIVAL event (spec 020).
+
+        Used to fence the two legacy group-member write paths off from festival
+        rows. Festival-ness is a property of the parent event, so it needs a
+        lookup; a lookup failure returns True (fail CLOSED) — refusing an edit
+        is recoverable, corrupting the index alignment is not.
+        """
+        if registration.invite_id is not None:
+            # Only festival registrations carry an invite, so this settles it
+            # without a round trip in the common case.
+            return True
+        try:
+            from .event_service import get_event_service
+
+            event = await get_event_service().get_event_by_id(registration.event_id)
+        except Exception as e:
+            logger.error(
+                "Festival check failed; refusing the edit",
+                extra={"error": str(e), "registration_id": str(registration.id)},
+            )
+            return True
+        if event is None:
+            return True
+        return event.event_type == EventType.FESTIVAL
+
     async def update_group_members(
         self,
         registration_id: UUID,
@@ -2193,6 +2237,19 @@ class RegistrationService:
 
         if registration.status != RegistrationStatus.PARTICIPATING:
             return None, f"Cannot update group members with status {registration.status.value}"
+
+        # FESTIVAL registrations must never come through here (spec 020).
+        # This endpoint predates the festival flow and has incompatible
+        # semantics: its `group_members` INCLUDES the contact person (festival's
+        # excludes them), it is shrink-by-omission rather than tombstone-based,
+        # and it writes `group_members` without touching the index-aligned
+        # `group_member_emails`. On a festival group that silently mails one
+        # companion's QR to another's address, or leaves the emails array longer
+        # than the members array — a row that then fails to load at all, taking
+        # the manage page, the gate lookup AND the admin list down with it.
+        # Festival edits go through `update_festival_attendance`.
+        if await self._is_festival_registration(registration):
+            return None, "Not available for festival registrations"
 
         # Validate
         if not group_members or len(group_members) < 1:
@@ -2425,16 +2482,14 @@ class RegistrationService:
             except ValueError:
                 return None, "invalid_group_member_emails"
         elif target_group_members != registration.group_members:
-            # Members changed without new addresses — re-align so the stored
-            # pair can never drift out of lockstep.
-            try:
-                target_member_emails = _align_member_emails(
-                    registration.group_member_emails,
-                    target_group_members,
-                    collapse_empty=True,
-                )
-            except ValueError:
-                target_member_emails = None
+            # Members changed without new addresses — re-align, dropping only
+            # the addresses whose member is gone (not all of them).
+            target_member_emails = _align_member_emails(
+                registration.group_member_emails,
+                target_group_members,
+                collapse_empty=True,
+                drop_orphans=True,
+            )
 
         set_parts: list[str] = []
         remove_parts: list[str] = []

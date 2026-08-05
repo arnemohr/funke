@@ -198,8 +198,12 @@
                      the contact knows exactly whom they still have to chase. -->
                 <li v-for="entry in companionStatuses" :key="entry.personIndex">
                   {{ entry.name }}
-                  <span v-if="entry.email" class="member-note member-note-sent">
+                  <span v-if="entry.mailed" class="member-note member-note-sent">
                     Code an {{ maskEmail(entry.email) }} geschickt
+                  </span>
+                  <span v-else-if="entry.email" class="member-note">
+                    Diese Adresse haben wir schon für jemand anderen in der Gruppe —
+                    leite ihren QR bitte selbst weiter
                   </span>
                   <span v-else class="member-note">
                     Kein Code verschickt — leite ihren QR weiter
@@ -290,7 +294,8 @@
 
               <fieldset class="extra-members">
                 <legend>Wen bringst du mit?</legend>
-                <p class="field-note">
+                <!-- Pointless when no companion slot exists or is filled. -->
+                <p v-if="usedCompanionSlots > 0 || canAddCompanion" class="field-note">
                   E-Mail (optional) — dann schicken wir den Eintritts-Code direkt an die Person.
                   Ohne E-Mail bekommst du alle Codes und leitest sie selbst weiter.
                 </p>
@@ -333,9 +338,25 @@
                     Diese E-Mail-Adresse sieht nicht richtig aus
                   </small>
                 </div>
-                <button type="button" class="outline" @click="addFestivalMember" :disabled="saving">
+                <!-- Hidden once the invite's allowance is used up — with
+                     max_group_size=1 there is no companion slot at all, so the
+                     button would only offer something the save would reject. -->
+                <button
+                  v-if="canAddCompanion"
+                  type="button"
+                  class="outline"
+                  @click="addFestivalMember"
+                  :disabled="saving"
+                >
                   + Noch jemand kommt mit
                 </button>
+                <small v-else-if="maxCompanions === 0" class="field-note">
+                  Dein Einladungslink gilt nur für dich — Begleitungen sind nicht vorgesehen.
+                </small>
+                <small v-else class="field-note">
+                  Mehr als {{ maxCompanions }} {{ maxCompanions === 1 ? 'Begleitung' : 'Begleitungen' }}
+                  sind über deinen Einladungslink nicht möglich.
+                </small>
               </fieldset>
 
               <button
@@ -524,6 +545,9 @@ const nextMemberIndex = ref(0)
 // group_members[i] (person_index i+1). Drives the per-companion "Code
 // geschickt" line and is round-tripped on save.
 const groupMemberEmails = ref([])
+// Effective group allowance from the backend (already grandfathered against
+// the current group size). 1 = contact only, i.e. no companions allowed.
+const maxGroupSize = ref(null)
 
 // Group size while editing = contact + filled companion rows; caps each
 // tent/camper count (a group can't bring more units than it has people).
@@ -641,23 +665,60 @@ function maskEmail(value) {
 // Companions paired with their stored address, for the summary list. Index i of
 // group_members is person_index i+1; tombstones are dropped for display but
 // never renumbered.
-// person_index values that already received their own mail — badges the QR cards.
-const emailedPersonIndices = computed(
-  () =>
-    new Set(
-      (groupMemberEmails.value || [])
-        .map((email, idx) => (email ? idx + 1 : null))
-        .filter((v) => v !== null),
-    ),
+// Companions the invite allows (allowance counts the contact person too), so
+// an allowance of 1 means none. `null` = backend didn't say (older payload) —
+// fall back to permissive so we never block an edit we can't reason about.
+const maxCompanions = computed(() =>
+  maxGroupSize.value === null ? null : Math.max(0, maxGroupSize.value - 1),
 )
 
+// Rows currently in the editor, tombstones excluded — a tombstoned slot is
+// genuinely free again, so removing someone re-enables "add".
+const usedCompanionSlots = computed(
+  () => memberEntries.value.filter((e) => e.index > 0).length,
+)
+
+const canAddCompanion = computed(() => {
+  if (maxCompanions.value === null) return true
+  return usedCompanionSlots.value < maxCompanions.value
+})
+
+// Which companions ACTUALLY got their own mail. This must mirror the backend's
+// `companion_recipients` dedupe exactly: an address equal to the contact's, or a
+// repeat of one already used in the group, is skipped there — so a couple
+// sharing one mailbox gets a single mail. Reading the raw stored array instead
+// would tell the contact "Code geschickt" next to a person who never received
+// one, and they would stop forwarding it.
 const companionStatuses = computed(() => {
   const members = registration.value?.group_members || []
   const emails = groupMemberEmails.value || []
+  const contact = (registration.value?.email || '').trim().toLowerCase()
+  const seen = new Set()
+
   return members
-    .map((name, idx) => ({ name, email: emails[idx] || null, personIndex: idx + 1 }))
+    .map((name, idx) => {
+      const raw = (emails[idx] || '').trim().toLowerCase()
+      let mailed = false
+      if (name && raw && raw !== contact && !seen.has(raw)) {
+        seen.add(raw)
+        mailed = true
+      }
+      return {
+        name,
+        email: emails[idx] || null,
+        personIndex: idx + 1,
+        // Stored address vs. address we actually mailed — the difference is
+        // what the contact needs to know.
+        mailed,
+      }
+    })
     .filter((entry) => entry.name)
 })
+
+// person_index values that really received their own mail — badges the QR cards.
+const emailedPersonIndices = computed(
+  () => new Set(companionStatuses.value.filter((e) => e.mailed).map((e) => e.personIndex)),
+)
 
 const hasUnsavedChanges = computed(() => {
   if (editableMembers.value.length !== lastSavedMembers.value.length) return true
@@ -692,6 +753,7 @@ async function loadRegistration() {
     editingFestival.value = false
     qrPayloads.value = result.qr_payloads || []
     groupMemberEmails.value = result.group_member_emails || []
+    maxGroupSize.value = result.max_group_size ?? null
   } catch (err) {
     if (err.message?.includes('404')) {
       error.value = 'Anmeldung nicht gefunden. Schau nochmal in deiner E-Mail nach.'
