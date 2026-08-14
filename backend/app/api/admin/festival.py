@@ -813,6 +813,48 @@ async def list_festival_registrations(
     return FestivalRegistrationListResponse(items=items, total=len(items))
 
 
+class OvernightNotificationResult(BaseModel):
+    """Outcome of the F8 catch-up run (one mail per approved group)."""
+
+    sent: int
+    skipped: int
+    failed: int
+
+
+@router.post(
+    "/{event_id}/overnight-notifications",
+    response_model=OvernightNotificationResult,
+    dependencies=[Depends(require_role([AdminRole.OWNER, AdminRole.ADMIN]))],
+)
+async def notify_overnight_approvals(
+    event_id: UUID,
+    user: CurrentUser,
+) -> OvernightNotificationResult:
+    """Mail every approved group that has not been told yet (F8 catch-up).
+
+    The backfill for approvals granted before the automatic mail existed —
+    from here on, approving via the toggle sends F8 by itself. Safe to press
+    twice: `notify_overnight_approval` claims `overnight_notified_at` with a
+    conditional write, so an already-notified group is skipped, not mailed
+    again. No email logic lives in this router — the service is the only send
+    site (same rule as the cancel route below).
+    """
+    org_id = _get_org_id(user)
+    event = await _get_festival_event_or_404(org_id, event_id)
+
+    registration_service = get_registration_service()
+    result = await registration_service.notify_pending_overnight_approvals(event)
+
+    log_admin_action(
+        "festival.overnight_notifications",
+        user.email,
+        str(event_id),
+        result,
+    )
+
+    return OvernightNotificationResult(**result)
+
+
 @router.post(
     "/{event_id}/registrations/{registration_id}/cancel",
     response_model=RegistrationResponse,

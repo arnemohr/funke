@@ -17,7 +17,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ...models import (
     CustomMessageRequest,
@@ -555,7 +555,14 @@ async def delete_registration(
 
 
 class RegistrationResponse(BaseModel):
-    """Registration response for admin view."""
+    """Registration response for admin view.
+
+    Admin-specific on purpose — it carries `notes`, `page_viewed_at` and
+    `promoted_from_waitlist`, which the public `models.RegistrationResponse`
+    deliberately withholds. Do not merge the two.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
 
     id: UUID
     event_id: UUID
@@ -564,7 +571,11 @@ class RegistrationResponse(BaseModel):
     phone: str | None
     notes: str | None
     group_size: int
-    group_members: list[str] | None = None
+    # `None` entries are tombstones for removed festival members (T109) —
+    # indices never shift. This MUST stay `str | None`: with a bare `list[str]`
+    # every endpoint below returned 500 for any group that had lost a member,
+    # including the approval toggle (whose F8 mail had already gone out by then).
+    group_members: list[str | None] | None = None
     status: RegistrationStatus
     waitlist_position: int | None
     registration_token: str
@@ -573,6 +584,18 @@ class RegistrationResponse(BaseModel):
     page_viewed_at: datetime | None = None
     promoted_from_waitlist: bool
     promoted: bool
+    # Festival fields (spec 019/021). Without them the admin PUT answered every
+    # approval with `overnight_approved=False` and no `overnight_notified_at`,
+    # so the toggle in the UI could not tell whether its F8 mail was queued.
+    attendance_slots: list[str] | None = None
+    member_slots: dict[str, list[str]] | None = None
+    tent_count: int | None = None
+    camper_count: int | None = None
+    overnight_approved: bool = False
+    overnight_notified_at: datetime | None = None
+    overnight_declined_at: datetime | None = None
+    invite_label: str | None = None
+    tier: str | None = None
 
 
 class RegistrationListResponse(BaseModel):
@@ -583,25 +606,17 @@ class RegistrationListResponse(BaseModel):
 
 
 def _registration_to_response(registration: Registration) -> RegistrationResponse:
-    """Convert Registration model to response."""
-    return RegistrationResponse(
-        id=registration.id,
-        event_id=registration.event_id,
-        name=registration.name,
-        email=registration.email,
-        phone=registration.phone,
-        notes=registration.notes,
-        group_size=registration.group_size,
-        group_members=registration.group_members,
-        status=registration.status,
-        waitlist_position=registration.waitlist_position,
-        registration_token=registration.registration_token,
-        registered_at=registration.registered_at,
-        responded_at=registration.responded_at,
-        page_viewed_at=registration.page_viewed_at,
-        promoted_from_waitlist=registration.promoted_from_waitlist,
-        promoted=registration.promoted,
-    )
+    """Convert Registration model to response.
+
+    Deliberately `model_validate` (the model sets `from_attributes=True`)
+    rather than a hand-written kwarg list: the explicit list this replaced
+    silently dropped every festival field, so the admin PUT answered with
+    `overnight_approved=False` even right after approving and the approval
+    toggle could not tell whether its F8 mail had been queued. A field added to
+    the model above now reaches all seven admin endpoints that use this helper,
+    instead of defaulting silently in each of them.
+    """
+    return RegistrationResponse.model_validate(registration)
 
 
 @router.get(
@@ -894,6 +909,14 @@ _PATCH_ERROR_STATUS = {
     "overnight_approval_requires_accommodation": (
         status.HTTP_400_BAD_REQUEST,
         "Übernachtung kann nur zugesagt werden, wenn ein Übernachtungswunsch vorliegt",
+    ),
+    "overnight_decline_requires_accommodation": (
+        status.HTTP_400_BAD_REQUEST,
+        "Übernachtung kann nur abgelehnt werden, wenn ein Übernachtungswunsch vorliegt",
+    ),
+    "overnight_decline_conflicts_with_approval": (
+        status.HTTP_400_BAD_REQUEST,
+        "Bitte zuerst die Zusage zurücknehmen, dann ablehnen",
     ),
     "tent_count_exceeds_group": (
         status.HTTP_400_BAD_REQUEST,

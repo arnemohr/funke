@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Einlass — Anleitung</title>
+<style>
+  @page { size: A4; margin: 12mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Helvetica Neue", Arial, sans-serif; color: #111; line-height: 1.45; margin: 0; font-size: 11pt; }
+  .sheet { page-break-after: always; }
+  .sheet:last-child { page-break-after: auto; }
+  h1 { font-size: 26pt; margin: 0 0 2mm; line-height: 1.1; }
+  h2 { font-size: 15pt; margin: 6mm 0 2mm; border-bottom: 2px solid #111; padding-bottom: 1mm; }
+  .sub { font-size: 11pt; color: #444; margin: 0 0 5mm; }
+  .start { display: flex; gap: 6mm; align-items: center; border: 3px solid #111; padding: 4mm; margin-bottom: 5mm; }
+  .start img { width: 42mm; height: 42mm; display: block; }
+  .start .txt { flex: 1; }
+  .start p { margin: 0 0 2mm; }
+  .big { font-size: 14pt; font-weight: bold; }
+  .url { font-family: "Courier New", monospace; font-size: 9.5pt; word-break: break-all; background: #f0f0f0; padding: 2mm; }
+  ol, ul { margin: 0 0 3mm; padding-left: 6mm; }
+  li { margin-bottom: 1.5mm; }
+  .card { border: 2px solid #111; padding: 3mm 4mm; margin-bottom: 3mm; page-break-inside: avoid; }
+  .card h3 { margin: 0 0 1.5mm; font-size: 13pt; }
+  .card p { margin: 0 0 1.5mm; }
+  .card ul { margin-bottom: 0; }
+  .green { border-left: 8mm solid #1a7f37; }
+  .yellow { border-left: 8mm solid #bf8700; }
+  .red { border-left: 8mm solid #c1121f; }
+  .glyph { font-size: 20pt; font-weight: bold; margin-right: 2mm; }
+  .em { margin-right: 1.5mm; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 3mm; font-size: 10.5pt; }
+  th, td { border: 1px solid #111; padding: 2mm; text-align: left; vertical-align: top; }
+  th { background: #eee; }
+  .note { background: #f4f4f4; border-left: 5mm solid #666; padding: 3mm 4mm; margin-bottom: 4mm; }
+  .note strong { display: block; margin-bottom: 1mm; }
+  .rule { font-size: 13pt; font-weight: bold; text-align: center; border: 3px solid #111; padding: 3mm; margin: 5mm 0; }
+  .foot { font-size: 9.5pt; color: #444; border-top: 1px solid #999; padding-top: 2mm; margin-top: 5mm; }
+  .contact { font-size: 12pt; font-weight: bold; }
+</style>
+</head>
+<body>
+
+<div class="sheet">
+  <h1>Einlass — so geht&#39;s</h1>
+  <p class="sub">Betriebsfeier Julius Grube Schiffswerft — Dockfestival<br>
+  Freitag 14. bis Sonntag 16. August 2026 · Moorfleeter Deich 20, Hamburg</p>
+
+  <div class="start">
+    <img src="data:image/png;base64,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" alt="QR-Code zum Einlass-Scanner">
+    <div class="txt">
+      <p class="big">1. Diesen QR-Code mit dem Handy scannen.</p>
+      <p>Einfach die Kamera vom Handy draufhalten. Dann tippst du auf den Link, der erscheint.</p>
+      <p class="big">2. Der Scanner öffnet sich. Fertig.</p>
+      <p>Oben steht dann: <em>Betriebsfeier … — Einlass-Scanner</em></p>
+    </div>
+  </div>
+
+  <p>Falls der QR-Code nicht geht, tippe diese Adresse ein:</p>
+  <p class="url">https://funke.mobilemachenschaften.de/checkin/VcvAIx0fachNGgm3gQIhKw</p>
+
+  <div class="note">
+    <strong>Wichtig für die Schicht-Übergabe</strong>
+    Gib den Scanner nicht weiter, indem du dein Handy weitergibst.
+    Die nächste Person scannt einfach selbst diesen QR-Code hier auf dem Blatt.
+    Das Blatt bleibt am Einlass hängen.
+  </div>
+
+  <h2>Was du tust</h2>
+  <ol>
+    <li><strong>Gast zeigt seinen QR-Code</strong> — auf dem Handy oder auf Papier.</li>
+    <li><strong>Du hältst den Code vor die Kamera.</strong> Es scannt von allein.</li>
+    <li><strong>Du schaust auf die Farbe</strong> und machst, was auf der nächsten Seite steht.</li>
+    <li><strong>Du tippst auf „Weiter scannen"</strong> und der Nächste kommt dran.</li>
+  </ol>
+
+  <div class="rule">Grün heißt: Bändchen dran.<br>Wer schon ein Bändchen hat, muss nicht mehr scannen.</div>
+
+  <h2>Kein QR-Code da?</h2>
+  <p>Das ist normal und kein Problem. Manche Gäste haben keinen Code bekommen.</p>
+  <ol>
+    <li>Tippe unten auf <strong>🔍 Namenssuche</strong>.</li>
+    <li>Tippe den Namen ein — ab 2 Buchstaben kommen Vorschläge.</li>
+    <li>Tippe auf die richtige Person in der Liste.</li>
+  </ol>
+  <p>Das ist ein normaler Weg herein, keine Ausnahme. Ungefähr <strong>20 Personen</strong> haben keinen gültigen Code auf dem Handy. Die suchst du einfach über den Namen.</p>
+  <p><strong>Steht der Name nicht in der Suche, gibt es keinen Einlass.</strong> Auch nicht mit Code, auch nicht mit Erklärung. Bei Streit: Aline anrufen.</p>
+
+  <div class="foot">
+    Fragen? <span class="contact">Aline · +49 151 21665260</span>
+  </div>
+</div>
+
+<div class="sheet">
+  <h1>Die drei Farben</h1>
+  <p class="sub">Nach jedem Scan kommt eine Karte in einer Farbe. Mehr musst du nicht wissen.</p>
+
+  <div class="card green">
+    <h3><span class="glyph">&#10003;</span> GRÜN — „Eingecheckt — Bändchen ausgeben"</h3>
+    <p><strong>Das machst du:</strong> Bändchen dran. Person darf rein.</p>
+    <p>Darunter steht der Name. Und ob die Person übernachten darf:</p>
+    <ul>
+      <li><strong><span class="em">&#9989;</span>Übernachtung</strong> — darf auf dem Gelände schlafen. Dahinter steht, was sie mitbringt, zum Beispiel „2 Zelte".</li>
+      <li><strong><span class="em">&#9940;</span>Keine Übernachtung</strong> — darf <em>nicht</em> auf dem Gelände schlafen.</li>
+    </ul>
+    <p>Falsch gescannt? Tippe auf <strong>„Rückgängig"</strong>. Das geht nur ein paar Sekunden lang.</p>
+  </div>
+
+  <div class="card yellow">
+    <h3><span class="glyph">&#9888;</span> GELB — „Bereits eingecheckt"</h3>
+    <p>Diese Person war schon da. Meistens hat sie ihr Bändchen noch.</p>
+    <p><strong>Das machst du:</strong> Kurz nachfragen. Bändchen noch dran? Dann einfach durchlassen, nichts tippen.</p>
+    <p>Bändchen verloren? <strong>Ihr entscheidet vor Ort.</strong> Wenn du ein neues Bändchen gibst, tippe auf <strong>„Trotzdem einchecken"</strong>.</p>
+    <p>Gelb ist kein Alarm. Niemand betrügt hier.</p>
+  </div>
+
+  <div class="card red">
+    <h3><span class="glyph">&#10007;</span> ROT — Code hat nicht funktioniert</h3>
+    <p><strong>Das machst du immer zuerst:</strong> Tippe auf <strong>„Namenssuche"</strong> und suche die Person über den Namen.</p>
+    <p><strong>Name gefunden?</strong> Person darf rein. <strong>Kein Name in der Suche?</strong> Kein Einlass.</p>
+    <p>Was auf der roten Karte stehen kann:</p>
+    <table>
+      <tr><th>Text auf dem Bildschirm</th><th>Was das heißt</th><th>Was du tust</th></tr>
+      <tr><td>Ticket veraltet — bitte Namenssuche</td><td>Der Name wurde nach dem Verschicken geändert. Passiert öfter.</td><td>Namenssuche. Name gefunden → rein.</td></tr>
+      <tr><td>Anmeldung nicht gefunden</td><td>Der Code passt zu keiner Anmeldung.</td><td>Namenssuche. <strong>Kein Name → kein Einlass.</strong></td></tr>
+      <tr><td>Ungültiger Code</td><td>Ein fremder QR-Code, zum Beispiel von einem Paket oder Bahnticket.</td><td>Nach dem richtigen Code fragen. Sonst Namenssuche. <strong>Kein Name → kein Einlass.</strong></td></tr>
+      <tr><td>Anmeldung storniert</td><td>Diese Person hat abgesagt.</td><td><strong>Kein Einlass.</strong> Sie steht auch nicht in der Namenssuche.</td></tr>
+    </table>
+  </div>
+
+  <div class="rule">Bei Rot entscheidet die Namenssuche.<br>
+  Name gefunden &#8594; rein, auch ohne Code.<br>
+  Kein Name in der Suche &#8594; kein Einlass.</div>
+
+  <div class="note">
+    <strong>Warum das reicht</strong>
+    Wer abgesagt hat, steht nicht in der Namenssuche. Wer nicht angemeldet ist, auch nicht.
+    Die Suche ist also die ganze Prüfung — du musst nichts abwägen.
+  </div>
+
+  <div class="foot">
+    Fragen? <span class="contact">Aline · +49 151 21665260</span>
+  </div>
+</div>
+
+<div class="sheet">
+  <h1>Wenn etwas nicht geht</h1>
+
+  <div class="card">
+    <h3>Oben steht „Offline — eingeschränkte Prüfung"</h3>
+    <p>Das Handy hat gerade kein Internet.</p>
+    <p><strong>Scanne einfach weiter.</strong> Die Scans werden gespeichert und später automatisch nachgetragen.</p>
+    <p>Offline sieht der Scanner weniger:</p>
+    <ul>
+      <li>Absagen erkennt er nicht.</li>
+      <li>Doppelte Scans erkennt er nicht.</li>
+      <li>Bei „Übernachtung" kann eine <em>alte</em> Auskunft stehen. Wenn jemand sagt, er dürfe übernachten, obwohl ⛔ steht: <strong>Aline fragen.</strong></li>
+    </ul>
+    <p><strong>Im Zweifel gilt immer die Papierliste.</strong></p>
+  </div>
+
+  <div class="card">
+    <h3>Oben steht „… Scans warten auf Sync"</h3>
+    <p>Ganz normal nach einer Offline-Phase. Tippe auf <strong>„Jetzt synchronisieren"</strong>, wenn wieder Internet da ist.</p>
+    <p>Warte damit nicht — lass die Leute erst rein.</p>
+  </div>
+
+  <div class="card">
+    <h3>Die Kamera geht nicht</h3>
+    <ol>
+      <li>Erlaube der Seite den Zugriff auf die Kamera, wenn das Handy fragt.</li>
+      <li>Lade die Seite neu (QR-Code vom ersten Blatt nochmal scannen).</li>
+      <li>Geht es weiter nicht: <strong>nur Namenssuche benutzen.</strong> Das funktioniert immer.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h3>„Scanner nicht verfügbar"</h3>
+    <p>Der Link stimmt nicht mehr. <strong>Aline anrufen</strong> und einen neuen Link holen.</p>
+    <p>Bis dahin: Papierliste benutzen, Namen abhaken.</p>
+  </div>
+
+  <h2>Vier Sätze, die immer gelten</h2>
+  <div class="rule">
+    1. Wer in der Namenssuche steht, kommt rein — auch ohne Code.<br>
+    2. Kein Name in der Suche &#8594; kein Einlass.<br>
+    3. Scanner tot? Papierliste.<br>
+    4. Streit oder unklar? Aline anrufen.
+  </div>
+
+  <div class="foot">
+    Aline · +49 151 21665260 · Alinemathieu@web.de<br>
+    Dieses Blatt gehört an den Einlass und bleibt dort hängen.
+  </div>
+</div>
+
+</body>
+</html>

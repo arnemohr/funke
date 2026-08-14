@@ -17,6 +17,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
 from ...models import (
+    EventStatus,
     FestivalAttendancePatch,
     FestivalRegistrationCreate,
     RegistrationResponse,
@@ -307,6 +308,20 @@ async def get_invite_info(invite_token: str) -> InviteInfoResponse:
         deadline = deadline.replace(tzinfo=timezone.utc)
     if now >= deadline:
         raise _reject_boot("deadline_passed", "Die Anmeldung ist leider geschlossen.")
+
+    # Status gate — the SECOND lever, independent of the deadline. New
+    # registrations need `OPEN`; `create_festival_registration` already enforces
+    # exactly that (registration_service.py:734), so without this check the
+    # guest would fill in the whole form and only be rejected on submit.
+    #
+    # Deliberately NOT applied to editing an existing registration: those paths
+    # accept OPEN / REGISTRATION_CLOSED / CONFIRMED on purpose, so closing
+    # registration never takes the manage page or the companion ticket page
+    # away from people who are already signed up. That separation is the whole
+    # point of having a status as well as a deadline — close the door without
+    # locking in the people already inside.
+    if event.status != EventStatus.OPEN:
+        raise _reject_boot("not_open", "Die Anmeldung ist leider geschlossen.")
 
     # Ä4 (if-time): per-slot "very_full" soft warning, computed from the
     # same headcount aggregation as the admin board (T201) — booleans

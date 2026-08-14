@@ -205,6 +205,7 @@ def build_person_tickets(
     group_members: list[str | None] | None,
     attendance_slots: list[str] | None,
     overnight_approved: bool = False,
+    member_slots: dict[str, list[str]] | None = None,
 ) -> list[SignedTicket]:
     """Build freshly-signed per-person tickets for a registration.
 
@@ -213,13 +214,23 @@ def build_person_tickets(
     skipped, but later members keep their original index — indices are never
     reindexed. Shared by the manage-page QR display and the confirmation
     email so both encode identical payloads.
+
+    `member_slots` (spec 021) carries per-person day overrides keyed by person
+    index; a person without one gets `attendance_slots`, so an override-free
+    registration produces byte-identical payloads to pre-021. The `s` field is
+    informational at the gate (Ä13), so this changes nothing about check-in.
     """
+
+    def slots_for(person_index: int) -> list[str] | None:
+        override = (member_slots or {}).get(str(person_index))
+        return override if override else attendance_slots
+
     tickets = [
         SignedTicket(
             person_index=0,
             name=contact_name,
             code=sign_ticket(
-                secret, registration_id, 0, contact_name, attendance_slots, overnight_approved,
+                secret, registration_id, 0, contact_name, slots_for(0), overnight_approved,
             ),
         ),
     ]
@@ -232,7 +243,7 @@ def build_person_tickets(
                 name=member_name,
                 code=sign_ticket(
                     secret, registration_id, i + 1, member_name,
-                    attendance_slots, overnight_approved,
+                    slots_for(i + 1), overnight_approved,
                 ),
             ),
         )

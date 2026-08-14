@@ -30,6 +30,13 @@ class MessageType(str, Enum):
     # cancellation.
     FESTIVAL_COMPANION_TICKET = "festival_companion_ticket"
     FESTIVAL_COMPANION_CANCELLATION = "festival_companion_cancellation"
+    # F8 — the overnight wish was granted. Sent once per approval to the
+    # person who registered (never to companions), tracked by
+    # `Registration.overnight_notified_at`.
+    FESTIVAL_OVERNIGHT_APPROVAL = "festival_overnight_approval"
+    # F9 — the overnight wish could not be granted. Sent once per refusal,
+    # tracked by `Registration.overnight_declined_at`.
+    FESTIVAL_OVERNIGHT_DECLINE = "festival_overnight_decline"
 
 
 class MessageDirection(str, Enum):

@@ -10,7 +10,7 @@ from datetime import date
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ...models import (
     EventPublic,
@@ -36,6 +36,29 @@ def _format_event_period(event) -> str:
     festival's dates.
     """
     return _format_date_range(event.start_at, event.end_at)
+
+
+def _festival_edit_open(event) -> bool:
+    """Whether festival self-service edits are still allowed (spec 021).
+
+    Same lifecycle gate `update_festival_attendance` enforces on save — mirrored
+    here so a companion's page can hide controls it would refuse anyway rather
+    than letting them tick boxes into a rejection.
+    """
+    from datetime import UTC, datetime
+
+    from ...models import EventStatus
+
+    if event.status not in {
+        EventStatus.OPEN,
+        EventStatus.REGISTRATION_CLOSED,
+        EventStatus.CONFIRMED,
+    }:
+        return False
+    deadline = event.registration_deadline
+    if deadline.tzinfo is None:
+        deadline = deadline.replace(tzinfo=UTC)
+    return datetime.now(UTC) < deadline
 
 
 router = APIRouter()
@@ -242,6 +265,9 @@ class ManageRegistrationResponse(BaseModel):
     # Ä17: read-only for guests — drives the „angefragt"/„zugesagt" display;
     # no public endpoint ever accepts this field.
     overnight_approved: bool = False
+    # F9, also read-only: without it a refused guest would keep reading
+    # „angefragt" on their own page forever, even though they were told no.
+    overnight_declined: bool = False
     # Registration deadline isoformat for FESTIVAL events, None for SINGLE.
     editable_until: str | None = None
     # Effective group allowance for FESTIVAL registrations: the invite's
@@ -269,6 +295,7 @@ def _build_qr_payloads(secret: str, registration: Registration) -> list[QrPayloa
         registration.group_members,
         registration.attendance_slots,
         registration.overnight_approved,
+        registration.member_slots,
     )
     return [QrPayload(person_index=t.person_index, name=t.name, code=t.code) for t in tickets]
 
@@ -409,6 +436,13 @@ async def get_registration_manage(
             group_size=registration.group_size,
             group_members=registration.group_members,
             group_member_emails=registration.group_member_emails,
+            # Spec 021: LOAD-BEARING. The manage page seeds its editable
+            # per-person day map from this field and sends the whole map back
+            # on save, so omitting it here does not merely hide the days — it
+            # makes the next save send `{}` and DELETE every override a
+            # companion set on their own ticket page. Keep it in this kwarg
+            # list; do not "clean up" by dropping it.
+            member_slots=registration.member_slots,
             status=registration.status,
             waitlist_position=registration.waitlist_position,
             registration_token=registration.registration_token,
@@ -425,6 +459,7 @@ async def get_registration_manage(
         camper_count=registration.camper_count,
         phone=registration.phone,
         overnight_approved=registration.overnight_approved,
+        overnight_declined=registration.overnight_declined,
         editable_until=editable_until,
         max_group_size=max_group_size,
         qr_payloads=qr_payloads,
@@ -432,12 +467,12 @@ async def get_registration_manage(
 
 
 class PersonTicketResponse(BaseModel):
-    """One companion's read-only ticket page payload (spec 020).
+    """One companion's own ticket page payload (spec 020, extended by 021).
 
     Deliberately minimal. Absent by design: the group's `registration_token`,
     every other member's name, phone numbers, e-mail addresses, and the
-    tent/camper request. A companion holds a read capability for exactly one
-    person — themselves — and every write goes through the contact person.
+    tent/camper request. A companion may read and edit exactly one person's
+    data — their own — and nothing else in the group.
     """
 
     person_index: int
@@ -453,6 +488,19 @@ class PersonTicketResponse(BaseModel):
     # companion holding a code the gate rejects. Empty when cancelled.
     ticket_code: str = ""
     cancelled: bool = False
+    # Spec 021 — the editable surface: every slot the event offers, plus the
+    # keys THIS person is currently coming on.
+    all_slots: list[FestivalSlotInfo] = Field(default_factory=list)
+    own_slots: list[str] = Field(default_factory=list)
+    editable: bool = False
+
+
+class PersonSlotsPatch(BaseModel):
+    """A companion setting their own attendance days (spec 021 E2)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    attendance_slots: list[str] = Field(..., min_length=1)
 
 
 @router.get(
@@ -527,7 +575,8 @@ async def get_person_ticket(
     if not event or event.event_type != EventType.FESTIVAL:
         raise not_found
 
-    slot_keys = set(registration.attendance_slots or [])
+    # Spec 021: this person's own days, not the group's.
+    slot_keys = set(registration.effective_member_slots(person_index))
     slot_labels = [slot.label for slot in (event.festival_slots or []) if slot.key in slot_keys]
 
     cancelled = registration.status == RegistrationStatus.CANCELLED
@@ -547,6 +596,7 @@ async def get_person_ticket(
                         registration.group_members,
                         registration.attendance_slots,
                         registration.overnight_approved,
+                        registration.member_slots,
                     )
                     if t.person_index == person_index
                 ),
@@ -576,7 +626,103 @@ async def get_person_ticket(
         participation_hint=event.participation_hint,
         ticket_code=ticket_code,
         cancelled=cancelled,
+        # Spec 021 — the page renders every slot and ticks this person's own.
+        all_slots=[
+            FestivalSlotInfo(
+                key=slot.key, label=slot.label, date=slot.date, is_night=slot.is_night,
+            )
+            for slot in (event.festival_slots or [])
+        ],
+        own_slots=registration.effective_member_slots(person_index),
+        editable=not cancelled and _festival_edit_open(event),
     )
+
+
+@router.patch(
+    "/tickets/{event_id}/{registration_id}/{person_index}",
+)
+async def update_person_slots(
+    event_id: UUID,
+    registration_id: UUID,
+    person_index: int,
+    token: str,
+    request_body: PersonSlotsPatch,
+) -> PersonTicketResponse:
+    """A companion sets their own attendance days (spec 021 E2).
+
+    Scoped by the per-person token to exactly one index — it cannot reach
+    another person's days, the group's grid, any name, or the group's status.
+    Sends no mail: a day change is low signal, and notifying the contact on
+    every tick would make the feature a nuisance.
+    """
+    registration_service = get_registration_service()
+    updated, error = await registration_service.set_person_slots(
+        event_id, registration_id, person_index, token, request_body.attendance_slots,
+    )
+    if error:
+        raise _person_ticket_error(error)
+
+    return await get_person_ticket(
+        event_id=event_id,
+        registration_id=registration_id,
+        person_index=person_index,
+        token=token,
+    )
+
+
+@router.post(
+    "/tickets/{event_id}/{registration_id}/{person_index}/cancel",
+)
+async def cancel_person_ticket(
+    event_id: UUID,
+    registration_id: UUID,
+    person_index: int,
+    token: str,
+) -> dict:
+    """A companion removes themselves from the group (spec 021 E3).
+
+    Tombstones their entry so everyone else's `person_index` — and therefore
+    every already-issued QR — stays valid, clears their address (which also
+    retires this very page), and tells the contact via F7.
+    """
+    registration_service = get_registration_service()
+    updated, error = await registration_service.cancel_person(
+        event_id, registration_id, person_index, token,
+    )
+    if error:
+        raise _person_ticket_error(error)
+
+    return {
+        "cancelled": True,
+        "group_size": updated.group_size,
+        "message": "Du bist abgemeldet. Dein Eintritts-Code gilt nicht mehr.",
+    }
+
+
+def _person_ticket_error(error: str) -> HTTPException:
+    """Map a companion self-service error onto a response.
+
+    "not found" stays a bare 404 with the same wording as the read path — the
+    endpoint must not become an oracle for who is in a group. The deadline and
+    cancelled branches are distinguishable because the holder is, by then, a
+    verified companion and needs to know why their save was refused.
+    """
+    if error == "deadline":
+        return HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Änderungen sind nicht mehr möglich — melde dich bei der Person, die dich angemeldet hat.",
+        )
+    if error == "cancelled":
+        return HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Diese Anmeldung ist storniert.",
+        )
+    if error == "not found":
+        return HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Eintritts-Code nicht gefunden",
+        )
+    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error)
 
 
 @router.post(

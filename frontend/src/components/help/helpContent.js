@@ -103,6 +103,10 @@ export default {
         html: '<p>Sobald die <strong>Eintritts-Codes</strong> freigeschaltet sind, findest du sie hier — jede Person zeigt ihren Code einmal am Einlass und bekommt ihr Bändchen. Danach reicht das Bändchen.</p>'
       },
       {
+        heading: 'Wer kommt an welchen Tagen?',
+        html: '<p>Die Tage oben gelten für alle in deiner Gruppe. Kommt jemand nur an einzelnen Tagen, kannst du das pro Person eintragen — dann planen wir mit den richtigen Zahlen. Begleitungen mit E-Mail-Adresse können ihre Tage auch selbst auf ihrer eigenen Seite anpassen oder sich abmelden; darüber bekommst du dann eine Mail.</p>'
+      },
+      {
         heading: 'Codes für Begleitungen',
         html: '<p>Trag bei einer Begleitung eine <strong>E-Mail-Adresse</strong> ein, dann schicken wir ihr den eigenen Eintritts-Code direkt zu — du musst nichts weiterleiten. Ohne Adresse bekommst du alle Codes und gibst sie selbst weiter. In der Liste oben steht bei jeder Person, ob ihr Code schon raus ist.</p>'
       },

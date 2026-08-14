@@ -46,7 +46,7 @@ from app.services.invite_service import InviteService
 from app.services.registration_service import (
     CompanionRecipient,
     RegistrationService,
-    _newly_addressed_companions,
+    _companions_needing_fresh_code,
     _registration_to_item,
     build_gate_rows,
     companion_recipients,
@@ -321,18 +321,23 @@ class TestNewlyAddressedCompanions:
 
     def test_newly_added_address_is_returned(self):
         before, after = self._pair([None, None], ["lisa@example.de", None])
-        assert [r.person_index for r in _newly_addressed_companions(before, after)] == [1]
+        assert [r.person_index for r in _companions_needing_fresh_code(before, after)] == [1]
 
     def test_corrected_address_is_returned(self):
         before, after = self._pair(["typo@example.de", None], ["lisa@example.de", None])
-        assert [r.person_index for r in _newly_addressed_companions(before, after)] == [1]
+        assert [r.person_index for r in _companions_needing_fresh_code(before, after)] == [1]
 
     def test_unchanged_address_is_not_returned(self):
         before, after = self._pair(["lisa@example.de", None], ["lisa@example.de", None])
-        assert _newly_addressed_companions(before, after) == []
+        assert _companions_needing_fresh_code(before, after) == []
 
-    def test_rename_alone_does_not_resend(self):
-        """D2: their code stays valid and the ticket page re-signs."""
+    def test_rename_resends_because_the_old_code_is_dead(self):
+        """A rename kills the emailed QR: the gate compares the signed name to
+        the current one and rejects a mismatch as `stale_ticket`
+        (`checkin_service.py:340`, covered by
+        `test_checkin_service.py::TestStaleTicket::test_stale_after_rename`).
+        Staying silent here would send that person to the entrance with a code
+        that goes red."""
         before = _registration(
             group_members=["Lisa Meier"],
             group_member_emails=["lisa@example.de"],
@@ -343,7 +348,30 @@ class TestNewlyAddressedCompanions:
             group_member_emails=["lisa@example.de"],
             group_size=2,
         )
-        assert _newly_addressed_companions(before, after) == []
+        assert [r.person_index for r in _companions_needing_fresh_code(before, after)] == [1]
+
+    def test_slot_change_alone_still_does_not_resend(self):
+        """Days are informational in the payload and never checked at the gate
+        (Ä13), so those codes stay valid — the one case that must stay quiet."""
+        before = _registration(
+            group_members=["Lisa Meier"],
+            group_member_emails=["lisa@example.de"],
+            group_size=2,
+            attendance_slots=["fr"],
+        )
+        after = _registration(
+            group_members=["Lisa Meier"],
+            group_member_emails=["lisa@example.de"],
+            group_size=2,
+            attendance_slots=["fr", "sa"],
+        )
+        assert _companions_needing_fresh_code(before, after) == []
+
+    def test_rename_without_address_sends_nothing(self):
+        """Unreachable by mail — the contact forwards a fresh QR instead."""
+        before = _registration(group_members=["Lisa Meier"], group_size=2)
+        after = _registration(group_members=["Lisa Meier-Bach"], group_size=2)
+        assert _companions_needing_fresh_code(before, after) == []
 
     def test_previously_absent_list_treats_all_as_new(self):
         before = _registration(group_members=["Lisa Meier"], group_size=2)
@@ -352,7 +380,7 @@ class TestNewlyAddressedCompanions:
             group_member_emails=["lisa@example.de"],
             group_size=2,
         )
-        assert [r.person_index for r in _newly_addressed_companions(before, after)] == [1]
+        assert [r.person_index for r in _companions_needing_fresh_code(before, after)] == [1]
 
 
 # ------------------------------------------------------------------ T004 token
@@ -867,7 +895,10 @@ class TestCompanionSendOnSelfEdit(CompanionServiceBase):
         assert self._companion_calls() == []
 
     @pytest.mark.asyncio
-    async def test_rename_sends_no_companion_mail(self):
+    async def test_rename_mails_the_renamed_companion_a_fresh_code(self):
+        """A rename invalidates the QR already in that person's inbox — the gate
+        rejects a name mismatch as `stale_ticket`. Only the renamed companion is
+        mailed; Tim, untouched and addressless, is not."""
         _, reg = await self._setup_registration(
             group_member_emails=["lisa@example.de", None],
         )
@@ -880,7 +911,14 @@ class TestCompanionSendOnSelfEdit(CompanionServiceBase):
 
         assert error is None
         assert updated.group_members == ["Lisa Meier-Bach", "Tim Bach"]
-        assert self._companion_calls() == []
+
+        calls = self._companion_calls()
+        assert len(calls) == 1
+        recipient = calls[0].args[2]
+        assert recipient.person_index == 1
+        assert recipient.email == "lisa@example.de"
+        # The fresh code must carry the NEW name, or it would be stale on arrival.
+        assert recipient.name == "Lisa Meier-Bach"
 
     @pytest.mark.asyncio
     async def test_unchanged_address_resend_is_suppressed(self):

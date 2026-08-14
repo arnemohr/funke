@@ -271,6 +271,45 @@ export const publicApi = {
       `/api/public/tickets/${eventId}/${registrationId}/${personIndex}?token=${token}`,
     )
   },
+
+  /**
+   * A companion sets their OWN attendance days (spec 021).
+   *
+   * Scoped by the same per-person token to exactly one index — it cannot reach
+   * another person's days or the group's grid.
+   *
+   * @param {string} eventId - Event ID
+   * @param {string} registrationId - Registration ID
+   * @param {number|string} personIndex - Person index (1..)
+   * @param {string} token - Per-person page token
+   * @param {string[]} attendanceSlots - The slot keys this person is coming on
+   * @returns {Promise<object>} The refreshed ticket payload
+   */
+  async updatePersonSlots(eventId, registrationId, personIndex, token, attendanceSlots) {
+    return request(
+      `/api/public/tickets/${eventId}/${registrationId}/${personIndex}?token=${token}`,
+      { method: 'PATCH', body: JSON.stringify({ attendance_slots: attendanceSlots }) },
+    )
+  },
+
+  /**
+   * A companion removes themselves from the group (spec 021).
+   *
+   * Tombstones their entry, so everyone else's person_index — and therefore
+   * every already-issued QR — stays valid. Irreversible from this page.
+   *
+   * @param {string} eventId - Event ID
+   * @param {string} registrationId - Registration ID
+   * @param {number|string} personIndex - Person index (1..)
+   * @param {string} token - Per-person page token
+   * @returns {Promise<object>} `{cancelled, group_size, message}`
+   */
+  async cancelPersonTicket(eventId, registrationId, personIndex, token) {
+    return request(
+      `/api/public/tickets/${eventId}/${registrationId}/${personIndex}/cancel?token=${token}`,
+      { method: 'POST' },
+    )
+  },
 }
 
 // Scanner check-in API (no auth required — the gate token IS the auth,
@@ -1001,6 +1040,19 @@ export const adminApi = {
      */
     async updateRegistration(eventId, registrationId, patch) {
       return adminApi.updateAdminRegistration(eventId, registrationId, patch)
+    },
+
+    /**
+     * Mail every approved-but-not-yet-notified overnight group (F8 catch-up).
+     * Idempotent — already-notified groups are skipped server-side, so a
+     * second press mails nobody twice.
+     * @param {string} eventId - Festival event ID
+     * @returns {Promise<object>} { sent, skipped, failed }
+     */
+    async notifyOvernightApprovals(eventId) {
+      return request(`/api/admin/festival/${eventId}/overnight-notifications`, {
+        method: 'POST',
+      }, true)
     },
 
     /**

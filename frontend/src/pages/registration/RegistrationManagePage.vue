@@ -186,18 +186,32 @@
 
           <div class="primary-action">
             <div class="registration-details festival-summary">
-              <p><strong>Wann:</strong> {{ chosenSlotLabels.length ? chosenSlotLabels.join(', ') : '–' }}</p>
+              <p>
+                <strong>Wann:</strong>
+                {{ chosenSlotLabels.length ? chosenSlotLabels.join(', ') : '–' }}
+                <small v-if="hasAnyIndividualDays" class="member-note">
+                  Gilt für alle, bei denen unten nichts anderes steht.
+                </small>
+              </p>
               <p><strong>Telefon:</strong> {{ phone || '–' }}</p>
               <p v-if="OVERNIGHT_ENABLED">
                 <strong>{{ overnightStatusLine }}</strong>
               </p>
               <p><strong>Wer dabei ist:</strong></p>
               <ul class="group-list">
-                <li>{{ registration?.name }} <span class="member-note">(du)</span></li>
+                <li>
+                  {{ registration?.name }} <span class="member-note">(du)</span>
+                  <span v-if="contactOwnDayLabels" class="member-note member-note-days">
+                    nur {{ contactOwnDayLabels }}
+                  </span>
+                </li>
                 <!-- Spec 020: say per companion whether their code went out, so
                      the contact knows exactly whom they still have to chase. -->
                 <li v-for="entry in companionStatuses" :key="entry.personIndex">
                   {{ entry.name }}
+                  <span v-if="entry.ownDayLabels" class="member-note member-note-days">
+                    nur {{ entry.ownDayLabels }}
+                  </span>
                   <span v-if="entry.mailed" class="member-note member-note-sent">
                     Code an {{ maskEmail(entry.email) }} geschickt
                   </span>
@@ -337,6 +351,25 @@
                   >
                     Diese E-Mail-Adresse sieht nicht richtig aus
                   </small>
+
+                  <!-- Spec 021: this person's own days. Defaults to the group's
+                       grid above, so leaving it alone changes nothing. -->
+                  <div v-if="entry.days" class="member-days">
+                    <span class="member-days-label">Kommt an:</span>
+                    <label
+                      v-for="slot in eventInfo?.festival_slots || []"
+                      :key="slot.key"
+                      class="member-day-checkbox"
+                    >
+                      <input
+                        type="checkbox"
+                        v-model="entry.days[slot.key]"
+                        :disabled="saving"
+                        @change="entry.follows = false"
+                      />
+                      <span>{{ slot.label }}</span>
+                    </label>
+                  </div>
                 </div>
                 <!-- Hidden once the invite's allowance is used up — with
                      max_group_size=1 there is no companion slot at all, so the
@@ -533,6 +566,7 @@ const tentCount = ref(null)
 const camperCount = ref(null)
 const phone = ref(null)
 const overnightApproved = ref(false)
+const overnightDeclined = ref(false)
 const editableUntil = ref(null)
 const editingFestival = ref(false)
 const editSlots = ref({})
@@ -548,6 +582,9 @@ const groupMemberEmails = ref([])
 // Effective group allowance from the backend (already grandfathered against
 // the current group size). 1 = contact only, i.e. no companions allowed.
 const maxGroupSize = ref(null)
+// Spec 021 — sparse per-person day overrides, keyed by person index as a
+// string. Absent key = that person has the group's days.
+const memberSlots = ref({})
 
 // Group size while editing = contact + filled companion rows; caps each
 // tent/camper count (a group can't bring more units than it has people).
@@ -605,7 +642,12 @@ const overnightStatusLine = computed(() => {
   if (tentCount.value) parts.push(`${tentCount.value} ${tentCount.value === 1 ? 'Zelt' : 'Zelte'}`)
   if (camperCount.value) parts.push(`${camperCount.value} Camper`)
   if (parts.length === 0) return 'Übernachtung: Nein'
-  return `Übernachtung: ${parts.join(', ')} — ${overnightApproved.value ? 'zugesagt' : 'angefragt'}`
+  // Three answers (Ä17 + F9). Without the refused case a guest who was told no
+  // would keep reading „angefragt" here forever.
+  let answer = 'angefragt'
+  if (overnightApproved.value) answer = 'zugesagt'
+  else if (overnightDeclined.value) answer = 'leider nicht möglich'
+  return `Übernachtung: ${parts.join(', ')} — ${answer}`
 })
 
 // Festival group_members are EXCLUSIVE of the contact person (spec §QR
@@ -689,6 +731,23 @@ const canAddCompanion = computed(() => {
 // sharing one mailbox gets a single mail. Reading the raw stored array instead
 // would tell the contact "Code geschickt" next to a person who never received
 // one, and they would stop forwarding it.
+// Spec 021 — label for a person's OWN days, or null when they simply follow
+// the group's grid (which is the vast majority, so the list stays quiet).
+function ownDayLabelsFor(personIndex) {
+  const own = memberSlots.value?.[String(personIndex)]
+  if (!own || !own.length) return null
+  const slots = eventInfo.value?.festival_slots || []
+  return slots.filter((s) => own.includes(s.key)).map((s) => s.label).join(', ')
+}
+
+const contactOwnDayLabels = computed(() => ownDayLabelsFor(0))
+
+// True once anyone in the group has narrowed their own days, so the group
+// line can explain itself as a default instead of looking contradictory.
+const hasAnyIndividualDays = computed(
+  () => Object.keys(memberSlots.value || {}).length > 0,
+)
+
 const companionStatuses = computed(() => {
   const members = registration.value?.group_members || []
   const emails = groupMemberEmails.value || []
@@ -710,6 +769,9 @@ const companionStatuses = computed(() => {
         // Stored address vs. address we actually mailed — the difference is
         // what the contact needs to know.
         mailed,
+        // Only set when this person's days differ from the group's, so the
+        // summary stays quiet for the common case.
+        ownDayLabels: ownDayLabelsFor(idx + 1),
       }
     })
     .filter((entry) => entry.name)
@@ -749,11 +811,13 @@ async function loadRegistration() {
     camperCount.value = result.camper_count || null
     phone.value = result.phone || null
     overnightApproved.value = result.overnight_approved || false
+    overnightDeclined.value = result.overnight_declined || false
     editableUntil.value = result.editable_until || null
     editingFestival.value = false
     qrPayloads.value = result.qr_payloads || []
     groupMemberEmails.value = result.group_member_emails || []
     maxGroupSize.value = result.max_group_size ?? null
+    memberSlots.value = result.registration?.member_slots || {}
   } catch (err) {
     if (err.message?.includes('404')) {
       error.value = 'Anmeldung nicht gefunden. Schau nochmal in deiner E-Mail nach.'
@@ -879,14 +943,41 @@ function startEditingFestival() {
   // group_members[i] — the EXCLUSIVE convention (spec §QR payload).
   const companions = registration.value?.group_members || []
   const companionEmails = groupMemberEmails.value || []
+  // Spec 021: seed each row's day boxes from that person's EFFECTIVE days —
+  // their override if they have one, otherwise the group's grid.
+  const daysFor = (personIndex) => {
+    const own = memberSlots.value?.[String(personIndex)]
+    const effective = own && own.length ? own : attendanceSlots.value || []
+    const map = {}
+    for (const slot of eventInfo.value?.festival_slots || []) {
+      map[slot.key] = effective.includes(slot.key)
+    }
+    return map
+  }
+  // `follows` = this row has no override of its own and should track the group
+  // grid. Without it, editing the GROUP's days would turn every untouched row
+  // into an explicit override pinned to the days the grid had when the editor
+  // was opened — silently undoing the very change the contact just made.
+  const followsGroup = (personIndex) => {
+    const own = memberSlots.value?.[String(personIndex)]
+    return !(own && own.length)
+  }
   memberEntries.value = [
-    { index: 0, value: registration.value?.name || '', email: '' },
+    {
+      index: 0,
+      value: registration.value?.name || '',
+      email: '',
+      days: daysFor(0),
+      follows: followsGroup(0),
+    },
     ...companions
       .map((name, idx) => ({
         index: idx + 1,
         value: name,
         // Same index on purpose — the two arrays are read in lockstep.
         email: companionEmails[idx] || '',
+        days: daysFor(idx + 1),
+        follows: followsGroup(idx + 1),
       }))
       .filter((entry) => entry.value !== null && entry.value !== undefined),
   ]
@@ -898,13 +989,69 @@ function startEditingFestival() {
 }
 
 function addFestivalMember() {
-  memberEntries.value.push({ index: nextMemberIndex.value, value: '', email: '' })
+  // A new person starts on the group's days; they can be narrowed right away.
+  // Seeded from `editSlots` (the grid as it stands right now), not the saved
+  // `attendanceSlots` — otherwise someone added after a day change would start
+  // on the days the group no longer has.
+  const groupDays = {}
+  for (const slot of eventInfo.value?.festival_slots || []) {
+    groupDays[slot.key] = !!editSlots.value[slot.key]
+  }
+  memberEntries.value.push({
+    index: nextMemberIndex.value,
+    value: '',
+    email: '',
+    days: groupDays,
+    follows: true,
+  })
   nextMemberIndex.value += 1
 }
+
+// Keep every row that still follows the group in step with the group's grid, so
+// narrowing the group's days narrows theirs instead of freezing them.
+watch(
+  editSlots,
+  (grid) => {
+    for (const entry of memberEntries.value) {
+      if (!entry.follows || !entry.days) continue
+      for (const slot of eventInfo.value?.festival_slots || []) {
+        entry.days[slot.key] = !!grid[slot.key]
+      }
+    }
+  },
+  { deep: true },
+)
 
 function removeFestivalMember(i) {
   if (memberEntries.value[i]?.index === 0) return
   memberEntries.value.splice(i, 1)
+}
+
+// Spec 021: build the sparse override map. Only people whose days actually
+// DIFFER from the group's grid are sent — the backend drops no-op overrides
+// anyway, but keeping the payload sparse means the stored map stays a readable
+// answer to "who has been asked?" rather than a copy of the grid per person.
+function buildMemberSlotsPatch() {
+  const groupKeys = Object.keys(editSlots.value)
+    .filter((k) => editSlots.value[k])
+    .sort()
+    .join(',')
+  const patch = {}
+
+  for (const entry of memberEntries.value) {
+    if (!entry.days) continue
+    // A row nobody has touched follows the group and must never become an
+    // override — that is what kept a group-day change from being silently
+    // reverted per person.
+    if (entry.follows) continue
+    // A tombstoned row is not in memberEntries at all, so its index simply
+    // never appears here — which is how a removed person loses their override.
+    const chosen = Object.keys(entry.days).filter((k) => entry.days[k])
+    if (!chosen.length) continue
+    if (chosen.slice().sort().join(',') === groupKeys) continue
+    patch[String(entry.index)] = chosen
+  }
+  return patch
 }
 
 async function handleSaveFestival() {
@@ -979,6 +1126,7 @@ async function handleSaveFestival() {
       phone: trimmedPhone,
       group_members: groupMembersPatch,
       group_member_emails: groupMemberEmailsPatch,
+      member_slots: buildMemberSlotsPatch(),
     })
     editingFestival.value = false
     saveSuccess.value = 'Alles klar — deine Änderung ist gespeichert!'
@@ -1267,6 +1415,35 @@ onMounted(loadRegistration)
 .member-email-input {
   margin-top: 0.5rem;
   margin-bottom: 0;
+}
+
+.member-days {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.member-days-label {
+  font-size: 0.85rem;
+  color: var(--pico-muted-color, #6b7280);
+}
+
+.member-day-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.member-day-checkbox input {
+  margin: 0;
+}
+
+.member-note-days {
+  color: var(--pico-muted-color, #6b7280);
 }
 
 .qr-card-sent {

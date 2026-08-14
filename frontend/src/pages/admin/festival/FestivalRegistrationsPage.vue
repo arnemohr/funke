@@ -26,6 +26,7 @@
       <p>Anmeldungen suchen, absagen oder allen eine Nachricht schicken.</p>
       <p>Tage und Begleitungen ändern die Leute selbst — mit dem Link aus ihrer Bestätigungsmail, bis zum Schluss.</p>
       <p>Wenn du hier absagst, bekommt die Person automatisch eine Mail und ihr Platz auf dem Einladungslink wird wieder frei.</p>
+      <p v-if="OVERNIGHT_ENABLED">Sagst du eine Übernachtung zu, geht automatisch eine Mail an die Person, die angemeldet hat. Zusagen von früher holst du mit dem Knopf im Tab „Übernachtungs-Anfragen“ nach.</p>
     </FestivalHelp>
 
     <!-- Loading -->
@@ -63,6 +64,27 @@
         placeholder="Suche nach Name oder E-Mail..."
         class="search-input"
       />
+
+      <!-- F8 catch-up: only in the overnight work queue, where the approvals
+           live. Hidden entirely when nobody is waiting for a mail. -->
+      <div
+        v-if="OVERNIGHT_ENABLED && statusFilter === 'OVERNIGHT' && unnotifiedApprovals.length > 0"
+        class="notify-bar"
+      >
+        <p>
+          {{ unnotifiedApprovals.length }}
+          {{ unnotifiedApprovals.length === 1 ? 'Zusage hat' : 'Zusagen haben' }}
+          noch keine E-Mail bekommen.
+        </p>
+        <button
+          type="button"
+          :disabled="notifying"
+          :aria-busy="notifying"
+          @click="showNotifyDialog = true"
+        >
+          Zusagen benachrichtigen ({{ unnotifiedApprovals.length }})
+        </button>
+      </div>
 
       <!-- Empty state -->
       <p v-if="filteredRegistrations.length === 0" class="empty-hint">
@@ -122,8 +144,18 @@
               <td v-if="OVERNIGHT_ENABLED" data-label="Schlafplatz">{{ accommodationLabel(reg) }}</td>
               <td data-label="Telefon">{{ reg.phone || '–' }}</td>
               <td v-if="OVERNIGHT_ENABLED && statusFilter === 'OVERNIGHT'" data-label="Übernachtung">
-                <span :class="['chip', reg.overnight_approved ? 'chip-success' : 'chip-warn']">
-                  {{ reg.overnight_approved ? 'zugesagt' : 'angefragt' }}
+                <span :class="['chip', overnightChip(reg).cls]">{{ overnightChip(reg).label }}</span>
+                <!-- Who already knows: an approval without a mail is still
+                     news the group hasn't received. A refusal is only ever
+                     recorded together with its mail, so it needs no such line. -->
+                <span v-if="reg.overnight_approved" class="notify-state">
+                  <template v-if="reg.overnight_notified_at">
+                    ✉︎ benachrichtigt {{ formatDateTime(reg.overnight_notified_at) }}
+                  </template>
+                  <template v-else>⚠︎ noch nicht benachrichtigt</template>
+                </span>
+                <span v-else-if="reg.overnight_declined_at" class="notify-state">
+                  ✉︎ abgelehnt {{ formatDateTime(reg.overnight_declined_at) }}
                 </span>
                 <button
                   type="button"
@@ -133,6 +165,19 @@
                   @click="toggleOvernightApproval(reg)"
                 >
                   {{ reg.overnight_approved ? 'Zusage zurücknehmen' : 'Darf übernachten' }}
+                </button>
+                <!-- Refusing is only offered while not approved: the backend
+                     rejects the combination outright, so the organizer takes the
+                     approval back first. -->
+                <button
+                  v-if="!reg.overnight_approved"
+                  type="button"
+                  class="outline overnight-toggle decline-toggle"
+                  :disabled="reg.status === 'CANCELLED' || togglingId === reg.id"
+                  :aria-busy="togglingId === reg.id"
+                  @click="reg.overnight_declined_at ? withdrawDecline(reg) : askDecline(reg)"
+                >
+                  {{ reg.overnight_declined_at ? 'Ablehnung zurücknehmen' : 'Kann nicht übernachten' }}
                 </button>
               </td>
               <td data-label="Status">
@@ -188,6 +233,76 @@
       </article>
     </dialog>
 
+    <!-- F9 refusal confirmation — an irreversible-feeling mail to a named
+         person, so never on a single click. -->
+    <dialog :open="declineTarget !== null || undefined">
+      <article style="max-width: 500px;">
+        <header>
+          <button @click="declineTarget = null" aria-label="Schließen" rel="prev"></button>
+          <h3>Übernachtung ablehnen?</h3>
+        </header>
+
+        <p v-if="declineTarget">
+          <strong>{{ declineTarget.name }}</strong> bekommt eine E-Mail, dass die
+          Übernachtung ({{ accommodationLabel(declineTarget) }}) nicht möglich ist.
+        </p>
+        <p class="notify-hint">
+          Die Anmeldung selbst bleibt bestehen — nur der Schlafplatz wird
+          abgelehnt. Der Übernachtungswunsch bleibt sichtbar, damit die Zahlen
+          weiter zeigen, was angefragt war.
+        </p>
+
+        <div v-if="declineError" role="alert" class="error">{{ declineError }}</div>
+
+        <footer>
+          <button @click="declineTarget = null" class="secondary">Nee, doch nicht</button>
+          <button
+            class="cancel-confirm-btn"
+            :disabled="declining"
+            :aria-busy="declining"
+            @click="confirmDecline"
+          >
+            {{ declining ? 'Wird gesendet...' : 'Ja, ablehnen' }}
+          </button>
+        </footer>
+      </article>
+    </dialog>
+
+    <!-- F8 bulk confirmation — mail goes out to real people, so never on a
+         single click (same guard as the cancel dialog above). -->
+    <dialog :open="showNotifyDialog || undefined">
+      <article style="max-width: 500px;">
+        <header>
+          <button @click="showNotifyDialog = false" aria-label="Schließen" rel="prev"></button>
+          <h3>Zusagen benachrichtigen?</h3>
+        </header>
+
+        <p>
+          {{ unnotifiedApprovals.length }}
+          {{ unnotifiedApprovals.length === 1 ? 'Person' : 'Personen' }}
+          bekommen jetzt eine E-Mail, dass ihre Übernachtung zugesagt ist:
+        </p>
+        <ul class="notify-list">
+          <li v-for="reg in unnotifiedApprovals" :key="reg.id">
+            {{ reg.name }} <small>({{ accommodationLabel(reg) }})</small>
+          </li>
+        </ul>
+        <p class="notify-hint">
+          Wer schon eine Mail bekommen hat, wird übersprungen. Künftige Zusagen
+          gehen automatisch raus.
+        </p>
+
+        <div v-if="notifyError" role="alert" class="error">{{ notifyError }}</div>
+
+        <footer>
+          <button @click="showNotifyDialog = false" class="secondary">Nee, doch nicht</button>
+          <button :disabled="notifying" :aria-busy="notifying" @click="confirmNotify">
+            {{ notifying ? 'Wird gesendet...' : 'Ja, benachrichtigen' }}
+          </button>
+        </footer>
+      </article>
+    </dialog>
+
     <!-- Template-12 send surface (T211) — reuses the existing composer, no new backend -->
     <MessageComposer
       :open="showComposer"
@@ -207,7 +322,7 @@ import PageHeader from '../../../components/PageHeader.vue'
 import FestivalHelp from '../../../components/help/FestivalHelp.vue'
 import MessageComposer from '../../../components/MessageComposer.vue'
 import { showToast } from '../../../composables/useToast.js'
-import { formatRegistrationStatus } from '../../../utils/formatters.js'
+import { formatRegistrationStatus, formatDateTime } from '../../../utils/formatters.js'
 
 const props = defineProps({
   eventId: { type: String, default: null },
@@ -230,6 +345,16 @@ const showCancelDialog = computed(() => cancelTarget.value !== null)
 
 // Overnight toggle state (Ä17)
 const togglingId = ref(null)
+
+// F8 bulk-notify state
+const showNotifyDialog = ref(false)
+const notifying = ref(false)
+const notifyError = ref(null)
+
+// F9 decline state
+const declineTarget = ref(null)
+const declining = ref(false)
+const declineError = ref(null)
 
 // Tier labels — mirrors HeadcountPage.vue / InvitesPage.vue's TIER_LABELS map.
 const TIER_LABELS = {
@@ -254,6 +379,15 @@ function accommodationLabel(reg) {
 
 function hasOvernight(reg) {
   return !!(reg.tent_count || reg.camper_count)
+}
+
+// Three answers to one wish (Ä17 + F9). `overnight_approved` and
+// `overnight_declined_at` are mutually exclusive server-side, so approved wins
+// here only as belt-and-braces.
+function overnightChip(reg) {
+  if (reg.overnight_approved) return { label: 'zugesagt', cls: 'chip-success' }
+  if (reg.overnight_declined_at) return { label: 'abgelehnt', cls: 'chip-declined' }
+  return { label: 'angefragt', cls: 'chip-warn' }
 }
 
 // group_members is EXCLUSIVE of the contact and may contain `null` tombstones
@@ -285,6 +419,15 @@ const filterCounts = computed(() => {
   }
 })
 
+// F8: approved groups that still owe a mail. Deliberately computed from ALL
+// registrations, not the filtered view — the search box must not shrink what
+// the bulk button will send, or the count would lie.
+const unnotifiedApprovals = computed(() =>
+  registrations.value.filter(
+    (r) => r.overnight_approved && !r.overnight_notified_at && r.status !== 'CANCELLED',
+  ),
+)
+
 const filteredRegistrations = computed(() => {
   let list = registrations.value
 
@@ -303,10 +446,12 @@ const filteredRegistrations = computed(() => {
     )
   }
 
-  // Ä17: within the Übernachtungs-Anfragen view, pending ("angefragt") rows
-  // sort before approved ("zugesagt") ones — that's the organizers' work queue.
+  // Ä17: within the Übernachtungs-Anfragen view, still-open requests sort
+  // first — that's the organizers' work queue. Answered ones (refused, then
+  // approved) sink below, since they need no further decision.
   if (statusFilter.value === 'OVERNIGHT') {
-    list = [...list].sort((a, b) => Number(a.overnight_approved) - Number(b.overnight_approved))
+    const rank = (r) => (r.overnight_approved ? 2 : r.overnight_declined_at ? 1 : 0)
+    list = [...list].sort((a, b) => rank(a) - rank(b))
   }
 
   return list
@@ -385,20 +530,100 @@ async function confirmCancel() {
 }
 
 // Ä17: the only write path for overnight_approved is the spec-018 admin
-// patch (T205/T206) — no dedicated endpoint.
+// patch (T205/T206) — no dedicated endpoint. Approving also sends F8; the
+// toast reports what actually happened by reading the stamp off the response
+// rather than promising a mail the backend may have failed to queue.
 async function toggleOvernightApproval(reg) {
   const wasApproved = reg.overnight_approved
   togglingId.value = reg.id
   try {
-    await adminApi.festival.updateRegistration(props.eventId, reg.id, {
+    const updated = await adminApi.festival.updateRegistration(props.eventId, reg.id, {
       overnight_approved: !wasApproved,
     })
-    showToast(wasApproved ? 'Zusage zurückgenommen' : 'Übernachtung zugesagt', 'success')
+    if (wasApproved) {
+      showToast('Zusage zurückgenommen', 'success')
+    } else if (updated?.overnight_notified_at) {
+      showToast('Übernachtung zugesagt — E-Mail ist raus', 'success')
+    } else {
+      // 'error' (not 'info'): the approval is saved but the guest doesn't know
+      // it yet, and that needs the organizer's attention — the bulk button
+      // below is the retry.
+      showToast('Übernachtung zugesagt, aber die E-Mail ging nicht raus', 'error')
+    }
     await reloadRegistrations()
   } catch (err) {
     showToast(err.message || 'Aktualisieren fehlgeschlagen', 'error')
   } finally {
     togglingId.value = null
+  }
+}
+
+function askDecline(reg) {
+  declineTarget.value = reg
+  declineError.value = null
+}
+
+// F9: refuse the wish and mail the guest. The stamp is claimed server-side
+// before the mail goes out, so a double click cannot mail twice.
+async function confirmDecline() {
+  const reg = declineTarget.value
+  if (!reg) return
+  declining.value = true
+  declineError.value = null
+  try {
+    const updated = await adminApi.festival.updateRegistration(props.eventId, reg.id, {
+      overnight_declined: true,
+    })
+    declineTarget.value = null
+    if (updated?.overnight_declined_at) {
+      showToast('Übernachtung abgelehnt — E-Mail ist raus', 'success')
+    } else {
+      showToast('Ablehnung gespeichert, aber die E-Mail ging nicht raus', 'error')
+    }
+    await reloadRegistrations()
+  } catch (err) {
+    declineError.value = err.message || 'Ablehnen fehlgeschlagen'
+    showToast(declineError.value, 'error')
+  } finally {
+    declining.value = false
+  }
+}
+
+// Undoing a refusal puts the request back to „angefragt" and mails nothing —
+// there is no news to deliver, and the organizer usually follows up by phone.
+async function withdrawDecline(reg) {
+  togglingId.value = reg.id
+  try {
+    await adminApi.festival.updateRegistration(props.eventId, reg.id, {
+      overnight_declined: false,
+    })
+    showToast('Ablehnung zurückgenommen', 'success')
+    await reloadRegistrations()
+  } catch (err) {
+    showToast(err.message || 'Aktualisieren fehlgeschlagen', 'error')
+  } finally {
+    togglingId.value = null
+  }
+}
+
+// F8 catch-up for approvals granted before the automatic mail existed (and a
+// retry for failed sends). Idempotent server-side, so a double click is safe.
+async function confirmNotify() {
+  notifying.value = true
+  notifyError.value = null
+  try {
+    const result = await adminApi.festival.notifyOvernightApprovals(props.eventId)
+    showNotifyDialog.value = false
+    const parts = [`${result.sent} benachrichtigt`]
+    if (result.skipped) parts.push(`${result.skipped} übersprungen`)
+    if (result.failed) parts.push(`${result.failed} fehlgeschlagen`)
+    showToast(parts.join(', '), result.failed ? 'error' : 'success')
+    await reloadRegistrations()
+  } catch (err) {
+    notifyError.value = err.message || 'Benachrichtigen fehlgeschlagen'
+    showToast(notifyError.value, 'error')
+  } finally {
+    notifying.value = false
   }
 }
 
@@ -497,10 +722,63 @@ onMounted(loadRegistrations)
   border-radius: var(--pico-border-radius);
 }
 
+/* Two answers stacked, deliberately small: they sit inside a table cell next to
+   the status chip, and at full button size they dominated the row. `fit-content`
+   rather than `auto` — a block-level button with `auto` stretches to the cell
+   width in some browsers, which is what made them look like one wide block. */
 .overnight-toggle {
   display: block;
-  margin-top: 0.35rem;
+  width: fit-content;
+  margin-top: 0.3rem;
+  padding: 0.2rem 0.55rem;
+  font-size: var(--text-sm);
+  line-height: 1.3;
+  min-height: 0;
+}
+
+/* F8 notification state — a quiet second line under the zugesagt/angefragt
+   chip, never competing with it for attention. */
+.notify-state {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.notify-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
+  border-radius: var(--pico-border-radius);
+}
+
+.notify-bar p {
+  margin: 0;
+  font-size: 0.9em;
+}
+
+.notify-bar button {
   width: auto;
+  margin: 0;
+  min-height: 44px;
+}
+
+.notify-list {
+  max-height: 12rem;
+  overflow-y: auto;
+  margin-bottom: 0.75rem;
+}
+
+.notify-hint {
+  font-size: 0.85em;
+  color: var(--color-text-muted);
 }
 
 .chip {
@@ -520,6 +798,17 @@ onMounted(loadRegistrations)
 .chip-success {
   background: var(--color-success-bg);
   color: var(--color-success-text);
+}
+
+/* Refused: a settled answer, not an alarm — muted rather than red, so the
+   still-open requests above it keep the organizer's attention. */
+.chip-declined {
+  background: var(--color-surface-muted, #e5e7eb);
+  color: var(--color-text-muted);
+}
+
+.decline-toggle {
+  --pico-primary: #6b7280;
 }
 
 .warning-box {

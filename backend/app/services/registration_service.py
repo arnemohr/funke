@@ -130,25 +130,48 @@ def companion_recipients(registration: Registration) -> list[CompanionRecipient]
     return recipients
 
 
-def _newly_addressed_companions(
+def _companions_needing_fresh_code(
     before: Registration,
     after: Registration,
 ) -> list[CompanionRecipient]:
-    """Companions whose address is new or changed at their index (spec 020, D2).
+    """Companions whose emailed entry code just stopped working (spec 020, D2).
 
-    The unit of comparison is `person_index`, not the person: a companion whose
-    address was corrected gets a fresh code, while a rename or a slot change
-    sends nothing (their existing code stays valid, and the ticket page
-    re-signs on every view). Without this diff, every self-edit would re-mail
-    the whole group.
+    The unit of comparison is `person_index`, not the person. Two triggers:
+
+    - **The address is new or changed.** A different human now occupies that
+      seat (or the first attempt had a typo), so they need their own code.
+    - **The name changed.** The gate compares the name signed into the ticket
+      against the member's current name and rejects a mismatch as
+      `stale_ticket` (`checkin_service.py:340`) — so the QR already sitting in
+      that person's inbox is dead, and staying silent would send them to the
+      entrance with a code that goes red. The comparison here is a plain `!=`
+      on purpose: it must mirror the gate's own exact string check, so even a
+      whitespace-only difference counts.
+
+    A slot change still sends nothing: the days in the payload are
+    informational and never checked at the gate (Ä13), so those codes stay
+    valid and the ticket page re-signs on every view.
+
+    Companions without an address are unreachable either way — their contact
+    forwards a fresh QR from the manage page, which re-signs on every render.
+    Renames made through the ADMIN patch stay mail-silent (D3); that path is
+    the organizer correcting data by phone, and it has no diff to work from.
     """
     old_emails = before.group_member_emails or []
+    old_members = before.group_members or []
     result: list[CompanionRecipient] = []
 
     for recipient in companion_recipients(after):
         i = recipient.person_index - 1
-        previous = old_emails[i] if i < len(old_emails) else None
-        if previous is None or previous.strip().lower() != recipient.email:
+        previous_email = old_emails[i] if i < len(old_emails) else None
+        previous_name = old_members[i] if i < len(old_members) else None
+
+        address_changed = (
+            previous_email is None or previous_email.strip().lower() != recipient.email
+        )
+        name_changed = previous_name != recipient.name
+
+        if address_changed or name_changed:
             result.append(recipient)
 
     return result
@@ -181,13 +204,18 @@ def build_gate_rows(registrations: list[Registration], event: Event) -> list[dic
         tier = registration.tier or ""
         schlafplatz = _gate_accommodation_label(registration)
         telefon = registration.phone or "" if registration.has_overnight else ""
-        chosen_slots = set(registration.attendance_slots or [])
-        slot_values = {label: ("x" if key in chosen_slots else "") for key, label in zip(slot_keys, slot_labels)}
-
         person_names = [registration.name, *(registration.group_members or [])]
-        for person_name in person_names:
+        for person_index, person_name in enumerate(person_names):
             if person_name is None:
                 continue
+            # Spec 021: this person's OWN days, not the group's. Identical output
+            # when nobody has an override, which is what keeps the printed gate
+            # list byte-stable for existing registrations.
+            chosen_slots = set(registration.effective_member_slots(person_index))
+            slot_values = {
+                label: ("x" if key in chosen_slots else "")
+                for key, label in zip(slot_keys, slot_labels)
+            }
             row = {
                 "Name": person_name,
                 "Kontaktperson": registration.name,
@@ -277,6 +305,10 @@ def _registration_to_item(registration: Registration) -> dict:
     if registration.group_member_emails is not None:
         item["group_member_emails"] = registration.group_member_emails
 
+    # Spec 021 — sparse per-person day overrides; absent when nobody differs.
+    if registration.member_slots:
+        item["member_slots"] = registration.member_slots
+
     if registration.ttl:
         item["ttl"] = registration.ttl
 
@@ -289,6 +321,12 @@ def _registration_to_item(registration: Registration) -> dict:
 
     if registration.camper_count is not None:
         item["camper_count"] = registration.camper_count
+
+    if registration.overnight_notified_at:
+        item["overnight_notified_at"] = registration.overnight_notified_at.isoformat()
+
+    if registration.overnight_declined_at:
+        item["overnight_declined_at"] = registration.overnight_declined_at.isoformat()
 
     if registration.invite_id is not None:
         item["invite_id"] = str(registration.invite_id)
@@ -314,6 +352,7 @@ def _item_to_registration(item: dict) -> Registration:
         group_size=item["group_size"],
         group_members=item.get("group_members"),
         group_member_emails=item.get("group_member_emails"),
+        member_slots=item.get("member_slots"),
         status=RegistrationStatus(item["status"]),
         waitlist_position=item.get("waitlist_position"),
         registration_token=item["registration_token"],
@@ -342,6 +381,16 @@ def _item_to_registration(item: dict) -> Registration:
         tier=item.get("tier"),
         attendance_slots=item.get("attendance_slots"),
         overnight_approved=item.get("overnight_approved", False),
+        overnight_notified_at=(
+            datetime.fromisoformat(item["overnight_notified_at"])
+            if item.get("overnight_notified_at")
+            else None
+        ),
+        overnight_declined_at=(
+            datetime.fromisoformat(item["overnight_declined_at"])
+            if item.get("overnight_declined_at")
+            else None
+        ),
         **_overnight_counts_from_item(item),
     )
 
@@ -1138,6 +1187,21 @@ class RegistrationService:
                 drop_orphans=True,
             )
 
+        # Per-person day overrides (spec 021). Validated against the event's
+        # slot keys here, like the group grid above; shape/sparseness is handled
+        # by the model validator once the resulting member list is known.
+        if "member_slots" in updates:
+            target_member_slots = updates["member_slots"] or None
+            if target_member_slots:
+                known = set(event.slot_keys())
+                for chosen in target_member_slots.values():
+                    if not chosen:
+                        return None, "At least one attendance slot is required"
+                    if not set(chosen).issubset(known):
+                        return None, "Unknown attendance slot selected"
+        else:
+            target_member_slots = registration.member_slots
+
         non_none_count = sum(1 for m in (target_group_members or []) if m is not None)
 
         if "group_size" in updates:
@@ -1164,8 +1228,17 @@ class RegistrationService:
             return None, "tent_count_exceeds_group"
         if target_camper and target_camper > target_group_size:
             return None, "camper_count_exceeds_group"
+        overnight_notified_at = registration.overnight_notified_at
+        overnight_declined_at = registration.overnight_declined_at
         if not target_tent and not target_camper and registration.has_overnight:
             overnight_approved = False
+            # F8/F9: drop both answer markers with the wish they belong to.
+            # Without this, a guest who clears and later re-adds their wish gets
+            # answered a second time but is never mailed — the notify steps see
+            # a stamp and answer `already_notified` / `already_declined`.
+            # Mirrors the same reset in `admin_update_registration`.
+            overnight_notified_at = None
+            overnight_declined_at = None
 
         updated = registration.model_copy(
             update={
@@ -1174,9 +1247,12 @@ class RegistrationService:
                 "camper_count": target_camper,
                 "phone": target_phone,
                 "overnight_approved": overnight_approved,
+                "overnight_notified_at": overnight_notified_at,
+                "overnight_declined_at": overnight_declined_at,
                 "group_size": target_group_size,
                 "group_members": target_group_members,
                 "group_member_emails": target_member_emails,
+                "member_slots": target_member_slots,
             },
         )
 
@@ -1217,14 +1293,14 @@ class RegistrationService:
                 },
             )
 
-        # Spec 020 (D2): mail F5 only to companions whose ADDRESS is new or
-        # changed at their index. Deliberately not on a slot change (the code
-        # stays valid and the ticket page re-signs) and not on a rename (same
-        # reason) — otherwise every edit would spam the whole group.
+        # Spec 020 (D2): mail F5 only to companions whose code actually died —
+        # a new/corrected address, or a rename (which the gate rejects as
+        # `stale_ticket`). Still nothing on a slot change, so an edit never
+        # spams the whole group.
         await self._send_companion_tickets(
             event,
             updated,
-            recipients=_newly_addressed_companions(registration, updated),
+            recipients=_companions_needing_fresh_code(registration, updated),
         )
 
         return updated, None
@@ -1565,10 +1641,14 @@ class RegistrationService:
         Modeled on `get_registration_stats` above: **one** `list_registrations`
         call, then a single in-Python aggregation loop — no per-slot queries.
 
-        Ä5: CANCELLED registrations are excluded from every bucket. A
-        registration contributes its full `group_size` to every slot key in
-        `attendance_slots` (the grid is shared by the whole group — peak
-        counting, not person-splitting). Keys not present in
+        Ä5: CANCELLED registrations are excluded from every bucket.
+
+        **Spec 021**: slot buckets count PEOPLE on their own effective days
+        (`effective_member_slots`), not `group_size` per group-slot. With no
+        per-person overrides the two are arithmetically identical, so existing
+        boards do not move; once someone declares different days, only they
+        move. Accommodation buckets still work from `group_size` — overnight is
+        a group-level Stellplatz request. Keys not present in
         `event.festival_slots` (orphaned after a slot-config edit) are
         collected into `unknown_slots` instead of silently vanishing.
         Accommodation totals are OVERALL, not per slot (Ä15/Ä21). Each type
@@ -1618,17 +1698,49 @@ class RegistrationService:
 
             tier = reg.tier or "unknown"
 
-            if not reg.attendance_slots:
-                registrations_without_slots += 1
+            # Spec 021: count PEOPLE per slot, each on their own effective days,
+            # instead of adding `group_size` to every day the group ticked.
+            # Arithmetically identical while nobody has an override (each person
+            # carries the group's days, so every slot gets group_size again) —
+            # which is what lets per-person counting ship without any organiser
+            # seeing a number move. Iterating the live people also means a
+            # tombstoned companion stops being counted.
+            # `group_size` stays the source of truth for HOW MANY people this
+            # registration is — names are optional and often absent (a group of
+            # 3 with `group_members=None` is a legitimate pre-021 row), so
+            # counting live member entries alone would undercount. Tombstoned
+            # companions are skipped, and their indices are never reused.
+            if reg.group_members is None:
+                person_indices = list(range(reg.group_size))
             else:
-                for key in reg.attendance_slots:
+                person_indices = [0] + [
+                    i + 1
+                    for i, member in enumerate(reg.group_members)
+                    if member is not None
+                ]
+                # Names only partly collected — count the unnamed remainder too,
+                # at indices past the end of the member list.
+                missing = reg.group_size - len(person_indices)
+                if missing > 0:
+                    start = len(reg.group_members) + 1
+                    person_indices += list(range(start, start + missing))
+
+            counted_any_slot = False
+            for person_index in person_indices:
+                person_slots = reg.effective_member_slots(person_index)
+                if not person_slots:
+                    continue
+                counted_any_slot = True
+                for key in person_slots:
                     if key in slot_totals:
-                        slot_totals[key] += reg.group_size
-                        slot_by_tier[key][tier] = slot_by_tier[key].get(tier, 0) + reg.group_size
+                        slot_totals[key] += 1
+                        slot_by_tier[key][tier] = slot_by_tier[key].get(tier, 0) + 1
                         if reg.has_overnight:
-                            slot_overnight[key] += reg.group_size
+                            slot_overnight[key] += 1
                     else:
-                        unknown_slots[key] = unknown_slots.get(key, 0) + reg.group_size
+                        unknown_slots[key] = unknown_slots.get(key, 0) + 1
+            if not counted_any_slot:
+                registrations_without_slots += 1
 
             tent_bucket = accommodation_totals[AccommodationType.TENT.value]
             camper_bucket = accommodation_totals[AccommodationType.CAMPER.value]
@@ -2183,6 +2295,233 @@ class RegistrationService:
             logger.error("Failed to confirm with names", extra={"error": str(e)})
             return None, "Failed to confirm participation"
 
+    async def set_person_slots(
+        self,
+        event_id: UUID,
+        registration_id: UUID,
+        person_index: int,
+        person_token: str,
+        attendance_slots: list[str],
+    ) -> tuple[Registration | None, str | None]:
+        """A companion sets their OWN attendance days (spec 021 E2).
+
+        Authorised by the per-person token, so the write is scoped to exactly
+        one index: it cannot touch another person's days, the group's grid, any
+        name, the overnight request, or the registration's status.
+
+        Returns (updated Registration, None) or (None, error).
+        """
+        from .event_service import get_event_service
+        from .ticket_signing import verify_person_page_token
+
+        registration, event, error = await self._load_person_context(
+            event_id, registration_id, person_index, person_token,
+        )
+        if error:
+            return None, error
+
+        known = set(event.slot_keys())
+        chosen = [k for k in dict.fromkeys(s.strip() for s in attendance_slots) if k]
+        if not chosen:
+            return None, "At least one attendance slot is required"
+        if not set(chosen).issubset(known):
+            return None, "Unknown attendance slot selected"
+
+        # Stored as an override only when it differs from the group's grid —
+        # the model validator drops a no-op, keeping the map to real differences.
+        member_slots = dict(registration.member_slots or {})
+        member_slots[str(person_index)] = chosen
+
+        updated = registration.model_copy(update={"member_slots": member_slots})
+        # model_copy skips validators, so normalise explicitly before persisting.
+        updated = Registration(**updated.model_dump())
+
+        try:
+            self.registrations_table.put_item(Item=_registration_to_item(updated))
+        except ClientError as e:
+            logger.error(
+                "Failed to store person slots",
+                extra={
+                    "flow": "festival", "step": "person_slots", "outcome": "error",
+                    "error": str(e), "registration_id": str(registration_id),
+                    "person_index": person_index,
+                },
+            )
+            return None, "Failed to save your days"
+
+        logger.info(
+            "Person slots updated",
+            extra={
+                "flow": "festival", "step": "person_slots", "outcome": "ok",
+                "registration_id": str(registration_id), "person_index": person_index,
+            },
+        )
+        # Deliberately no mail (spec 021): a day change is low signal, and
+        # notifying the contact on every tick would make the feature a nuisance.
+        _ = (get_event_service, verify_person_page_token)
+        return updated, None
+
+    async def cancel_person(
+        self,
+        event_id: UUID,
+        registration_id: UUID,
+        person_index: int,
+        person_token: str,
+    ) -> tuple[Registration | None, str | None]:
+        """A companion removes themselves from the group (spec 021 E3).
+
+        Tombstones their member entry rather than deleting it — `person_index`
+        must stay stable for everyone else's already-issued QR codes. Their
+        address is cleared too, which both keeps the two arrays aligned and
+        kills their own ticket page (the token binds to that address).
+
+        Does NOT release an invite use: a use is one *registration*, not one
+        seat (spec 019 §Invite). Sends F7 to the contact, whose planning numbers
+        just changed without their involvement.
+        """
+        registration, event, error = await self._load_person_context(
+            event_id, registration_id, person_index, person_token,
+        )
+        if error:
+            return None, error
+
+        members = list(registration.group_members or [])
+        person_name = members[person_index - 1]
+
+        members[person_index - 1] = None
+        emails = list(registration.group_member_emails or [])
+        while len(emails) < len(members):
+            emails.append(None)
+        emails[person_index - 1] = None
+
+        member_slots = dict(registration.member_slots or {})
+        member_slots.pop(str(person_index), None)
+
+        live_members = sum(1 for m in members if m is not None)
+        new_group_size = 1 + live_members
+
+        # Ä21: shrinking the group must pull the overnight counts down with it.
+        # Both patch paths validate `tent_count <= group_size` against the
+        # RESULTING state (registration_service.py:1197 for the guest,
+        # :2750 for the admin), so leaving a now-oversized count behind would
+        # persist a state that rejects EVERY later edit — locking the contact
+        # out of their own manage page and the organizer out of the approval
+        # toggle. Clamp instead: fewer people can only mean fewer pitches.
+        def _clamp(count: int | None) -> int | None:
+            return min(count, new_group_size) if count else count
+
+        new_tent = _clamp(registration.tent_count)
+        new_camper = _clamp(registration.camper_count)
+
+        updated = Registration(
+            **registration.model_copy(
+                update={
+                    "group_members": members,
+                    "group_member_emails": emails,
+                    "member_slots": member_slots,
+                    "group_size": new_group_size,
+                    "tent_count": new_tent,
+                    "camper_count": new_camper,
+                },
+            ).model_dump(),
+        )
+
+        try:
+            self.registrations_table.put_item(Item=_registration_to_item(updated))
+        except ClientError as e:
+            logger.error(
+                "Failed to remove person from registration",
+                extra={
+                    "flow": "festival", "step": "person_cancel", "outcome": "error",
+                    "error": str(e), "registration_id": str(registration_id),
+                    "person_index": person_index,
+                },
+            )
+            return None, "Failed to cancel"
+
+        logger.info(
+            "Person removed themselves",
+            extra={
+                "flow": "festival", "step": "person_cancel", "outcome": "ok",
+                "registration_id": str(registration_id), "person_index": person_index,
+                "group_size": updated.group_size,
+            },
+        )
+
+        try:
+            from .email_service import get_email_service
+
+            await get_email_service().send_festival_companion_left(
+                event, updated, person_name or "Eine Begleitung",
+            )
+        except Exception as e:
+            logger.error(
+                "Failed to notify the contact about a companion leaving",
+                extra={
+                    "flow": "festival", "step": "companion_left_email",
+                    "outcome": "error", "reason": str(e),
+                    "registration_id": str(registration_id),
+                },
+            )
+
+        return updated, None
+
+    async def _load_person_context(
+        self,
+        event_id: UUID,
+        registration_id: UUID,
+        person_index: int,
+        person_token: str,
+    ) -> tuple[Registration | None, Event | None, str | None]:
+        """Shared auth + lifecycle gate for the companion self-service writes.
+
+        Returns (registration, event, None) or (None, None, error). Every
+        rejection uses the same "not found" wording as the read path so the
+        endpoint cannot become an oracle for group membership.
+        """
+        from .event_service import get_event_service
+        from .ticket_signing import verify_person_page_token
+
+        if person_index < 1:
+            return None, None, "not found"
+
+        registration = await self.get_registration(event_id, registration_id)
+        if registration is None:
+            return None, None, "not found"
+
+        emails = registration.group_member_emails or []
+        current_email = (
+            emails[person_index - 1] if person_index - 1 < len(emails) else None
+        )
+        if not verify_person_page_token(
+            registration.registration_token, person_index, current_email, person_token,
+        ):
+            return None, None, "not found"
+
+        members = registration.group_members or []
+        if person_index > len(members) or members[person_index - 1] is None:
+            return None, None, "not found"
+
+        if registration.status == RegistrationStatus.CANCELLED:
+            return None, None, "cancelled"
+
+        event = await get_event_service().get_event_by_id(event_id)
+        if event is None or event.event_type != EventType.FESTIVAL:
+            return None, None, "not found"
+
+        deadline = event.registration_deadline
+        if deadline.tzinfo is None:
+            deadline = deadline.replace(tzinfo=UTC)
+        accepting = {
+            EventStatus.OPEN,
+            EventStatus.REGISTRATION_CLOSED,
+            EventStatus.CONFIRMED,
+        }
+        if event.status not in accepting or datetime.now(UTC) >= deadline:
+            return None, None, "deadline"
+
+        return registration, event, None
+
     async def _is_festival_registration(self, registration: Registration) -> bool:
         """True when this registration belongs to a FESTIVAL event (spec 020).
 
@@ -2341,7 +2680,10 @@ class RegistrationService:
         is enforced against the RESULTING state (patched-or-existing
         accommodation + patched-or-existing phone); clearing accommodation
         also resets `overnight_approved`, mirroring T109's self-service
-        reset. `group_members` on a FESTIVAL registration follows the same
+        reset. Flipping `overnight_approved` on additionally sends F8 to the
+        registered person (never-fail, see `notify_overnight_approval`);
+        flipping it off clears `overnight_notified_at` so a re-approval mails
+        again. `group_members` on a FESTIVAL registration follows the same
         append-only/tombstone rule as T109 (the list may only grow —
         removals become `None` entries instead), overriding the SINGLE-event
         shrink-only rule below.
@@ -2372,6 +2714,7 @@ class RegistrationService:
             "tent_count",
             "camper_count",
             "overnight_approved",
+            "overnight_declined",
             # Spec 020 — companion addresses only exist on festival groups.
             "group_member_emails",
         }
@@ -2393,6 +2736,10 @@ class RegistrationService:
         target_tent = registration.tent_count
         target_camper = registration.camper_count
         target_overnight_approved = registration.overnight_approved
+        # Non-festival events never reach the F9 branch below (the field is
+        # rejected as festival-only), so both stay at their neutral defaults.
+        decline_requested = False
+        clear_decline = False
         if is_festival:
             if "tent_count" in fields_set:
                 target_tent = patch.tent_count or None
@@ -2417,6 +2764,27 @@ class RegistrationService:
 
             if target_overnight_approved and not has_overnight:
                 return None, "overnight_approval_requires_accommodation"
+
+            # F9 refusal. `overnight_declined_at` is claimed by the notify step
+            # after the write (it must never run ahead of the mail), so the only
+            # thing decided here is whether the CURRENT refusal has to go.
+            decline_requested = is_festival and patch.overnight_declined is True
+            if decline_requested:
+                if not has_overnight:
+                    return None, "overnight_decline_requires_accommodation"
+                if target_overnight_approved:
+                    # Never both at once — withdraw the approval first, so the
+                    # organizer cannot accidentally send a refusal to somebody
+                    # who is still marked as approved.
+                    return None, "overnight_decline_conflicts_with_approval"
+
+            # Drop an existing refusal when the wish is granted, when it is
+            # cleared away, or when the organizer explicitly takes it back.
+            clear_decline = registration.overnight_declined and (
+                target_overnight_approved
+                or not has_overnight
+                or patch.overnight_declined is False
+            )
 
         # group_members / group_size: a FESTIVAL registration touching
         # group_members uses the T109 append-only/tombstone rule (list may
@@ -2466,6 +2834,17 @@ class RegistrationService:
                 return None, "tent_count_exceeds_group"
             if target_camper and target_camper > target_group_size:
                 return None, "camper_count_exceeds_group"
+
+        # Per-person day overrides (spec 021) — organizers fix these after a
+        # phone call. Validated against the event's slot keys; shape and
+        # sparseness are settled by the model validator on construction.
+        target_member_slots = registration.member_slots
+        if patch.member_slots is not None:
+            known = set(event.slot_keys())
+            for chosen in patch.member_slots.values():
+                if not chosen or not set(chosen).issubset(known):
+                    return None, "invalid_slots"
+            target_member_slots = patch.member_slots or None
 
         # Companion addresses (spec 020) — organizers may correct a typo here.
         # This path is deliberately mail-SILENT (D3): only the guest-facing
@@ -2532,6 +2911,14 @@ class RegistrationService:
                 expr_values[":group_members"] = target_group_members
             changed_fields.append("group_members")
 
+        if target_member_slots != registration.member_slots:
+            if not target_member_slots:
+                remove_parts.append("member_slots")
+            else:
+                set_parts.append("member_slots = :member_slots")
+                expr_values[":member_slots"] = target_member_slots
+            changed_fields.append("member_slots")
+
         if target_member_emails != registration.group_member_emails:
             if not target_member_emails:
                 remove_parts.append("group_member_emails")
@@ -2568,8 +2955,26 @@ class RegistrationService:
             set_parts.append("overnight_approved = :overnight_approved")
             expr_values[":overnight_approved"] = target_overnight_approved
             changed_fields.append("overnight_approved")
+            # Withdrawing the approval (or clearing the whole wish) drops the
+            # F8 marker, so a later re-approval mails again instead of staying
+            # silent forever.
+            if not target_overnight_approved and registration.overnight_notified_at:
+                remove_parts.append("overnight_notified_at")
+                changed_fields.append("overnight_notified_at")
+
+        # F9: a refusal that no longer applies is removed here; SETTING one is
+        # the notify step's job after the write (see `clear_decline` above).
+        if clear_decline:
+            remove_parts.append("overnight_declined_at")
+            changed_fields.append("overnight_declined_at")
 
         if not changed_fields:
+            # A bare `{"overnight_declined": true}` changes no stored field here
+            # — the stamp is claimed by the notify step — so returning early
+            # would silently swallow the refusal instead of mailing it.
+            if decline_requested:
+                declined, _ = await self.notify_overnight_decline(event, registration)
+                return (declined or registration), None
             return registration, None
 
         update_clauses: list[str] = []
@@ -2608,7 +3013,6 @@ class RegistrationService:
                     "changed_fields": changed_fields,
                 },
             )
-            return updated, None
 
         except ClientError as e:
             if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
@@ -2621,6 +3025,288 @@ class RegistrationService:
                 },
             )
             return None, "update_failed"
+
+        # F8/F9: the answer to the overnight wish tells the guest right away.
+        # Outside the try above on purpose — the registration is already
+        # written, so a mail problem must never be reported as `update_failed`
+        # (never-fail, same rule as F3).
+        if target_overnight_approved and not registration.overnight_approved:
+            notified, _ = await self.notify_overnight_approval(event, updated)
+            if notified is not None:
+                updated = notified
+        elif decline_requested:
+            declined, _ = await self.notify_overnight_decline(event, updated)
+            if declined is not None:
+                updated = declined
+
+        return updated, None
+
+    async def notify_overnight_approval(
+        self,
+        event: Event,
+        registration: Registration,
+    ) -> tuple[Registration | None, str | None]:
+        """Send the F8 overnight-approval mail exactly once (Ä17).
+
+        Claim-then-send: `overnight_notified_at` is stamped with a CONDITIONAL
+        write BEFORE the mail is queued, so the approval toggle and the bulk
+        catch-up button can't both mail the same guest — the loser of the race
+        gets `already_notified` and sends nothing. If queueing then fails, the
+        stamp is rolled back so a retry is possible.
+
+        Recipient is always `registration.email` (the person who registered);
+        companions are never mailed about the group's overnight stay.
+
+        Returns:
+            `(updated_registration, None)` when the mail was queued, else
+            `(None, reason)` with reason one of ``not_approved``,
+            ``cancelled``, ``already_notified``, ``send_failed``.
+        """
+        if not registration.overnight_approved:
+            return None, "not_approved"
+        if registration.status == RegistrationStatus.CANCELLED:
+            return None, "cancelled"
+        if registration.overnight_notified_at is not None:
+            return None, "already_notified"
+
+        now = datetime.now(UTC)
+        try:
+            response = self.registrations_table.update_item(
+                Key={
+                    "pk": f"EVENT#{event.id}",
+                    "sk": f"REG#{registration.id}",
+                },
+                UpdateExpression="SET overnight_notified_at = :now",
+                ConditionExpression=(
+                    "attribute_not_exists(overnight_notified_at) "
+                    "AND overnight_approved = :true AND #s <> :cancelled"
+                ),
+                ExpressionAttributeNames={"#s": "status"},
+                ExpressionAttributeValues={
+                    ":now": now.isoformat(),
+                    ":true": True,
+                    ":cancelled": RegistrationStatus.CANCELLED.value,
+                },
+                ReturnValues="ALL_NEW",
+            )
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                # Someone else claimed it, or the state changed under us.
+                return None, "already_notified"
+            logger.error(
+                "Failed to claim overnight notification",
+                extra={"error": str(e), "registration_id": str(registration.id)},
+            )
+            return None, "send_failed"
+
+        updated = _item_to_registration(response["Attributes"])
+
+        from .email_service import get_email_service
+
+        try:
+            queued = await get_email_service().send_festival_overnight_approval(
+                event, updated,
+            )
+        except Exception as e:  # noqa: BLE001 — mail must never break the caller
+            logger.error(
+                "Overnight approval mail raised",
+                extra={"error": str(e), "registration_id": str(registration.id)},
+            )
+            queued = False
+
+        if not queued:
+            await self._release_overnight_notification(event.id, registration.id)
+            return None, "send_failed"
+
+        logger.info(
+            "Overnight approval mail queued",
+            extra={
+                "registration_id": str(registration.id),
+                "event_id": str(event.id),
+            },
+        )
+        return updated, None
+
+    async def notify_overnight_decline(
+        self,
+        event: Event,
+        registration: Registration,
+    ) -> tuple[Registration | None, str | None]:
+        """Refuse the overnight wish and tell the guest once (F9).
+
+        Mirror image of `notify_overnight_approval`, including the
+        claim-then-send: `overnight_declined_at` is stamped with a CONDITIONAL
+        write BEFORE the mail is queued, so a double click cannot mail twice and
+        a failed send rolls the stamp back for a retry.
+
+        The condition additionally requires `overnight_approved = :false`, so a
+        refusal can never land on a registration that was approved in the
+        meantime — the two states are mutually exclusive at the database level,
+        not just in the calling code.
+
+        Returns:
+            `(updated_registration, None)` when the mail was queued, else
+            `(None, reason)` with reason one of ``no_wish``, ``approved``,
+            ``cancelled``, ``already_declined``, ``send_failed``.
+        """
+        if not registration.has_overnight:
+            return None, "no_wish"
+        if registration.overnight_approved:
+            return None, "approved"
+        if registration.status == RegistrationStatus.CANCELLED:
+            return None, "cancelled"
+        if registration.overnight_declined_at is not None:
+            return None, "already_declined"
+
+        now = datetime.now(UTC)
+        try:
+            response = self.registrations_table.update_item(
+                Key={
+                    "pk": f"EVENT#{event.id}",
+                    "sk": f"REG#{registration.id}",
+                },
+                UpdateExpression="SET overnight_declined_at = :now",
+                ConditionExpression=(
+                    "attribute_not_exists(overnight_declined_at) "
+                    "AND overnight_approved = :false AND #s <> :cancelled"
+                ),
+                ExpressionAttributeNames={"#s": "status"},
+                ExpressionAttributeValues={
+                    ":now": now.isoformat(),
+                    ":false": False,
+                    ":cancelled": RegistrationStatus.CANCELLED.value,
+                },
+                ReturnValues="ALL_NEW",
+            )
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                return None, "already_declined"
+            logger.error(
+                "Failed to claim overnight decline",
+                extra={"error": str(e), "registration_id": str(registration.id)},
+            )
+            return None, "send_failed"
+
+        updated = _item_to_registration(response["Attributes"])
+
+        from .email_service import get_email_service
+
+        try:
+            queued = await get_email_service().send_festival_overnight_decline(
+                event, updated,
+            )
+        except Exception as e:  # noqa: BLE001 — mail must never break the caller
+            logger.error(
+                "Overnight decline mail raised",
+                extra={"error": str(e), "registration_id": str(registration.id)},
+            )
+            queued = False
+
+        if not queued:
+            await self._release_overnight_decline(event.id, registration.id)
+            return None, "send_failed"
+
+        logger.info(
+            "Overnight decline mail queued",
+            extra={
+                "registration_id": str(registration.id),
+                "event_id": str(event.id),
+            },
+        )
+        return updated, None
+
+    async def _release_overnight_decline(
+        self,
+        event_id: UUID,
+        registration_id: UUID,
+    ) -> None:
+        """Roll back an `overnight_declined_at` claim whose mail never queued.
+
+        Best-effort, same trade-off as `_release_overnight_notification`: a
+        failed rollback leaves the request showing as refused, which the
+        organizer can undo with „Ablehnung zurücknehmen".
+        """
+        try:
+            self.registrations_table.update_item(
+                Key={
+                    "pk": f"EVENT#{event_id}",
+                    "sk": f"REG#{registration_id}",
+                },
+                UpdateExpression="REMOVE overnight_declined_at",
+            )
+        except ClientError as e:
+            logger.error(
+                "Failed to release overnight decline claim",
+                extra={"error": str(e), "registration_id": str(registration_id)},
+            )
+
+    async def _release_overnight_notification(
+        self,
+        event_id: UUID,
+        registration_id: UUID,
+    ) -> None:
+        """Roll back an `overnight_notified_at` claim whose mail never queued.
+
+        Best-effort: if this write fails too, the registration is simply left
+        marked as notified — the organizer sees "benachrichtigt" and can fall
+        back to the message composer, which is better than a claim loop.
+        """
+        try:
+            self.registrations_table.update_item(
+                Key={
+                    "pk": f"EVENT#{event_id}",
+                    "sk": f"REG#{registration_id}",
+                },
+                UpdateExpression="REMOVE overnight_notified_at",
+            )
+        except ClientError as e:
+            logger.error(
+                "Failed to release overnight notification claim",
+                extra={"error": str(e), "registration_id": str(registration_id)},
+            )
+
+    async def notify_pending_overnight_approvals(self, event: Event) -> dict:
+        """Mail every approved-but-not-yet-notified group (F8 catch-up).
+
+        The backfill for approvals granted before F8 existed, and the retry
+        for sends that failed. Each registration goes through
+        `notify_overnight_approval`, so its claim-then-send dedup applies per
+        row: a second click mails nobody twice.
+
+        Returns:
+            ``{"sent": n, "skipped": n, "failed": n}`` — `skipped` counts rows
+            that were already notified (or claimed concurrently), `failed`
+            counts rows whose mail could not be queued.
+        """
+        registrations = await self.list_registrations(event.id)
+        pending = [
+            r
+            for r in registrations
+            if r.overnight_approved
+            and r.overnight_notified_at is None
+            and r.status != RegistrationStatus.CANCELLED
+        ]
+
+        sent = skipped = failed = 0
+        for registration in pending:
+            _, reason = await self.notify_overnight_approval(event, registration)
+            if reason is None:
+                sent += 1
+            elif reason == "send_failed":
+                failed += 1
+            else:
+                skipped += 1
+
+        logger.info(
+            "Overnight approval catch-up run",
+            extra={
+                "event_id": str(event.id),
+                "sent": sent,
+                "skipped": skipped,
+                "failed": failed,
+            },
+        )
+        return {"sent": sent, "skipped": skipped, "failed": failed}
 
     async def _increment_freed_spots(self, event_id: UUID, spots: int) -> None:
         """Atomically increment freed_spots counter on the event.

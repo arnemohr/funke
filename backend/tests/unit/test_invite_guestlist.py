@@ -41,7 +41,9 @@ def _slots() -> list[FestivalSlot]:
     ]
 
 
-class TestInviteGuestlist:
+class InviteBootBase:
+    """Fixture + factories shared by the invite-endpoint test classes."""
+
     @pytest.fixture(autouse=True)
     def setup_env(self, mock_dynamodb):
         self.tables = mock_dynamodb
@@ -110,6 +112,7 @@ class TestInviteGuestlist:
         self.tables["registrations_table"].put_item(Item=_registration_to_item(registration))
         return registration
 
+class TestInviteGuestlist(InviteBootBase):
     async def test_happy_path_lists_only_this_invites_registrations(self):
         event = self._store_event()
         invite = await self._store_invite(event)
@@ -176,3 +179,118 @@ class TestInviteGuestlist:
         result = await get_invite_guestlist(invite.token)
 
         assert result.can_register is False
+
+
+class TestRegistrationClosedByStatus(InviteBootBase):
+    """Closing registration must shut the FRONT door without locking the
+    people already inside.
+
+    Two independent levers exist on purpose: the `registration_deadline` and
+    the event `status`. The status one is what the „Anmeldung schließen" /
+    „Bestätigen" buttons move, and until now it did nothing to the public
+    invite flow — the boot happily served the form and only
+    `create_festival_registration` refused on submit, after the guest had
+    typed everything in.
+    """
+
+    async def _boot(self, invite):
+        from app.api.public.invites import get_invite_info
+
+        return await get_invite_info(invite_token=invite.token)
+
+    async def test_open_event_still_serves_the_form(self):
+        event = self._store_event(status=EventStatus.OPEN)
+        invite = await self._store_invite(event)
+
+        info = await self._boot(invite)
+
+        assert info.event_name == event.name
+
+    @pytest.mark.parametrize(
+        "closed_status",
+        [EventStatus.REGISTRATION_CLOSED, EventStatus.CONFIRMED],
+    )
+    async def test_closed_or_confirmed_refuses_the_form(self, closed_status):
+        event = self._store_event(status=closed_status)
+        invite = await self._store_invite(event)
+
+        with pytest.raises(HTTPException) as excinfo:
+            await self._boot(invite)
+
+        assert excinfo.value.status_code == 410
+        assert "geschlossen" in excinfo.value.detail
+
+    async def test_draft_event_refuses_too(self):
+        """A festival that was never published must not be reachable either —
+        the old code had no status check at all, so a DRAFT invite worked."""
+        event = self._store_event(status=EventStatus.DRAFT)
+        invite = await self._store_invite(event)
+
+        with pytest.raises(HTTPException) as excinfo:
+            await self._boot(invite)
+
+        assert excinfo.value.status_code == 410
+
+    @pytest.mark.parametrize(
+        "closed_status",
+        [EventStatus.REGISTRATION_CLOSED, EventStatus.CONFIRMED],
+    )
+    async def test_submitting_anyway_is_still_refused(self, closed_status):
+        """The boot gate is UX; this is the one that actually protects."""
+        from app.models import FestivalRegistrationCreate
+
+        event = self._store_event(status=closed_status)
+        invite = await self._store_invite(event)
+
+        registration, error = await registration_service_module.get_registration_service(
+        ).create_festival_registration(
+            invite.token,
+            FestivalRegistrationCreate(
+                name="Spät Dran",
+                email="spaet@example.com",
+                attendance_slots=["fr"],
+                group_size=1,
+                phone="+49 170 1234567",
+            ),
+        )
+
+        assert registration is None
+        assert "not open" in error.lower()
+
+    @pytest.mark.parametrize(
+        "closed_status",
+        [EventStatus.REGISTRATION_CLOSED, EventStatus.CONFIRMED],
+    )
+    async def test_existing_registration_stays_fully_manageable(self, closed_status):
+        """The other half of the requirement: everything an ALREADY registered
+        person can do must survive the close — days, companions, overnight,
+        and cancelling."""
+        from app.models import FestivalAttendancePatch
+
+        event = self._store_event(status=closed_status)
+        invite = await self._store_invite(event)
+        reg = self._store_registration(event, invite.id, phone="+49 170 1234567")
+
+        reg_service = registration_service_module.get_registration_service()
+
+        updated, error = await reg_service.update_festival_attendance(
+            reg.id,
+            reg.registration_token,
+            FestivalAttendancePatch(attendance_slots=["fr", "sa"], group_size=1),
+        )
+        assert error is None, f"manage page blocked by status {closed_status}: {error!r}"
+        assert updated.attendance_slots == ["fr", "sa"]
+
+        overnight, error = await reg_service.update_festival_attendance(
+            reg.id,
+            reg.registration_token,
+            FestivalAttendancePatch(tent_count=1, phone="+49 170 1234567"),
+        )
+        assert error is None, f"overnight edit blocked: {error!r}"
+        assert overnight.tent_count == 1
+
+        cancelled, error = await reg_service.cancel_registration(
+            reg.id, reg.registration_token,
+        )
+        assert error is None, f"cancelling blocked: {error!r}"
+        assert cancelled.status == RegistrationStatus.CANCELLED

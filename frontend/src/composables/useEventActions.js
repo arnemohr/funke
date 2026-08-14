@@ -91,6 +91,16 @@ export function useEventActions({ event, registrations, refreshEvent, refreshReg
   }
 
   async function completeEvent(evt) {
+    // Same one-way door as the festival page's COMPLETED transition — and the
+    // sibling action („Absagen") already demands a typed confirmation, so this
+    // one firing straight off the click was an inconsistency, not a decision.
+    const ok = window.confirm(
+      'Veranstaltung wirklich abschließen?\n\n' +
+        'Anmeldungen lassen sich danach nicht mehr bearbeiten.\n\n' +
+        'Das lässt sich nicht rückgängig machen.',
+    )
+    if (!ok) return
+
     completing.value = true
     try {
       const updated = await adminApi.completeEvent(evt.id)

@@ -20,12 +20,13 @@ Platzhalter stehen in geschweiften Klammern, z. B. `{Name}`, und werden beim Ver
 | `{Version}` | Versionsnummer des Fahrberichts |
 | `{Buchungstext}` | Der Buchungstext aus dem Fahrbericht |
 | `{Zeitfenster}` | Festival: die gewählten Zeitfenster, kommagetrennt, z. B. „Freitag, Samstag“ – nie als Zeitspanne |
-| `{Schlafplatz}` | Festival: Übernachtungswunsch – „Nein“ / „Zelt — angefragt“ / „Zelt — zugesagt“ / „Camper — angefragt“ / „Camper — zugesagt“. Die Zusage wird telefonisch abgestimmt, es gibt keine automatische Freigabe-Mail |
+| `{Schlafplatz}` | Festival: Übernachtungswunsch plus Antwort – „Nein“ / „2 Zelte — angefragt“ / „2 Zelte — zugesagt“ / „2 Zelte — leider nicht möglich“. In der Zusage-Mail (F8) und der Ablehnungs-Mail (F9) steht nur der Wunsch selbst („2 Zelte, 1 Camper“) ohne Status – die ganze Mail *ist* die Antwort |
 | `{EinladungsLink}` | Festival: persönlicher oder Kontingent-Link zur Anmeldung |
 | `{KontaktAdresse}` | Festival: die hinterlegte Kontaktadresse für Rückfragen |
 | `{MitmachHinweis}` | Festival: der konfigurierte Mitmach-Hinweis inkl. Schichtplan-Link (nur wenn hinterlegt) |
 | `{Kontaktperson}` | Festival: Name der Person, die die Anmeldung gemacht hat (nur in den Begleitungs-Mails F5/F6) |
-| `{TicketLink}` | Festival: Link zur eigenen, **nur lesbaren** Eintritts-Code-Seite einer Begleitung. Nicht der Verwaltungslink — darüber kann niemand ändern oder absagen |
+| `{TicketLink}` | Festival: Link zur eigenen Eintritts-Code-Seite einer Begleitung. Dort kann diese Person **nur ihre eigenen Tage** ändern oder sich selbst abmelden — nicht die Anmeldung der Gruppe. Nicht der Verwaltungslink |
+| `{Begleitung}` | Festival: Name der Begleitung, die sich selbst abgemeldet hat (nur in F7) |
 
 ---
 
@@ -596,7 +597,11 @@ Dein Orga-Team
 
 ## 18. Festival: Eintritts-Code für Begleitung (F5)
 
-**Wann?** Bei der Anmeldung an jede Begleitung, für die eine E-Mail-Adresse eingetragen wurde — und bei einer Selbst-Änderung an jede Begleitung, deren Adresse **neu oder korrigiert** wurde. Nicht bei einer Änderung der Zeitfenster und nicht bei einer Umbenennung: der Code bleibt gültig, und die Ticket-Seite unterschreibt ihn bei jedem Aufruf neu.
+**Wann?** Bei der Anmeldung an jede Begleitung, für die eine E-Mail-Adresse eingetragen wurde. Bei einer Selbst-Änderung zusätzlich an jede Begleitung, deren Adresse **neu oder korrigiert** wurde **oder deren Name geändert wurde**.
+
+Warum auch beim Umbenennen: der Name steckt mit im signierten Code, und der Einlass vergleicht ihn mit dem aktuellen Namen. Nach einer Umbenennung wird der QR im Postfach dieser Person als „stale_ticket" abgewiesen — sie braucht einen neuen. **Nicht** bei einer Änderung der Zeitfenster: die Tage im Code sind nur Information und werden am Einlass nie geprüft, der Code bleibt gültig.
+
+Begleitungen **ohne** hinterlegte Adresse sind per Mail nicht erreichbar. Deren Codes holt die Kontaktperson auf ihrer Verwaltungsseite ab — die unterschreibt bei jedem Aufruf neu und zeigt immer gültige Codes für die ganze Gruppe. Umbenennungen über die **Admin**-Bearbeitung lösen bewusst keine Mail aus (dort korrigiert die Orga Daten nach Rücksprache); der QR dieser Person ist danach ebenfalls tot und muss über die Verwaltungsseite neu geholt werden.
 
 **Enthält genau einen QR-Code** — den dieser Person (`cid:qr-{person_index}`). **Kein Verwaltungslink** in keiner der beiden Fassungen: mit diesem Token könnte man die ganze Gruppe ändern oder absagen. Keine Schlafplatz-Zeile — Zelt/Camper ist ein Gruppen-Wunsch, den die Kontaktperson abstimmt.
 
@@ -655,5 +660,105 @@ Wenn das ein Versehen war, melde dich bei {Kontaktperson} — oder schreib
 uns: {KontaktAdresse}
 
 Bis zum nächsten Mal,
+Dein Orga-Team
+```
+
+---
+
+## 20. Festival: Begleitung hat sich abgemeldet (F7)
+
+**Wann?** Wenn eine Begleitung sich über ihre eigene Eintritts-Code-Seite selbst abmeldet (Spec 021). Die Mail geht an die **Kontaktperson**, nicht an die Begleitung: deren Planungszahlen haben sich ohne ihr Zutun geändert, und sie ist die Person, die die Orga darauf ansprechen wird.
+
+**Betreff:**
+```
+Änderung bei deiner Anmeldung: {Veranstaltung}
+```
+
+**Text:**
+```
+Moin {Name},
+
+{Begleitung} hat sich von deiner Anmeldung für "{Veranstaltung}"
+abgemeldet — der Eintritts-Code dieser Person gilt nicht mehr.
+
+Ihr seid jetzt {Personen} {Personenwort}.
+
+Deine Anmeldung verwalten:
+{Verwaltungslink}
+
+Bei Fragen: {KontaktAdresse}
+
+Bis bald,
+Dein Orga-Team
+```
+
+---
+
+## 21. Festival: Übernachtung zugesagt (F8)
+
+**Wann?** Sobald eine Übernachtungs-Anfrage im Admin freigegeben wird („Darf übernachten“). Die Mail geht an die **angemeldete Person**, nie an Begleitungen — die Übernachtung gehört zur Gruppe, und Änderungen laufen über die Kontaktperson.
+
+Jede Zusage wird nur **einmal** verschickt (festgehalten im Feld `overnight_notified_at`). Wird eine Zusage zurückgenommen, wird die Markierung gelöscht: eine erneute Zusage schickt wieder eine Mail. Für Zusagen aus der Zeit vor dieser Mail — und als Wiederholung nach einem Fehlversand — gibt es im Tab „Übernachtungs-Anfragen“ den Knopf **„Zusagen benachrichtigen“**.
+
+**Betreff:**
+```
+Übernachtung zugesagt: {Veranstaltung}
+```
+
+**Text:**
+```
+Moin {Name},
+
+gute Nachricht: ihr könnt auf dem Gelände übernachten. Wir haben euren
+Schlafplatz fest eingeplant.
+
+Eure Übernachtung:
+- Schlafplatz: {Schlafplatz}
+- Wann: {Zeitfenster}
+- Personen: {Personen} {Personenwort}
+
+Stellplätze sind knapp — wenn sich etwas ändert oder ihr sie nicht braucht,
+sag uns bitte möglichst früh Bescheid:
+{Verwaltungslink}
+
+Bei Fragen: {KontaktAdresse}
+
+Bis bald,
+Dein Orga-Team
+```
+
+---
+
+## 22. Festival: Übernachtung abgelehnt (F9)
+
+**Wann?** Wenn eine Übernachtungs-Anfrage im Admin mit „Kann nicht übernachten“ abgelehnt wird. Die Mail geht an die **angemeldete Person**, nie an Begleitungen — genau wie die Zusage F8.
+
+Der Zustand „abgelehnt“ und die Mail sind dasselbe: gespeichert wird der Zeitstempel `overnight_declined_at`, und der wird erst gesetzt, wenn die Mail in der Warteschlange liegt. Eine Anmeldung kann also nie als abgelehnt angezeigt werden, ohne dass die Person Bescheid bekommen hat. Zusage und Ablehnung schließen sich aus — wer zugesagt hat, muss die Zusage erst zurücknehmen.
+
+Der **Übernachtungswunsch bleibt gespeichert**, damit die Zahlen auf der Headcount-Seite weiter zeigen, was angefragt war. Nimmt man die Ablehnung zurück („Ablehnung zurücknehmen“), geht **keine** Mail raus — die Anfrage ist dann wieder offen. Löscht die Person ihren Wunsch selbst, verschwindet die Ablehnung mit: ein neuer Wunsch ist eine neue Anfrage.
+
+**Betreff:**
+```
+Übernachtung leider nicht möglich: {Veranstaltung}
+```
+
+**Text:**
+```
+Moin {Name},
+
+leider können wir euch keinen Schlafplatz auf dem Gelände zusagen — die
+Stellplätze sind vergeben.
+
+Angefragt hattet ihr: {Schlafplatz}.
+
+Ihr seid natürlich trotzdem dabei, euer Eintritts-Code gilt unverändert. Nur
+übernachten geht dieses Mal nicht.
+
+Deine Anmeldung verwalten:
+{Verwaltungslink}
+
+Bei Fragen: {KontaktAdresse}
+
+Bis bald,
 Dein Orga-Team
 ```

@@ -202,28 +202,53 @@ def _build_slot_labels(event: Event, attendance_slots: list[str] | None) -> str:
     return ", ".join(slot.label for slot in (event.festival_slots or []) if slot.key in chosen)
 
 
-def _build_accommodation_label(
+def _build_overnight_units_label(
     tent_count: int | None,
     camper_count: int | None,
-    overnight_approved: bool,
 ) -> str | None:
-    """Render {Schlafplatz}: Ä17/Ä21 request semantics.
+    """The bare tent/camper units, e.g. "2 Zelte, 1 Camper" (Ä21).
 
-    No overnight wish -> None (the "- Schlafplatz: …" line is omitted
-    entirely). Otherwise the tent/camper units, e.g. "2 Zelte, 1 Camper —
-    angefragt" until an admin sets `overnight_approved`, then "... —
-    zugesagt". There is deliberately no automatic approval email —
-    organizers coordinate by phone (Ä17).
+    `None` when there is no overnight wish at all. Used unsuffixed by the F8
+    approval mail (where the whole message IS the "zugesagt") and with a
+    status suffix by `_build_accommodation_label`.
     """
     parts: list[str] = []
     if tent_count:
         parts.append(f"{tent_count} {'Zelt' if tent_count == 1 else 'Zelte'}")
     if camper_count:
         parts.append(f"{camper_count} Camper")
-    if not parts:
+    return ", ".join(parts) if parts else None
+
+
+def _build_accommodation_label(
+    tent_count: int | None,
+    camper_count: int | None,
+    overnight_approved: bool,
+    overnight_declined: bool = False,
+) -> str | None:
+    """Render {Schlafplatz}: Ä17/Ä21 request semantics.
+
+    No overnight wish -> None (the "- Schlafplatz: …" line is omitted
+    entirely). Otherwise the tent/camper units plus the current answer:
+    "2 Zelte, 1 Camper — angefragt" while it is open, "— zugesagt" once an
+    admin approves, "— leider nicht möglich" once one refuses. Each of the two
+    answers is announced by its own mail (F8/F9); this label only ever reports
+    the state inside the OTHER festival mails, so a guest who was refused never
+    keeps reading "angefragt" forever.
+
+    `overnight_declined` is defaulted so the many existing call sites that
+    predate F9 keep compiling; they simply never render the refused wording.
+    """
+    units = _build_overnight_units_label(tent_count, camper_count)
+    if not units:
         return None
-    status = "zugesagt" if overnight_approved else "angefragt"
-    return f"{', '.join(parts)} — {status}"
+    if overnight_approved:
+        status = "zugesagt"
+    elif overnight_declined:
+        status = "leider nicht möglich"
+    else:
+        status = "angefragt"
+    return f"{units} — {status}"
 
 
 class EmailTemplates:
@@ -1148,6 +1173,163 @@ Dein Orga-Team
         return subject, text_body, html_body
 
     @staticmethod
+    def festival_overnight_approved(ctx: EmailContext) -> tuple[str, str, str]:
+        """Generate the overnight-approval email (F8).
+
+        Goes to the person who registered — companions never get it; their
+        overnight stay is part of the group's wish, and every change has to
+        go back through the contact person anyway.
+
+        `accommodation_label` carries the BARE units here ("2 Zelte,
+        1 Camper", built by `_build_overnight_units_label`) — the whole mail
+        is the "zugesagt", so repeating the status suffix would read oddly.
+
+        Returns: (subject, text_body, html_body)
+        """
+        subject = f"Übernachtung zugesagt: {ctx.event_name}"
+        persons = "Person" if ctx.group_size == 1 else "Personen"
+
+        # Omit rather than print an empty value — a group without slot labels
+        # (legacy row, or an event whose slots were renamed) still gets a
+        # readable mail.
+        slot_line_text = f"\n- Wann: {ctx.slot_labels}" if ctx.slot_labels else ""
+        slot_line_html = (
+            f"<li><strong>Wann:</strong> {ctx.slot_labels}</li>" if ctx.slot_labels else ""
+        )
+        # Same guard for the units: the claim-then-send window means the wish
+        # could have been cleared between claiming and rendering, and
+        # "Schlafplatz: None" must never reach a guest.
+        accommodation_line_text = (
+            f"\n- Schlafplatz: {ctx.accommodation_label}" if ctx.accommodation_label else ""
+        )
+        accommodation_line_html = (
+            f"<li><strong>Schlafplatz:</strong> {ctx.accommodation_label}</li>"
+            if ctx.accommodation_label
+            else ""
+        )
+        contact_paragraph_text = (
+            f"\n\nBei Fragen: {ctx.contact_hint}" if ctx.contact_hint else ""
+        )
+        contact_paragraph_html = (
+            f"<p>Bei Fragen: {ctx.contact_hint}</p>" if ctx.contact_hint else ""
+        )
+
+        text_body = f"""Moin {ctx.attendee_name},
+
+gute Nachricht: ihr könnt auf dem Gelände übernachten. Wir haben euren
+Schlafplatz fest eingeplant.
+
+Eure Übernachtung:{accommodation_line_text}{slot_line_text}
+- Personen: {ctx.group_size} {persons}
+
+Stellplätze sind knapp — wenn sich etwas ändert oder ihr sie nicht braucht,
+sag uns bitte möglichst früh Bescheid:
+{ctx.management_url}{contact_paragraph_text}
+
+Bis bald,
+Dein Orga-Team
+"""
+
+        html_body = f"""
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: sans-serif; line-height: 1.6; color: #333;">
+    <h2 style="color: #2563eb;">Übernachtung zugesagt</h2>
+    <p>Moin {ctx.attendee_name},</p>
+    <p>gute Nachricht: ihr könnt auf dem Gelände übernachten. Wir haben euren Schlafplatz fest eingeplant.</p>
+
+    <h3>Eure Übernachtung</h3>
+    <ul>
+        {accommodation_line_html}
+        {slot_line_html}
+        <li><strong>Personen:</strong> {ctx.group_size} {persons}</li>
+    </ul>
+
+    <p>Stellplätze sind knapp — wenn sich etwas ändert oder ihr sie nicht braucht, sag uns bitte möglichst früh Bescheid.</p>
+
+    <p style="margin-top: 20px;">
+        <a href="{ctx.management_url}" style="display: inline-block; padding: 10px 20px; background: #2563eb; color: white; text-decoration: none; border-radius: 6px;">Anmeldung verwalten</a>
+    </p>
+
+    {contact_paragraph_html}
+
+    <p>Bis bald,<br>Dein Orga-Team</p>
+</body>
+</html>
+"""
+        return subject, text_body, html_body
+
+    @staticmethod
+    def festival_overnight_declined(ctx: EmailContext) -> tuple[str, str, str]:
+        """Generate the overnight-refusal email (F9).
+
+        The counterpart to F8, to the same recipient (the person who
+        registered). Two things it must get right: the guest is still WELCOME —
+        only the pitch is refused, not the invitation — and the reason is
+        capacity, not their request being wrong. `accommodation_label` carries
+        the bare units, i.e. what they asked for.
+
+        Returns: (subject, text_body, html_body)
+        """
+        subject = f"Übernachtung leider nicht möglich: {ctx.event_name}"
+
+        wish_text = (
+            f"\n\nAngefragt hattet ihr: {ctx.accommodation_label}."
+            if ctx.accommodation_label
+            else ""
+        )
+        wish_html = (
+            f"<p>Angefragt hattet ihr: {ctx.accommodation_label}.</p>"
+            if ctx.accommodation_label
+            else ""
+        )
+        contact_paragraph_text = (
+            f"\n\nBei Fragen: {ctx.contact_hint}" if ctx.contact_hint else ""
+        )
+        contact_paragraph_html = (
+            f"<p>Bei Fragen: {ctx.contact_hint}</p>" if ctx.contact_hint else ""
+        )
+
+        text_body = f"""Moin {ctx.attendee_name},
+
+leider können wir euch keinen Schlafplatz auf dem Gelände zusagen — die
+Stellplätze sind vergeben.{wish_text}
+
+Ihr seid natürlich trotzdem dabei, euer Eintritts-Code gilt unverändert. Nur
+übernachten geht dieses Mal nicht.
+
+Deine Anmeldung verwalten:
+{ctx.management_url}{contact_paragraph_text}
+
+Bis bald,
+Dein Orga-Team
+"""
+
+        html_body = f"""
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: sans-serif; line-height: 1.6; color: #333;">
+    <h2 style="color: #2563eb;">Übernachtung leider nicht möglich</h2>
+    <p>Moin {ctx.attendee_name},</p>
+    <p>leider können wir euch keinen Schlafplatz auf dem Gelände zusagen — die Stellplätze sind vergeben.</p>
+    {wish_html}
+    <p><strong>Ihr seid natürlich trotzdem dabei</strong>, euer Eintritts-Code gilt unverändert. Nur übernachten geht dieses Mal nicht.</p>
+
+    <p style="margin-top: 20px;">
+        <a href="{ctx.management_url}" style="display: inline-block; padding: 10px 20px; background: #2563eb; color: white; text-decoration: none; border-radius: 6px;">Anmeldung verwalten</a>
+    </p>
+
+    {contact_paragraph_html}
+
+    <p>Bis bald,<br>Dein Orga-Team</p>
+</body>
+</html>
+"""
+        return subject, text_body, html_body
+
+    @staticmethod
     def festival_cancelled(ctx: EmailContext) -> tuple[str, str, str]:
         """Generate festival cancellation confirmation email (F4).
 
@@ -1342,6 +1524,59 @@ Dein Orga-Team
     <p>{safe_contact} hat die Anmeldung für <strong>"{html.escape(ctx.event_name or "")}"</strong> storniert — für dich damit auch. <strong>Dein Eintritts-Code funktioniert nicht mehr.</strong></p>
     <p>Wenn das ein Versehen war, melde dich bei {safe_contact}{contact_line_html}</p>
     <p>Bis zum nächsten Mal,<br>Dein Orga-Team</p>
+</body>
+</html>
+"""
+        return subject, text_body, html_body
+
+
+    @staticmethod
+    def festival_companion_left(ctx: EmailContext, companion_name: str) -> tuple[str, str, str]:
+        """Tell the contact a companion removed themselves — **F7** (spec 021).
+
+        Goes to the CONTACT, not the companion: their planning numbers just
+        changed without their involvement, and they are the one the organisers
+        will ask. `companion_name` is escaped for the same reason as F5/F6 —
+        it is free text typed by a guest.
+        """
+        subject = f"Änderung bei deiner Anmeldung: {ctx.event_name}"
+        persons = "Person" if ctx.group_size == 1 else "Personen"
+        contact_line_text = f"\n\nBei Fragen: {ctx.contact_hint}" if ctx.contact_hint else ""
+
+        text_body = f"""Moin {ctx.attendee_name},
+
+{companion_name} hat sich von deiner Anmeldung für "{ctx.event_name}"
+abgemeldet — der Eintritts-Code dieser Person gilt nicht mehr.
+
+Ihr seid jetzt {ctx.group_size} {persons}.
+
+Deine Anmeldung verwalten:
+{ctx.management_url}{contact_line_text}
+
+Bis bald,
+Dein Orga-Team
+"""
+
+        safe_attendee = html.escape(ctx.attendee_name or "")
+        safe_companion = html.escape(companion_name or "")
+        contact_line_html = (
+            f"<p>Bei Fragen: {ctx.contact_hint}</p>" if ctx.contact_hint else ""
+        )
+
+        html_body = f"""
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: sans-serif; line-height: 1.6; color: #333;">
+    <h2 style="color: #555;">Eine Begleitung hat abgesagt</h2>
+    <p>Moin {safe_attendee},</p>
+    <p><strong>{safe_companion}</strong> hat sich von deiner Anmeldung für <strong>"{html.escape(ctx.event_name or "")}"</strong> abgemeldet — der Eintritts-Code dieser Person gilt nicht mehr.</p>
+    <p>Ihr seid jetzt <strong>{ctx.group_size} {persons}</strong>.</p>
+    <p style="margin-top: 20px;">
+        <a href="{ctx.management_url}" style="display: inline-block; padding: 10px 20px; background: #2563eb; color: white; text-decoration: none; border-radius: 6px;">Anmeldung verwalten</a>
+    </p>
+    {contact_line_html}
+    <p>Bis bald,<br>Dein Orga-Team</p>
 </body>
 </html>
 """
@@ -1984,6 +2219,7 @@ class EmailService:
                 registration.tent_count,
                 registration.camper_count,
                 registration.overnight_approved,
+                registration.overnight_declined,
             ),
             contact_hint=event.contact_hint,
             mitmach_hint=event.participation_hint,
@@ -2008,6 +2244,7 @@ class EmailService:
                     registration.group_members,
                     registration.attendance_slots,
                     registration.overnight_approved,
+                    registration.member_slots,
                 )
                 for t in tickets:
                     png = generate_qr_png(t.code)
@@ -2079,6 +2316,7 @@ class EmailService:
                     registration.group_members,
                     registration.attendance_slots,
                     registration.overnight_approved,
+                    registration.member_slots,
                 )
                 ticket = next(
                     (t for t in tickets if t.person_index == recipient.person_index),
@@ -2129,7 +2367,11 @@ class EmailService:
             registration_status=registration.status.value,
             # Deliberately NO management_url (D1) — that token could cancel the
             # whole group. Companions get the read-only ticket page instead.
-            slot_labels=_build_slot_labels(event, registration.attendance_slots),
+            # Spec 021: this recipient's OWN days, so the mail agrees with their
+            # ticket page and with what the board counts for them.
+            slot_labels=_build_slot_labels(
+                event, registration.effective_member_slots(recipient.person_index),
+            ),
             contact_hint=event.contact_hint,
             mitmach_hint=event.participation_hint,
             contact_name=registration.name,
@@ -2218,6 +2460,39 @@ class EmailService:
 
         return sent
 
+    async def send_festival_companion_left(
+        self,
+        event: Event,
+        registration: Registration,
+        companion_name: str,
+    ) -> bool:
+        """Notify the contact that a companion removed themselves — F7 (spec 021)."""
+        ctx = EmailContext(
+            event_name=event.name,
+            event_date=_format_date(event.start_at),
+            event_location=event.location,
+            attendee_name=registration.name,
+            attendee_email=registration.email,
+            group_size=registration.group_size,
+            registration_status=registration.status.value,
+            management_url=_build_management_url(
+                registration.id, registration.registration_token,
+            ),
+            contact_hint=event.contact_hint,
+        )
+        subject, text_body, html_body = EmailTemplates.festival_companion_left(
+            ctx, companion_name,
+        )
+        return await self._send_email(
+            event_id=event.id,
+            registration_id=registration.id,
+            to=registration.email,
+            subject=subject,
+            text_body=text_body,
+            html_body=html_body,
+            message_type=MessageType.FESTIVAL_UPDATE,
+        )
+
     async def send_festival_update_confirmation(
         self,
         event: Event,
@@ -2250,6 +2525,7 @@ class EmailService:
                 registration.tent_count,
                 registration.camper_count,
                 registration.overnight_approved,
+                registration.overnight_declined,
             ),
             contact_hint=event.contact_hint,
         )
@@ -2264,6 +2540,110 @@ class EmailService:
             text_body=text_body,
             html_body=html_body,
             message_type=MessageType.FESTIVAL_UPDATE,
+        )
+
+    async def send_festival_overnight_approval(
+        self,
+        event: Event,
+        registration: Registration,
+    ) -> bool:
+        """Send the overnight-approval email (F8).
+
+        Recipient is the registered person (`registration.email`), never a
+        companion. Dedup is NOT this method's job — the caller
+        (`RegistrationService.notify_overnight_approval`) claims
+        `overnight_notified_at` before asking us to send.
+
+        Args:
+            event: The festival event.
+            registration: The registration whose overnight wish was granted.
+
+        Returns:
+            True if email was queued successfully.
+        """
+        ctx = EmailContext(
+            event_name=event.name,
+            event_date=_format_date(event.start_at),
+            event_location=event.location,
+            attendee_name=registration.name,
+            attendee_email=registration.email,
+            group_size=registration.group_size,
+            registration_status=registration.status.value,
+            management_url=_build_management_url(
+                registration.id,
+                registration.registration_token,
+            ),
+            slot_labels=_build_slot_labels(event, registration.attendance_slots),
+            # Bare units, not the "— zugesagt" label (see template docstring).
+            accommodation_label=_build_overnight_units_label(
+                registration.tent_count,
+                registration.camper_count,
+            ),
+            contact_hint=event.contact_hint,
+        )
+
+        subject, text_body, html_body = EmailTemplates.festival_overnight_approved(ctx)
+
+        return await self._send_email(
+            event_id=event.id,
+            registration_id=registration.id,
+            to=registration.email,
+            subject=subject,
+            text_body=text_body,
+            html_body=html_body,
+            message_type=MessageType.FESTIVAL_OVERNIGHT_APPROVAL,
+        )
+
+    async def send_festival_overnight_decline(
+        self,
+        event: Event,
+        registration: Registration,
+    ) -> bool:
+        """Send the overnight-refusal email (F9).
+
+        Mirror image of `send_festival_overnight_approval`: same recipient (the
+        registered person, never a companion), same "caller owns the dedup"
+        contract — `RegistrationService.notify_overnight_decline` claims
+        `overnight_declined_at` before asking us to send.
+
+        Args:
+            event: The festival event.
+            registration: The registration whose overnight wish was refused.
+
+        Returns:
+            True if email was queued successfully.
+        """
+        ctx = EmailContext(
+            event_name=event.name,
+            event_date=_format_date(event.start_at),
+            event_location=event.location,
+            attendee_name=registration.name,
+            attendee_email=registration.email,
+            group_size=registration.group_size,
+            registration_status=registration.status.value,
+            management_url=_build_management_url(
+                registration.id,
+                registration.registration_token,
+            ),
+            slot_labels=_build_slot_labels(event, registration.attendance_slots),
+            # What they asked for, without a status suffix — the mail IS the answer.
+            accommodation_label=_build_overnight_units_label(
+                registration.tent_count,
+                registration.camper_count,
+            ),
+            contact_hint=event.contact_hint,
+        )
+
+        subject, text_body, html_body = EmailTemplates.festival_overnight_declined(ctx)
+
+        return await self._send_email(
+            event_id=event.id,
+            registration_id=registration.id,
+            to=registration.email,
+            subject=subject,
+            text_body=text_body,
+            html_body=html_body,
+            message_type=MessageType.FESTIVAL_OVERNIGHT_DECLINE,
         )
 
     async def send_festival_cancellation(

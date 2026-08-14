@@ -62,10 +62,11 @@ Eine Gruppe von Links mit gleichen Regeln nennen wir **Kontingent** — zum Beis
    - **an welchen Tagen du kommst** — Kästchen zum Ankreuzen: **Freitag / Samstag / Sonntag**,
    - ob du **übernachtest** — trag ein, **wie viele Zelte und/oder Camper/Wohnwagen** ihr mitbringt (beides möglich, wenn ihr z. B. mit Zelt *und* Camper kommt). Gezählt werden die Zelte/Fahrzeuge, nicht die Personen — die Stellplätze sind knapp. Nichts eintragen = keine Übernachtung. Deine Angabe ist eine **Anfrage**, keine Zusage — wir melden uns bei dir.
 4. Danach bekommst du eine Bestätigungs-E-Mail. Darin steht alles noch einmal — und ein **Verwaltungs-Link**.
-5. Mit dem Verwaltungs-Link kannst du deine Angaben **jederzeit selbst ändern** — die Anmeldung läuft bis zum letzten Festival-Tag, auch während des Festivals.
-6. **Absagen geht immer.** Bitte sag ab, wenn du nicht kommst — dann stimmen unsere Zahlen fürs Essen und die Stellplätze.
-7. Auf der Verwaltungs-Seite findest du später auch die **Eintritts-Codes** (QR-Codes) für dich und deine Begleitungen. Bei jeder Person steht dabei, ob ihr Code schon per Mail rausgegangen ist — die Übrigen leitest du bitte selbst weiter.
-8. Beim **ersten Ankommen**: Code am Eingang zeigen (oder einfach deinen Namen nennen) → du bekommst dein **Festival-Bändchen**. Danach reicht das Bändchen — für rein und raus, an allen Tagen.
+5. **Wer kommt an welchen Tagen?** Die Tage gelten zuerst für alle in der Gruppe. Kommt jemand nur an einzelnen Tagen, kann die Kontaktperson das **pro Person** eintragen — und eine Begleitung mit E-Mail-Adresse kann ihre eigenen Tage auch selbst auf ihrer Seite anpassen oder sich abmelden. So wissen wir, wie viele Leute wirklich an welchem Tag da sind.
+6. Mit dem Verwaltungs-Link kannst du deine Angaben **jederzeit selbst ändern** — die Anmeldung läuft bis zum letzten Festival-Tag, auch während des Festivals.
+7. **Absagen geht immer.** Bitte sag ab, wenn du nicht kommst — dann stimmen unsere Zahlen fürs Essen und die Stellplätze.
+8. Auf der Verwaltungs-Seite findest du später auch die **Eintritts-Codes** (QR-Codes) für dich und deine Begleitungen. Bei jeder Person steht dabei, ob ihr Code schon per Mail rausgegangen ist — die Übrigen leitest du bitte selbst weiter.
+9. Beim **ersten Ankommen**: Code am Eingang zeigen (oder einfach deinen Namen nennen) → du bekommst dein **Festival-Bändchen**. Danach reicht das Bändchen — für rein und raus, an allen Tagen.
 
 **Niemand wird abgewiesen, weil ein Zeitfenster „voll" ist.** Die Angaben sind für unsere Planung, nicht zum Aussperren.
 **Aber:** Ohne Anmeldung kommt niemand rein. Es gibt keine spontane Anmeldung am Eingang — jede:r braucht vorher einen Link.
@@ -109,8 +110,9 @@ Alle E-Mails klingen wie immer bei uns („Moin …", freundlich, auf Deutsch):
 2. **Bestätigung** — nach der Anmeldung: deine Tage, Begleitungen, dein Verwaltungs-Link und der Mitmach-Hinweis mit dem Schichtplan-Link.
 3. **Änderungs-Bestätigung** — wenn du etwas geändert hast.
 4. **Absage-Bestätigung** — wenn du abgesagt hast.
-5. **Eigener Eintritts-Code für Begleitungen** — an jede Begleitung, für die eine E-Mail-Adresse eingetragen wurde. Darin steht **nur ihr eigener Code**, dazu ihre Tage und ein Link zu einer eigenen kleinen Seite, auf der ihr Code immer aktuell ist. Ändern oder absagen kann darüber niemand — das läuft weiter über die Person, die die Anmeldung gemacht hat.
-6. **Absage-Hinweis an Begleitungen** — wird eine Anmeldung storniert, sagen wir den Begleitungen mit E-Mail-Adresse Bescheid, dass ihr Code nicht mehr funktioniert. Sonst stehen sie am Eingang und wundern sich.
+5. **Begleitung hat sich abgemeldet** — wenn eine Begleitung sich über ihre eigene Seite abmeldet, sagen wir es der Person, die die Anmeldung gemacht hat. Sonst planen wir mit einer Person zu viel.
+6. **Eigener Eintritts-Code für Begleitungen** — an jede Begleitung, für die eine E-Mail-Adresse eingetragen wurde. Darin steht **nur ihr eigener Code**, dazu ihre Tage und ein Link zu einer eigenen kleinen Seite, auf der ihr Code immer aktuell ist. Ändern oder absagen kann darüber niemand — das läuft weiter über die Person, die die Anmeldung gemacht hat.
+7. **Absage-Hinweis an Begleitungen** — wird eine Anmeldung storniert, sagen wir den Begleitungen mit E-Mail-Adresse Bescheid, dass ihr Code nicht mehr funktioniert. Sonst stehen sie am Eingang und wundern sich.
 
 ---
 

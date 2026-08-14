@@ -486,6 +486,21 @@ async function handleTransition(status) {
     const ok = window.confirm('Festival wirklich absagen? Das lässt sich nicht rückgängig machen.')
     if (!ok) return
   }
+  // COMPLETED is a one-way door with teeth: the gate scanner refuses to boot
+  // for a completed event (checkin.py `_GATE_OPEN_STATUSES`) and every admin
+  // edit is frozen. From CONFIRMED it sits one unguarded click away from
+  // „Absagen", which is exactly the misclick this catches. `window.confirm`
+  // rather than a <dialog>, to match the branch above — same shape, no new
+  // state to get wrong.
+  if (status === 'COMPLETED') {
+    const ok = window.confirm(
+      'Festival wirklich abschließen?\n\n' +
+        'Der Einlass-Scanner funktioniert danach nicht mehr, und Anmeldungen ' +
+        'lassen sich nicht mehr bearbeiten.\n\n' +
+        'Das lässt sich nicht rückgängig machen.',
+    )
+    if (!ok) return
+  }
   transitioning.value = status
   try {
     const updated = await adminApi.festival.setStatus(festivalEvent.value.id, status)

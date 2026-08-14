@@ -63,6 +63,58 @@ def _normalize_overnight_counts(model: BaseModel, group_size: int) -> None:
             raise ValueError(f"{field} must not exceed group_size")
 
 
+def _clean_member_slots(
+    slots: dict | None,
+    members: list[str | None] | None,
+    group_slots: list[str] | None,
+) -> dict[str, list[str]] | None:
+    """Normalise the per-person day overrides (spec 021 E4).
+
+    A sparse map keyed by person index as a string — `{"0": ["fr"]}` — holding
+    only the people whose days DIFFER from the group's `attendance_slots`.
+    Person 0 is the contact, `i >= 1` is `group_members[i - 1]`.
+
+    Kept sparse on purpose: an override equal to the group's days is dropped, so
+    the map answers "who has actually been asked?" rather than accumulating
+    noise. Entries are also dropped — never raised on — when they point at a
+    tombstoned or non-existent member, for the same reason the address arrays
+    degrade on read: this runs on every load, and one bad row must not become a
+    registration nobody can open.
+    """
+    if not slots:
+        return None
+
+    member_count = len(members or [])
+    baseline = list(group_slots or [])
+    cleaned: dict[str, list[str]] = {}
+
+    for raw_key, raw_value in slots.items():
+        try:
+            index = int(raw_key)
+        except (TypeError, ValueError):
+            continue
+        if index < 0 or index > member_count:
+            continue
+        # index 0 is the contact, who always exists; 1.. must be a live member.
+        if index >= 1 and (members or [])[index - 1] is None:
+            continue
+
+        chosen: list[str] = []
+        seen: set[str] = set()
+        for entry in raw_value or []:
+            key = str(entry).strip()
+            if key and key not in seen:
+                seen.add(key)
+                chosen.append(key)
+        if not chosen:
+            continue
+        if chosen == baseline:
+            continue  # No difference — not an override.
+        cleaned[str(index)] = chosen
+
+    return cleaned or None
+
+
 def _clean_member_emails(v: list[str | None] | None) -> list[str | None] | None:
     """Shape-only pre-validation for companion addresses (spec 020).
 
@@ -316,6 +368,9 @@ class FestivalAttendancePatch(BaseModel):
     # entry is None — on a patch that is a request to clear every address, and
     # folding it to None would make it indistinguishable from "not provided".
     group_member_emails: list[EmailStr | None] | None = None
+    # Spec 021: per-person day overrides the CONTACT sets for their companions.
+    # Slot-key membership needs the event, so it stays a service concern.
+    member_slots: dict[str, list[str]] | None = None
 
     @field_validator("group_members")
     @classmethod
@@ -416,11 +471,18 @@ class RegistrationAdminPatch(BaseModel):
     # deliberately mail-SILENT (D3): only the guest-facing create/self-edit
     # flows send companion mail.
     group_member_emails: list[EmailStr | None] | None = None
+    # Spec 021 — organizers fix per-person days after a phone call. Mail-silent.
+    member_slots: dict[str, list[str]] | None = None
     # Festival sidetrack (spec 019, T205) — additive optional fields.
     attendance_slots: list[str] | None = None
     tent_count: int | None = Field(None, ge=0, le=20)
     camper_count: int | None = Field(None, ge=0, le=20)
     overnight_approved: bool | None = None
+    # `True` refuses the wish and mails F9 (the service claims
+    # `overnight_declined_at` and sends); `False` withdraws a refusal silently,
+    # putting the request back to „angefragt". Refusing an APPROVED wish is
+    # rejected — withdraw the approval first, so the two can never both hold.
+    overnight_declined: bool | None = None
 
     @field_validator("name")
     @classmethod
@@ -502,6 +564,11 @@ class Registration(BaseModel):
     # i+1). `None` = no address; that companion's QR still goes to the contact.
     # Not in the `email-index` GSI, so it never affects the duplicate check.
     group_member_emails: list[EmailStr | None] | None = None
+    # Spec 021 E4: per-person day OVERRIDES, keyed by person index as a string.
+    # Absent key = that person has the group's `attendance_slots`. With an empty
+    # map every derived number (headcount, gate CSV, QR payload) is identical to
+    # pre-021 behaviour — read it through `effective_member_slots`, never directly.
+    member_slots: dict[str, list[str]] | None = None
     status: RegistrationStatus = RegistrationStatus.REGISTERED
     waitlist_position: int | None = None
     registration_token: str  # For cancellation/confirmation links
@@ -528,6 +595,26 @@ class Registration(BaseModel):
     # via any public endpoint; a single flag confirms the whole overnight wish
     # (tents + campers together); drives the „angefragt"/„zugesagt" display.
     overnight_approved: bool = False
+    # When the F8 approval mail was queued for this registration. The dedup
+    # marker for both send paths (the approval toggle and the bulk catch-up
+    # button), so nobody is told twice. Cleared whenever the approval is
+    # withdrawn or the overnight wish disappears, so a later re-approval
+    # mails again. Never written by a public endpoint.
+    overnight_notified_at: datetime | None = None
+    # When the F9 refusal mail was queued. Presence IS the "declined" state —
+    # it means "we have told them no", so the state can never run ahead of the
+    # message. Mutually exclusive with `overnight_approved` by construction:
+    # approving clears this, and declining is refused while approved. The WISH
+    # (tent/camper counts) is deliberately kept, so the headcount still shows
+    # the demand that was turned down. Deliberately NOT a tri-state enum: the
+    # gate and headcount read `overnight_approved` only, so a refused request
+    # keeps behaving exactly like an open one everywhere downstream.
+    overnight_declined_at: datetime | None = None
+
+    @property
+    def overnight_declined(self) -> bool:
+        """Whether this overnight wish was refused AND the guest was told."""
+        return self.overnight_declined_at is not None
 
     @model_validator(mode="after")
     def _align_member_emails(self) -> "Registration":
@@ -555,7 +642,28 @@ class Registration(BaseModel):
                 drop_orphans=True,
             ),
         )
+        object.__setattr__(
+            self,
+            "member_slots",
+            _clean_member_slots(
+                self.member_slots, self.group_members, self.attendance_slots,
+            ),
+        )
         return self
+
+    def effective_member_slots(self, person_index: int) -> list[str]:
+        """The days person `person_index` is actually planning to come (spec 021).
+
+        THE single reader for per-person days — headcount, gate CSV, ticket
+        signing and F5 all go through it, so those four can never disagree about
+        when someone is coming. Falls back to the group's `attendance_slots`
+        when that person has no override, which is why an override-free
+        registration behaves exactly as it did before 021.
+        """
+        override = (self.member_slots or {}).get(str(person_index))
+        if override:
+            return list(override)
+        return list(self.attendance_slots or [])
 
     @property
     def has_overnight(self) -> bool:
@@ -660,6 +768,8 @@ class RegistrationResponse(BaseModel):
     # Spec 020 — index-aligned with `group_members`; lets the manage page show
     # per-companion "Code geschickt" vs "leite ihren QR weiter".
     group_member_emails: list[str | None] | None = None
+    # Spec 021 — per-person day overrides (sparse; absent = the group's days).
+    member_slots: dict[str, list[str]] | None = None
     registered_at: datetime
     responded_at: datetime | None
     promoted: bool = False
@@ -669,5 +779,11 @@ class RegistrationResponse(BaseModel):
     camper_count: int | None = None
     phone: str | None = None
     overnight_approved: bool = False
+    # Lets the admin list show "benachrichtigt" and count who still owes a
+    # mail. Harmless for the guest to see on their own manage page — it only
+    # says when we wrote to them.
+    overnight_notified_at: datetime | None = None
+    # Presence = the overnight wish was refused and the guest was told (F9).
+    overnight_declined_at: datetime | None = None
     invite_label: str | None = None
     tier: str | None = None
