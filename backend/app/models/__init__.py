@@ -18,6 +18,21 @@ from .bar_item import (
     ConsumptionResult,
     StockAdjustmentRequest,
 )
+from .charter import (
+    CharterAdminSignRequest,
+    CharterContract,
+    CharterContractResponse,
+    CharterContractSummary,
+    CharterContractUpsert,
+    CharterCountersign,
+    CharterPublicView,
+    CharterSignature,
+    CharterSignedConfirm,
+    CharterSignRequest,
+    CharterStatus,
+    CharterUpload,
+    SignatureRole,
+)
 from .event import (
     Event,
     EventCreate,
@@ -26,6 +41,15 @@ from .event import (
     EventType,
     EventUpdate,
     FestivalSlot,
+)
+from .event_photos import (
+    EventPhoto,
+    EventPhotoConfig,
+    EventPhotoConfigUpdate,
+    EventPhotoConfirm,
+    EventPhotoState,
+    EventPhotoUpload,
+    EventPhotoUploadRequest,
 )
 from .fahrbericht import (
     ComputedTotals,
@@ -42,6 +66,15 @@ from .invite import (
     InviteBatchCreate,
     InviteCreate,
     InviteUpdate,
+)
+from .lost_and_found import (
+    LostAndFoundConfig,
+    LostAndFoundConfigUpdate,
+    LostAndFoundPhoto,
+    LostAndFoundPhotoConfirm,
+    LostAndFoundPhotoState,
+    LostAndFoundUpload,
+    PresignedPost,
 )
 from .lottery import LotteryResult, LotteryRun
 from .message import (
@@ -101,6 +134,24 @@ __all__ = [
     "EventType",
     "EventUpdate",
     "FestivalSlot",
+    # Event photos (spec 024) — `PresignedPost` is intentionally not re-exported
+    # here; the one in `lost_and_found` owns that name, and 024 keeps its own
+    # copy module-local (see event_photos.PresignedPost).
+    "EventPhoto",
+    "EventPhotoConfig",
+    "EventPhotoConfigUpdate",
+    "EventPhotoConfirm",
+    "EventPhotoState",
+    "EventPhotoUpload",
+    "EventPhotoUploadRequest",
+    # Lost & found (spec 023)
+    "LostAndFoundConfig",
+    "LostAndFoundConfigUpdate",
+    "LostAndFoundPhoto",
+    "LostAndFoundPhotoConfirm",
+    "LostAndFoundPhotoState",
+    "LostAndFoundUpload",
+    "PresignedPost",
     # Lottery
     "LotteryResult",
     "LotteryRun",
@@ -156,6 +207,20 @@ __all__ = [
     "InviteBatchCreate",
     "InviteCreate",
     "InviteUpdate",
+    # Charter contract (spec 025)
+    "CharterAdminSignRequest",
+    "CharterContract",
+    "CharterContractResponse",
+    "CharterContractSummary",
+    "CharterContractUpsert",
+    "CharterCountersign",
+    "CharterPublicView",
+    "CharterSignRequest",
+    "CharterSignature",
+    "CharterSignedConfirm",
+    "CharterStatus",
+    "CharterUpload",
+    "SignatureRole",
     # Report (spec 013)
     "EmailStatus",
     "LineItem",

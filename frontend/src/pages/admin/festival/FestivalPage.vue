@@ -50,11 +50,13 @@
         </div>
       </div>
 
-      <!-- Section shortcuts: the three working areas of a festival -->
+      <!-- Section shortcuts: the working areas of a festival -->
       <nav class="section-nav" aria-label="Festival-Bereiche">
         <button type="button" class="outline" @click="goToInvites">Gästelisten</button>
         <button type="button" class="outline" @click="goToHeadcount">Wer kommt wann</button>
         <button type="button" class="outline" @click="goToRegistrations">Anmeldungen</button>
+        <button type="button" class="outline" @click="goToLostFound">Fundsachen</button>
+        <button type="button" class="outline" @click="goToEventPhotos">Fotos</button>
       </nav>
 
       <!-- Einlass: scanner gate link (T303) + CSV exports -->
@@ -186,6 +188,27 @@
         </footer>
       </form>
 
+      <!-- Datenschutz: anonymisieren (nur nach Abschluss/Absage — vorher
+           braucht das Festival seine Adressen noch) -->
+      <div v-if="canAnonymize || isAnonymized" class="danger-zone">
+        <h4>Datenschutz</h4>
+        <p v-if="isAnonymized">
+          <small>
+            Personendaten anonymisiert am {{ formatDateTimeLocal(festivalEvent.anonymized_at) }}.
+            Namen, Adressen und Telefonnummern sind entfernt; Zahlen, Zeitfenster
+            und Check-ins bleiben erhalten.
+          </small>
+        </p>
+        <button
+          v-else
+          type="button"
+          class="btn-danger outline"
+          @click="anonymizeModalOpen = true"
+        >
+          Personendaten anonymisieren
+        </button>
+      </div>
+
       <!-- Gefahrenzone: delete (only once cancelled, mirrors the regular
            event delete guard — DELETE /api/admin/events/{id} requires
            CANCELLED too) -->
@@ -196,6 +219,52 @@
         </button>
       </div>
     </template>
+
+    <!-- Anonymize modal -->
+    <dialog :open="anonymizeModalOpen">
+      <article>
+        <header>
+          <a href="#" aria-label="Schließen" class="close" @click.prevent="closeAnonymizeModal" />
+          <h3>Personendaten anonymisieren</h3>
+        </header>
+        <p>
+          Namen, E-Mail-Adressen, Telefonnummern, Anmerkungen und alle
+          verschickten Mails werden unwiderruflich durch Pseudonyme ersetzt —
+          in Anmeldungen, Einladungen und im Check-in-Protokoll.
+        </p>
+        <p>
+          <strong>Erhalten bleiben:</strong> Gruppengrößen, Zeitfenster, Zelt-/
+          Camper-Zahlen, Übernachtungs-Zusagen, Kontingent-Zahlen und alle
+          Check-in-Auswertungen.
+        </p>
+        <p>
+          <small>
+            Alle bereits verschickten Verwaltungs-, Ticket- und Einladungslinks
+            hören danach auf zu funktionieren. Diese Aktion kann nicht rückgängig
+            gemacht werden.
+          </small>
+        </p>
+        <div v-if="anonymizeError" role="alert" class="error-message">{{ anonymizeError }}</div>
+        <!-- Ein großes Festival braucht mehrere Durchläufe — Fortschritt statt Stillstand. -->
+        <p v-else-if="anonymizing && anonymizeProgress" role="status">
+          <small>{{ anonymizeProgress }} Datensätze bereinigt...</small>
+        </p>
+        <footer>
+          <button type="button" class="secondary" :disabled="anonymizing" @click="closeAnonymizeModal">
+            Abbrechen
+          </button>
+          <button
+            type="button"
+            class="btn-danger"
+            :disabled="anonymizing"
+            :aria-busy="anonymizing"
+            @click="handleAnonymize"
+          >
+            {{ anonymizing ? 'Wird anonymisiert...' : 'Anonymisieren' }}
+          </button>
+        </footer>
+      </article>
+    </dialog>
 
     <!-- Delete modal -->
     <dialog :open="deleteModalOpen">
@@ -249,6 +318,20 @@ const gateError = ref('')
 const deleteModalOpen = ref(false)
 const deleting = ref(false)
 const deleteError = ref(null)
+
+const anonymizeModalOpen = ref(false)
+const anonymizing = ref(false)
+const anonymizeError = ref(null)
+// Rows done so far, counted across the backend's passes (see adminApi.anonymizeEvent).
+const anonymizeProgress = ref(0)
+
+const isAnonymized = computed(() => Boolean(festivalEvent.value?.anonymized_at))
+
+// Mirrors the backend guard (ANONYMIZABLE_STATUSES): before the festival is
+// over it still has to be able to mail people.
+const canAnonymize = computed(
+  () => ['COMPLETED', 'CANCELLED'].includes(festivalEvent.value?.status),
+)
 
 function emptySlot() {
   return { label: '', date: '', is_night: false, capacity: null, _key: null, _persisted: false }
@@ -551,6 +634,33 @@ async function handleDeleteFestival() {
   }
 }
 
+function closeAnonymizeModal() {
+  anonymizeModalOpen.value = false
+  anonymizeError.value = null
+  anonymizeProgress.value = 0
+}
+
+async function handleAnonymize() {
+  anonymizing.value = true
+  anonymizeError.value = null
+  anonymizeProgress.value = 0
+  try {
+    // Shared route for SINGLE and FESTIVAL events — the work is identical.
+    const result = await adminApi.anonymizeEvent(festivalEvent.value.id, {
+      onProgress: ({ rows }) => {
+        anonymizeProgress.value = rows
+      },
+    })
+    festivalEvent.value = { ...festivalEvent.value, anonymized_at: result.anonymized_at }
+    anonymizeModalOpen.value = false
+    showToast(`Anonymisiert — ${result.rows_touched} Datensätze bereinigt`, 'success')
+  } catch (err) {
+    anonymizeError.value = err.message || 'Anonymisierung fehlgeschlagen'
+  } finally {
+    anonymizing.value = false
+  }
+}
+
 function goToInvites() {
   router.push(`/admin/festival/${festivalEvent.value.id}/invites`)
 }
@@ -561,6 +671,18 @@ function goToHeadcount() {
 
 function goToRegistrations() {
   router.push(`/admin/festival/${festivalEvent.value.id}/registrations`)
+}
+
+// Spec 023 — the Fundsachen page is shared with SINGLE events and lives under
+// /admin/events/…, so it is addressed by route name rather than by path.
+function goToLostFound() {
+  router.push({ name: 'admin-lost-and-found', params: { eventId: festivalEvent.value.id } })
+}
+
+// Spec 024 — same arrangement for the photo collection: one admin page under
+// /admin/events/…, reached by name from both event kinds.
+function goToEventPhotos() {
+  router.push({ name: 'admin-event-photos', params: { eventId: festivalEvent.value.id } })
 }
 
 onMounted(loadFestival)
@@ -591,7 +713,7 @@ onMounted(loadFestival)
   min-height: 44px;
 }
 
-/* The three working areas — full-width tap targets on phones. */
+/* The working areas — full-width tap targets on phones. */
 .section-nav {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

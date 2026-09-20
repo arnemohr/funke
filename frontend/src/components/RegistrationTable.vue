@@ -516,7 +516,13 @@ function smsLink(reg) {
     right: 1rem;
     left: auto;
     top: auto;
-    bottom: 5rem;
+    /* Clears the tab bar, plus whatever sticky bar the host page parks above
+       it — EventDetailPage's „Abschließen" CTA sat right on top of the lowest
+       menu item. Hosts declare their own chrome via --bottom-obstruction. */
+    bottom: calc(5rem + var(--bottom-obstruction, 0px) + env(safe-area-inset-bottom, 0px));
+    /* Above .bottom-nav (1000) and .sticky-cta (50), which otherwise paint
+       over the lowest menu item and eat its taps. */
+    z-index: 1001;
   }
 
   .context-menu-item {

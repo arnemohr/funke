@@ -48,6 +48,9 @@ def _invite_to_item(invite: Invite) -> dict:
         "max_uses": invite.max_uses,
         "use_count": invite.use_count,
         "max_group_size": invite.max_group_size,
+        # Written unconditionally so the flag is legible without the attribute
+        # existing yet on rows created before „Späte Fische".
+        "late_entry": invite.late_entry,
         "created_at": invite.created_at.isoformat(),
         "entity_type": "Invite",
     }
@@ -58,6 +61,9 @@ def _invite_to_item(invite: Invite) -> dict:
 
     if invite.email:
         item["email"] = invite.email
+
+    if invite.original_max_uses is not None:
+        item["original_max_uses"] = invite.original_max_uses
 
     if invite.expires_at:
         item["expires_at"] = invite.expires_at.isoformat()
@@ -91,6 +97,10 @@ def _item_to_invite(item: dict) -> Invite:
         max_uses=int(item["max_uses"]),
         use_count=int(item["use_count"]),
         max_group_size=int(item["max_group_size"]),
+        late_entry=bool(item.get("late_entry", False)),
+        original_max_uses=(
+            int(item["original_max_uses"]) if item.get("original_max_uses") is not None else None
+        ),
         expires_at=datetime.fromisoformat(item["expires_at"]) if item.get("expires_at") else None,
         revoked_at=datetime.fromisoformat(item["revoked_at"]) if item.get("revoked_at") else None,
         created_at=datetime.fromisoformat(item["created_at"]),
@@ -151,6 +161,7 @@ class InviteService:
                     tier=entry.tier,
                     max_uses=entry.max_uses,
                     max_group_size=entry.max_group_size,
+                    late_entry=entry.late_entry,
                     expires_at=entry.expires_at,
                     created_by_admin_id=admin_id,
                 )
@@ -300,6 +311,40 @@ class InviteService:
         updates = patch.model_dump(exclude_unset=True)
         if not updates:
             return await self.get_invite(event_id, invite_id)
+
+        # „Späte Fische" override: reopening a closed Kontingent clamps
+        # `max_uses` down to `use_count + n`, because handing a widely-shared
+        # link its whole remainder back is how one misclick reopens a hundred
+        # seats. The original allowance is snapshotted here and restored on
+        # close, so the clamp is a temporary state and not a silent one-way
+        # edit of the number.
+        #
+        # Enforced in the SERVICE, not the UI: a direct API call gets the same
+        # protection, and the invariant „original_max_uses is set exactly while
+        # a list is clamped" lives in one place.
+        if "late_entry" in updates:
+            current = await self.get_invite(event_id, invite_id)
+            if current is None:
+                return None
+            if updates["late_entry"]:
+                # Snapshot only on the FIRST reopen — reopening an already-open
+                # list a second time must not overwrite the real original with
+                # the clamped value.
+                if current.original_max_uses is None and "max_uses" in updates:
+                    # Snapshot on ANY change, not only a clamp down: reopening a
+                    # spent personal link (1/1) grows it to 2, and without a
+                    # snapshot that growth would never be undone on close. One
+                    # rule — „reopening remembers what it was, closing puts it
+                    # back" — beats two behaviours that differ by direction.
+                    updates["original_max_uses"] = current.max_uses
+            elif current.original_max_uses is not None:
+                # Closing restores the list to what it was. Safe: with
+                # `late_entry` off the link is governed by the deadline and the
+                # event status again, so a restored allowance is not live
+                # unless registration itself is open — in which case it is
+                # simply the correct number.
+                updates["max_uses"] = current.original_max_uses
+                updates["original_max_uses"] = None
 
         # Targeted SET/REMOVE expression — never a full put_item, which
         # would rewrite a stale use_count read moments earlier and undo a

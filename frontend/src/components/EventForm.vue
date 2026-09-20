@@ -1,5 +1,16 @@
 <template>
   <form @submit.prevent="$emit('submit', formData)" class="compact-form">
+    <!-- Nach dem Anmeldeschluss ist die Verlosung gegen Plätze und Frist
+         gelaufen, und Name bzw. Termin stehen in bereits verschickten Mails.
+         Editierbar bleibt, was niemanden fehlleitet: Beschreibung, Zeit, Ort. -->
+    <p v-if="lockedFields.length" role="status" class="locked-note">
+      <small>
+        Die Anmeldung ist geschlossen. Änderbar sind nur noch
+        <strong>Beschreibung</strong>, <strong>Datum &amp; Uhrzeit</strong> und
+        <strong>Ort</strong> — die übrigen Felder sind gesperrt, weil die
+        Verlosung bereits gegen sie gelaufen ist.
+      </small>
+    </p>
     <div class="form-row">
       <label :for="`${prefix}Name`">
         Name *
@@ -9,7 +20,7 @@
           type="text"
           required
           placeholder="Schaluppen Tour"
-          :disabled="disabled"
+          :disabled="disabled || isLocked('name')"
         />
       </label>
       <label :for="`${prefix}Location`">
@@ -55,7 +66,7 @@
           min="1"
           max="500"
           required
-          :disabled="disabled"
+          :disabled="disabled || isLocked('capacity')"
         />
       </label>
     </div>
@@ -68,7 +79,7 @@
           v-model="form.registrationDeadline"
           type="datetime-local"
           required
-          :disabled="disabled"
+          :disabled="disabled || isLocked('registrationDeadline')"
         />
       </label>
       <label :for="`${prefix}ReminderSchedule`">
@@ -78,7 +89,7 @@
           v-model="form.reminderSchedule"
           type="text"
           placeholder="7, 3, 1"
-          :disabled="disabled"
+          :disabled="disabled || isLocked('reminderSchedule')"
         />
       </label>
     </div>
@@ -87,7 +98,7 @@
       <input
         v-model="form.autopromoteWaitlist"
         type="checkbox"
-        :disabled="disabled"
+        :disabled="disabled || isLocked('autopromoteWaitlist')"
       />
       Automatisch von der Warteliste nachrücken lassen
     </label>
@@ -122,7 +133,14 @@ const props = defineProps({
   error: { type: String, default: null },
   submitLabel: { type: String, default: 'Erstellen' },
   submitBusyLabel: { type: String, default: 'Wird erstellt...' },
+  // Feldnamen, die nicht mehr geändert werden dürfen. Die Policy sitzt beim
+  // Aufrufer (EventEditPage) — das Formular kennt keine Event-Status.
+  lockedFields: { type: Array, default: () => [] },
 })
+
+function isLocked(field) {
+  return props.lockedFields.includes(field)
+}
 
 const emit = defineEmits(['submit', 'cancel'])
 
@@ -205,6 +223,13 @@ const formData = computed(() => ({
 </script>
 
 <style scoped>
+.locked-note {
+  margin-bottom: var(--space-3, 0.75rem);
+  padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+  border-left: 3px solid var(--muted-border-color, #cbd5e1);
+  background: var(--card-sectioning-background-color, #f8fafc);
+}
+
 .compact-form label {
   margin-bottom: 0.75rem;
 }

@@ -6,18 +6,19 @@ Covers:
 - Promoted exceeding capacity raises error
 """
 
-import pytest
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
-from datetime import datetime, timedelta, timezone
+
+import pytest
 
 from app.models import EventStatus, EventType, RegistrationStatus
+from app.services.event_service import _event_to_item
 from app.services.lottery_service import LotteryService, _lottery_run_to_item
 from app.services.registration_service import (
     RegistrationService,
     _registration_to_item,
 )
-from app.services.event_service import _event_to_item
 
 
 class TestLotteryUnderCapacity:

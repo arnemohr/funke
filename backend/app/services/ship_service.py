@@ -25,8 +25,8 @@ from ..models import (
 )
 from .config import (
     SHIP_PK,
-    SHIP_SK_STATE,
     SHIP_SK_EVENT_MARKER_PREFIX,
+    SHIP_SK_STATE,
     get_ship_state_table,
 )
 from .logging import get_logger

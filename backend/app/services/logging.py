@@ -105,7 +105,10 @@ class ContextualLogger(logging.LoggerAdapter):
         self, msg: str, kwargs: dict[str, Any],
     ) -> tuple[str, dict[str, Any]]:
         """Add context to log messages."""
-        extra = kwargs.get("extra", {})
+        # A copy, not the caller's dict: several callers pass the very dict they
+        # go on to return (the worker tasks pass their result payload), and
+        # writing the ids into it would grow keys their contract does not have.
+        extra = dict(kwargs.get("extra", {}))
 
         # Add request/correlation IDs from context
         request_id = request_id_var.get()

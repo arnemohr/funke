@@ -731,17 +731,39 @@ class RegistrationService:
         if not event:
             return None, "Event not found"
 
-        if event.event_type != EventType.FESTIVAL or event.status != EventStatus.OPEN:
+        if event.event_type != EventType.FESTIVAL:
             return None, "Registration is not open for this event"
 
         deadline = event.registration_deadline
         if deadline.tzinfo is None:
             deadline = deadline.replace(tzinfo=UTC)
-        if datetime.now(UTC) >= deadline:
-            return None, "Registration deadline has passed"
 
-        if invite.is_expired(event.registration_deadline):
+        # One decision point for status + deadline + expiry + exhaustion, shared
+        # with the invite boot and the guestlist page, so the three can never
+        # disagree about whether this link still works („Späte Fische": a
+        # `late_entry` invite outlives the deadline and the OPEN-only rule).
+        block_reason = invite.registration_block_reason(event.status, deadline)
+        # NOTE: the exhaustion answer here is only a friendly early exit. The
+        # authoritative, race-safe check is the atomic `consume_use` below —
+        # two people redeeming the last seat at once are separated there, not
+        # here. Do not delete that one in favour of this.
+        if block_reason == "exhausted":
+            return None, "Invite has been exhausted"
+        if block_reason in ("revoked", "expired"):
             return None, "Invite has expired"
+        if block_reason == "deadline_passed":
+            return None, "Registration deadline has passed"
+        if block_reason is not None:
+            return None, "Registration is not open for this event"
+
+        # „Später Fisch" links are bound to the address they were issued to: a
+        # forwarded link can then only produce a registration for the original
+        # person, whose mailbox receives the entry code. That is what makes the
+        # link worthless to pass on, without needing an approval step.
+        if invite.binds_to_email:
+            submitted = (data.email or "").strip().lower()
+            if submitted != invite.email.strip().lower():
+                return None, "Email does not match this invite"
 
         if data.group_size > invite.max_group_size:
             return (

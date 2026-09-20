@@ -27,6 +27,38 @@ class DynamoDBSettings(BaseSettings):
     finance_report_inbox: str | None = None
     reports_s3_bucket: str | None = None
 
+    # Spec 022: days after an event finishes before the daily sweep
+    # pseudonymises its personal data. Counted from `cancelled_at` for a
+    # cancelled event, otherwise from `end_at`/`start_at`.
+    anonymization_retention_days: int = 90
+
+    # Spec 023: private bucket holding the lost & found photos. Unset locally —
+    # the service then refuses to mint upload permissions and serves `None`
+    # image URLs instead of failing a whole page.
+    lost_and_found_s3_bucket: str | None = None
+    # Days a lost & found page stays up, counted from the same event end as the
+    # anonymisation sweep. Same default, own knob: a box of jackets follows a
+    # different rhythm than a data-protection retention period. Overridable per
+    # page (7-365).
+    lost_and_found_retention_days: int = 90
+
+    # Spec 024: private bucket holding the event photos guests upload. Its own
+    # bucket, not the lost & found one — opposite access direction, different
+    # blast radius. Unset locally, in which case the service refuses to mint
+    # upload permissions instead of signing against a bucket that isn't there.
+    event_photo_s3_bucket: str | None = None
+    # Days a photo collection lives, counted from the later of event end and
+    # collection creation (same helper as spec 023). Overridable per collection
+    # (7-365). The collection is a transfer point, not an archive: holding
+    # guests' faces indefinitely is a liability without an upside.
+    event_photo_retention_days: int = 90
+    # Pepper for `HMAC-SHA256(pepper, ip)` on the uploader's IP — enough to
+    # tell "400 photos from 30 people" from "400 photos from one person",
+    # without ever storing an address. Unset means NO hash is stored at all:
+    # for a privacy field the safe default is nothing, not "unpeppered if need
+    # be" — a bare hash over the IPv4 space is reversible in seconds.
+    photo_ip_pepper: str | None = None
+
     class Config:
         env_prefix = ""
         case_sensitive = False
@@ -118,8 +150,23 @@ def get_admins_table() -> "Table":
 # in the existing `events` table. No separate Tours table.
 EVENT_PK_PREFIX = "EVENT#"
 EVENT_SK_FAHRBERICHT = "FAHRBERICHT"
+# Spec 025: the charter contract — one bare singleton per event, like FAHRBERICHT.
+EVENT_SK_CHARTER = "CHARTER"
 EVENT_SK_REPORT_POINTER = "REPORT"
 EVENT_SK_INVITE_PREFIX = "INVITE#"
+# Spec 023: the lost & found page and its photos, co-located under the same
+# EVENT# partition as INVITE# rows.
+EVENT_SK_LNF_CONFIG = "LNF#CONFIG"
+EVENT_SK_LNF_PHOTO_PREFIX = "LNF#PHOTO#"
+# Spec 024: the event photo collection, same partition again. No GSI and no
+# timestamp in the sort key — the collection is capped at MAX_PHOTOS, so one
+# `begins_with` query plus an in-memory sort beats any index, and `photo_id`
+# stays a UUID that GetItem/PATCH/DELETE address directly.
+EVENT_SK_PHOTO_CONFIG = "PHOTOS#CONFIG"
+EVENT_SK_PHOTO_ITEM_PREFIX = "PHOTOS#ITEM#"
+# One row per clock hour, carrying the hourly mint quota. Expires via the
+# table's `ttl` attribute, so the counter cleans up after itself.
+EVENT_SK_PHOTO_QUOTA_PREFIX = "PHOTOS#QUOTA#"
 
 BAR_PK_PREFIX = "BAR#"
 BAR_SK_META = "META"

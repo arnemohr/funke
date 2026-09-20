@@ -220,6 +220,17 @@ class Event(EventBase):
     # admin EventResponse; only surfaced through the gate-token-authenticated
     # checkin boot endpoint (spec.md:266).
     ticket_secret: str | None = None
+    # When this event's personal data was pseudonymised (spec 022). Presence IS
+    # the anonymised state: it gates the sweep (never twice), blocks every mail
+    # path, and tells the UI to stop offering actions that need real addresses.
+    # Deliberately NOT a status — anonymisation is orthogonal to the lifecycle,
+    # and folding it into EventStatus would have broken every transition table.
+    anonymized_at: datetime | None = None
+
+    @property
+    def is_anonymized(self) -> bool:
+        """Whether this event's personal data has already been pseudonymised."""
+        return self.anonymized_at is not None
 
     def can_transition_to(self, new_status: EventStatus) -> bool:
         """Check if transition to new status is allowed."""

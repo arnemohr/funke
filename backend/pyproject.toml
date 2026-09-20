@@ -16,6 +16,10 @@ dependencies = [
     "jinja2>=3.1.0",
     "pywebpush>=2.0.0",
     "qrcode[pil]>=7.4.0",
+    # Spec 025: PAdES sealing of the finished Chartervertrag. MIT. The private
+    # key lives in KMS and never reaches this process — pyHanko only assembles
+    # the CMS structure around a kms:Sign result.
+    "pyHanko>=0.36.0",
 ]
 
 [project.optional-dependencies]

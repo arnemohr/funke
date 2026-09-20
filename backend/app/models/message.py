@@ -98,7 +98,16 @@ class Message(BaseModel):
     in_reply_to: str | None = None  # Parent Message-ID
     status: MessageStatus = MessageStatus.QUEUED
     retry_count: int = 0
+    # Throttles are counted separately from real failures: „try again later" is
+    # the server asking to be asked again, not the message being undeliverable,
+    # so it must not burn the retry budget a bad address needs.
+    throttle_count: int = 0
     sent_at: datetime | None = None
+    # When delivery was last attempted, successfully or not. `sent_at` used to
+    # carry this too, which meant a message that never went out still looked
+    # sent — and every count over `sent_at` was wrong by the number of
+    # failures.
+    last_attempt_at: datetime | None = None
     received_at: datetime | None = None
     recipient_email: str | None = None
     error_code: str | None = None

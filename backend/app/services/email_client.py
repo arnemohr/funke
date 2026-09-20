@@ -34,7 +34,12 @@ class EmailSettings(BaseSettings):
     smtp_username: str = ""
     smtp_password: str = ""
     smtp_sender_email: str = ""
-    smtp_sender_name: str = "Schaluppe"
+    # Matches the CDK default (`api_stack.py`), deliberately: when the env var
+    # is missing, the fallback must not put a different sender on the mail than
+    # the deployed Lambda does. The old default („Schaluppe") is the boat
+    # project, not the association, so a local run silently sent festival mail
+    # under the wrong name.
+    smtp_sender_name: str = "Verein für mobile Machenschaften e.V."
 
     class Config:
         env_prefix = ""

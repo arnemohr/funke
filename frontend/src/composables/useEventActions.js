@@ -40,6 +40,14 @@ export function useEventActions({ event, registrations, refreshEvent, refreshReg
   const deleting = ref(false)
   const deleteError = ref(null)
 
+  // --- Anonymize modal (spec 022 — confirmation only) ---
+  const anonymizeEventData = ref(null)
+  const anonymizing = ref(false)
+  const anonymizeError = ref(null)
+  // Rows done so far. A large event takes several backend passes, so the modal
+  // counts up instead of showing a spinner for minutes.
+  const anonymizeProgress = ref(0)
+
   // --- Delete registration modal ---
   const deleteRegData = ref(null)
 
@@ -226,6 +234,35 @@ export function useEventActions({ event, registrations, refreshEvent, refreshReg
     }
   }
 
+  function showAnonymizeModal(evt) {
+    anonymizeEventData.value = evt
+    anonymizeError.value = null
+    anonymizeProgress.value = 0
+  }
+
+  async function handleAnonymize() {
+    anonymizing.value = true
+    anonymizeError.value = null
+    anonymizeProgress.value = 0
+    try {
+      const result = await adminApi.anonymizeEvent(anonymizeEventData.value.id, {
+        onProgress: ({ rows }) => {
+          anonymizeProgress.value = rows
+        },
+      })
+      anonymizeEventData.value = null
+      // Refresh rather than patch: every registration row on the page now
+      // shows a pseudonym, not just the event's own badge.
+      await refreshEvent()
+      await refreshRegistrations()
+      showToast(`Anonymisiert — ${result.rows_touched} Datensätze bereinigt`, 'success')
+    } catch (err) {
+      anonymizeError.value = err.message || 'Anonymisierung fehlgeschlagen'
+    } finally {
+      anonymizing.value = false
+    }
+  }
+
   async function handleExportPdf() {
     try {
       await adminApi.exportBoardingPdf(event.value.id)
@@ -316,6 +353,12 @@ export function useEventActions({ event, registrations, refreshEvent, refreshReg
     deleting,
     deleteError,
 
+    // Anonymize modal
+    anonymizeEventData,
+    anonymizing,
+    anonymizeError,
+    anonymizeProgress,
+
     // Delete registration modal
     deleteRegData,
 
@@ -341,6 +384,8 @@ export function useEventActions({ event, registrations, refreshEvent, refreshReg
     handleCancelEvent,
     showDeleteModal,
     handleDelete,
+    showAnonymizeModal,
+    handleAnonymize,
     handleExportPdf,
     handleTogglePromoted,
     handlePromoteWaitlisted,

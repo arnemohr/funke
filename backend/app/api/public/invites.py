@@ -17,7 +17,6 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
 from ...models import (
-    EventStatus,
     FestivalAttendancePatch,
     FestivalRegistrationCreate,
     RegistrationResponse,
@@ -52,6 +51,11 @@ _GERMAN_ERROR_COPY: list[tuple[str, str]] = [
     ("invite revoked", "Dieser Einladungslink ist ungültig."),
     ("event not found", "Dieser Einladungslink ist ungültig."),
     ("registration is not open", "Die Anmeldung ist für dieses Event nicht geöffnet."),
+    (
+        "email does not match this invite",
+        "Dieser Link gilt nur für die Adresse, an die er geschickt wurde. "
+        "Bitte trag genau diese E-Mail-Adresse ein.",
+    ),
     ("registration deadline has passed", "Die Anmeldung ist leider geschlossen."),
     ("invite has expired", "Dieser Einladungslink ist abgelaufen."),
     ("exhausted", "Dieser Einladungslink ist bereits vollständig eingelöst."),
@@ -166,6 +170,11 @@ class InviteInfoResponse(BaseModel):
     participation_hint: str | None
     slots: list[InviteSlotInfo]
     max_group_size: int
+    # „Später Fisch": the address this link is tied to. The form pre-fills and
+    # LOCKS the email field with it, because the submit rejects anything else —
+    # showing an editable field the backend will refuse would just look broken.
+    # `None` for every normal invite, which leaves the field free as before.
+    bound_email: str | None = None
 
 
 class GuestlistSlot(BaseModel):
@@ -291,37 +300,29 @@ async def get_invite_info(invite_token: str) -> InviteInfoResponse:
             detail=_with_contact_hint(detail, event.contact_hint),
         )
 
-    if invite.use_count >= invite.max_uses:
-        raise _reject_boot("exhausted", "Dieser Einladungslink ist bereits vollständig eingelöst.")
-
-    now = datetime.now(timezone.utc)
-
-    if invite.expires_at is not None:
-        expires_at = invite.expires_at
-        if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
-        if now >= expires_at:
-            raise _reject_boot("expired", "Dieser Einladungslink ist abgelaufen.")
-
     deadline = event.registration_deadline
     if deadline.tzinfo is None:
         deadline = deadline.replace(tzinfo=timezone.utc)
-    if now >= deadline:
-        raise _reject_boot("deadline_passed", "Die Anmeldung ist leider geschlossen.")
 
-    # Status gate — the SECOND lever, independent of the deadline. New
-    # registrations need `OPEN`; `create_festival_registration` already enforces
-    # exactly that (registration_service.py:734), so without this check the
-    # guest would fill in the whole form and only be rejected on submit.
+    # Every reason this link might not work, decided in ONE place shared with
+    # `create_festival_registration` and the guestlist page — so the form is
+    # never served for a link that the submit would then reject.
     #
-    # Deliberately NOT applied to editing an existing registration: those paths
-    # accept OPEN / REGISTRATION_CLOSED / CONFIRMED on purpose, so closing
-    # registration never takes the manage page or the companion ticket page
-    # away from people who are already signed up. That separation is the whole
-    # point of having a status as well as a deadline — close the door without
-    # locking in the people already inside.
-    if event.status != EventStatus.OPEN:
-        raise _reject_boot("not_open", "Die Anmeldung ist leider geschlossen.")
+    # The status rule is deliberately NOT applied to editing an existing
+    # registration: those paths accept OPEN / REGISTRATION_CLOSED / CONFIRMED on
+    # purpose, so closing registration never takes the manage page or the
+    # companion ticket page away from people who are already signed up. Close
+    # the door without locking in the people already inside.
+    _BOOT_REJECTIONS = {
+        "revoked": "Dieser Einladungslink ist ungültig.",
+        "exhausted": "Dieser Einladungslink ist bereits vollständig eingelöst.",
+        "expired": "Dieser Einladungslink ist abgelaufen.",
+        "deadline_passed": "Die Anmeldung ist leider geschlossen.",
+        "not_open": "Die Anmeldung ist leider geschlossen.",
+    }
+    block_reason = invite.registration_block_reason(event.status, deadline)
+    if block_reason is not None:
+        raise _reject_boot(block_reason, _BOOT_REJECTIONS[block_reason])
 
     # Ä4 (if-time): per-slot "very_full" soft warning, computed from the
     # same headcount aggregation as the admin board (T201) — booleans
@@ -362,6 +363,7 @@ async def get_invite_info(invite_token: str) -> InviteInfoResponse:
             for slot in (event.festival_slots or [])
         ],
         max_group_size=invite.max_group_size,
+        bound_email=invite.email if invite.binds_to_email else None,
     )
 
 
@@ -419,8 +421,12 @@ async def get_invite_guestlist(invite_token: str) -> InviteGuestlistResponse:
             detail="Dieser Einladungslink ist ungültig.",
         )
 
-    can_register = invite.use_count < invite.max_uses and not invite.is_expired(
-        event.registration_deadline
+    # Same decision the boot and the submit make. This used to be a hand-rolled
+    # pair of checks that never looked at the event status, so after the event
+    # moved to CONFIRMED it kept telling contingent owners „du kannst noch
+    # anmelden" while every actual attempt was refused.
+    can_register = (
+        invite.registration_block_reason(event.status, event.registration_deadline) is None
     )
 
     registration_service = get_registration_service()

@@ -53,6 +53,15 @@
             <a href="#" :class="{ active: statusFilter === 'OVERNIGHT' }" @click.prevent="statusFilter = 'OVERNIGHT'">Übernachtungs-Anfragen ({{ filterCounts.overnight }})</a>
           </li>
           <li>
+            <a href="#" :class="{ active: statusFilter === 'CHECKED_IN' }" @click.prevent="statusFilter = 'CHECKED_IN'">Eingecheckt ({{ filterCounts.checkedIn }})</a>
+          </li>
+          <li>
+            <a href="#" :class="{ active: statusFilter === 'NOT_ARRIVED' }" @click.prevent="statusFilter = 'NOT_ARRIVED'">Noch nicht da ({{ filterCounts.notArrived }})</a>
+          </li>
+          <li v-if="filterCounts.lateEntry > 0">
+            <a href="#" :class="{ active: statusFilter === 'LATE' }" @click.prevent="statusFilter = 'LATE'">Späte Fische ({{ filterCounts.lateEntry }})</a>
+          </li>
+          <li>
             <a href="#" :class="{ active: statusFilter === 'CANCELLED' }" @click.prevent="statusFilter = 'CANCELLED'">Storniert ({{ filterCounts.cancelled }})</a>
           </li>
         </ul>
@@ -64,6 +73,23 @@
         placeholder="Suche nach Name oder E-Mail..."
         class="search-input"
       />
+
+      <!-- „Späte Fische": ONE click, no typing. Everything that bounds it
+           (einmal gültig, eine Person, läuft mit dem Festival ab) comes from
+           fixed defaults — under stress nobody should have to decide anything.
+           The link goes straight to the clipboard to be pasted into a chat. -->
+      <div class="late-fish">
+        <button type="button" :disabled="creatingLateFish" :aria-busy="creatingLateFish" @click="createLateFish">
+          {{ creatingLateFish ? 'Wird angelegt…' : '🐟 Späten Fisch einladen — Link kopieren' }}
+        </button>
+        <span class="late-fish-hint">gilt für genau eine Person, einmal</span>
+      </div>
+      <p v-if="lateFishLink" class="late-fish-result">
+        <template v-if="lateFishCopied">In der Zwischenablage — einfach einfügen und abschicken:</template>
+        <template v-else>Kopieren hat nicht geklappt, bitte von Hand kopieren:</template>
+        <br />
+        <code class="late-fish-link">{{ lateFishLink }}</code>
+      </p>
 
       <!-- F8 catch-up: only in the overnight work queue, where the approvals
            live. Hidden entirely when nobody is waiting for a mail. -->
@@ -104,6 +130,7 @@
               <th v-if="OVERNIGHT_ENABLED">Schlafplatz</th>
               <th>Telefon</th>
               <th v-if="OVERNIGHT_ENABLED && statusFilter === 'OVERNIGHT'">Übernachtung</th>
+              <th>Angekommen</th>
               <th>Status</th>
               <th>Aktionen</th>
             </tr>
@@ -115,7 +142,12 @@
               :class="{ 'row-muted': reg.status === 'CANCELLED' }"
             >
               <td data-label="Name">
+                <!-- A ✓ marks who has actually been scanned. Person index 0 is
+                     the contact, i+1 each companion — the same indices the gate
+                     records, so this is the arrival log, not a guess. -->
+                <span v-if="isPersonCheckedIn(reg, 0)" class="arrived-tick" title="eingecheckt">✓</span>
                 <strong>{{ reg.name }}</strong>
+                <span v-if="isLateFish(reg)" class="late-fish-mark" title="Später Fisch — nach Anmeldeschluss dazugekommen">🐟</span>
                 <template v-if="companionRows(reg).length > 0">
                   <br />
                   <!-- Spec 020: show which companions are reachable by mail, so
@@ -125,6 +157,11 @@
                     :key="row.personIndex"
                     class="companion-row"
                   >
+                    <span
+                      v-if="isPersonCheckedIn(reg, row.personIndex)"
+                      class="arrived-tick"
+                      title="eingecheckt"
+                    >✓</span>
                     + {{ row.name }}<template v-if="row.email"> · {{ row.email }}</template>
                   </small>
                 </template>
@@ -179,6 +216,17 @@
                 >
                   {{ reg.overnight_declined_at ? 'Ablehnung zurücknehmen' : 'Kann nicht übernachten' }}
                 </button>
+              </td>
+              <!-- Arrivals are per PERSON, so a group count is the honest
+                   summary: "2/5" says more than a tick would. -->
+              <td data-label="Angekommen">
+                <span
+                  v-if="arrivedCount(reg) > 0"
+                  :class="['chip', arrivedCount(reg) >= reg.group_size ? 'chip-success' : 'chip-warn']"
+                >
+                  {{ arrivedCount(reg) }}/{{ reg.group_size }}
+                </span>
+                <span v-else class="not-arrived">–</span>
               </td>
               <td data-label="Status">
                 <span :class="['status-badge', `status-${reg.status.toLowerCase()}`]">
@@ -409,13 +457,51 @@ function companionRows(reg) {
 // Slot columns in the event's own festival_slots order (not attendance_slots' order).
 const slotColumns = computed(() => event.value?.festival_slots || [])
 
+// Check-in state from the list endpoint: registration id -> arrived person
+// indices (0 = contact). Absent id = nobody from that group has arrived.
+const checkedIn = ref({})
+
+// Registrations that came in through a „Späte Fische" invite.
+const lateEntryIds = ref(new Set())
+
+function isLateFish(reg) {
+  return lateEntryIds.value.has(reg.id)
+}
+
+// „Späte Fische" creation state
+const creatingLateFish = ref(false)
+const lateFishLink = ref(null)
+const lateFishCopied = ref(false)
+
+function arrivedCount(reg) {
+  return (checkedIn.value[reg.id] || []).length
+}
+
+// "Angekommen" = at least one person from the group has been scanned. A group
+// is rarely all-at-once at the gate, so anything stricter would hide groups
+// that are half here.
+function hasArrived(reg) {
+  return arrivedCount(reg) > 0
+}
+
+function isPersonCheckedIn(reg, personIndex) {
+  return (checkedIn.value[reg.id] || []).includes(personIndex)
+}
+
 const filterCounts = computed(() => {
   const all = registrations.value
+  const active = all.filter((r) => r.status !== 'CANCELLED')
   return {
     all: all.length,
-    active: all.filter((r) => r.status !== 'CANCELLED').length,
+    active: active.length,
     overnight: all.filter(hasOvernight).length,
     cancelled: all.filter((r) => r.status === 'CANCELLED').length,
+    // Arrival tabs count only ACTIVE registrations — a cancelled group that
+    // somehow got scanned is not "expected", and listing it under "noch nicht
+    // da" would send the crew looking for people who called off.
+    checkedIn: active.filter(hasArrived).length,
+    notArrived: active.filter((r) => !hasArrived(r)).length,
+    lateEntry: all.filter(isLateFish).length,
   }
 })
 
@@ -437,6 +523,12 @@ const filteredRegistrations = computed(() => {
     list = list.filter(hasOvernight)
   } else if (statusFilter.value === 'CANCELLED') {
     list = list.filter((r) => r.status === 'CANCELLED')
+  } else if (statusFilter.value === 'CHECKED_IN') {
+    list = list.filter((r) => r.status !== 'CANCELLED' && hasArrived(r))
+  } else if (statusFilter.value === 'NOT_ARRIVED') {
+    list = list.filter((r) => r.status !== 'CANCELLED' && !hasArrived(r))
+  } else if (statusFilter.value === 'LATE') {
+    list = list.filter(isLateFish)
   }
 
   const query = search.value.trim().toLowerCase()
@@ -466,8 +558,15 @@ async function fetchData() {
   ])
   event.value = eventResult
   registrations.value = regResult.items
+  // Absent on a pre-checkin backend, and left empty when the check-in log
+  // could not be read — either way "nobody arrived", never a crash.
+  checkedIn.value = regResult.checked_in || {}
+  lateEntryIds.value = new Set(regResult.late_entry_ids || [])
 }
 
+// One click: create the invite AND send the invitation mail. The defaults are
+// the control — einmal gültig, eine Person, an die Adresse gebunden, läuft mit
+// dem Festival ab. A second person needs a second link, on purpose.
 async function loadRegistrations() {
   loading.value = true
   loadError.value = null
@@ -603,6 +702,64 @@ async function withdrawDecline(reg) {
     showToast(err.message || 'Aktualisieren fehlgeschlagen', 'error')
   } finally {
     togglingId.value = null
+  }
+}
+
+async function createLateFish() {
+  creatingLateFish.value = true
+  lateFishLink.value = null
+  lateFishCopied.value = false
+  try {
+    // No address on purpose: the organiser does not have one at this point, and
+    // a placeholder address would sit in the invite waiting for someone to
+    // press „Mail senden" and bounce off our own domain. The link is handed
+    // over by hand instead, so `send_emails` stays off.
+    //
+    // With no address there is no address-binding either — `max_uses: 1` is
+    // what bounds this link. Forwarding it cannot let extra people in; it can
+    // only mean a different single person uses it first.
+    const stamp = new Date().toLocaleString('de-DE', {
+      timeZone: 'Europe/Berlin',
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+    const result = await adminApi.festival.createInvites(props.eventId, {
+      batch_label: 'Späte Fische',
+      send_emails: false,
+      invites: [
+        {
+          label: `Später Fisch · ${stamp}`,
+          // Tier stays substantive so the headcount's tier breakdown keeps
+          // meaning the same thing; „Späte Fische" lives in batch_label.
+          tier: 'open',
+          max_uses: 1,
+          max_group_size: 1,
+          late_entry: true,
+          expires_at: event.value?.end_at || null,
+        },
+      ],
+    })
+    const created = result.items?.[0]
+    if (!created?.url) {
+      showToast('Link konnte nicht erzeugt werden', 'error')
+      return
+    }
+    lateFishLink.value = created.url
+    try {
+      await navigator.clipboard.writeText(created.url)
+      lateFishCopied.value = true
+    } catch {
+      // Clipboard denied (no HTTPS, no permission) — the link is shown instead.
+      lateFishCopied.value = false
+    }
+    showToast(lateFishCopied.value ? 'Link kopiert' : 'Link angelegt — bitte von Hand kopieren', 'success')
+    await reloadRegistrations()
+  } catch (err) {
+    showToast(err.message || 'Link konnte nicht angelegt werden', 'error')
+  } finally {
+    creatingLateFish.value = false
   }
 }
 
@@ -798,6 +955,56 @@ onMounted(loadRegistrations)
 .chip-success {
   background: var(--color-success-bg);
   color: var(--color-success-text);
+}
+
+/* „Späte Fische": one field and one button, sitting under the search box where
+   the organiser already is. */
+.late-fish {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.late-fish-hint {
+  font-size: 0.85em;
+  color: var(--color-text-muted);
+}
+
+.late-fish-link {
+  word-break: break-all;
+  font-size: 0.9em;
+}
+
+.late-fish button {
+  width: auto;
+  margin: 0;
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.late-fish-result {
+  font-size: 0.85em;
+  color: var(--color-text-muted);
+  margin-bottom: 1rem;
+}
+
+.late-fish-mark {
+  margin-left: 0.3rem;
+  cursor: help;
+}
+
+/* Arrival marker next to a name — green enough to scan down the column for,
+   quiet enough not to compete with the status badges. */
+.arrived-tick {
+  color: var(--color-success-text);
+  font-weight: 700;
+  margin-right: 0.2rem;
+}
+
+.not-arrived {
+  color: var(--color-text-muted);
 }
 
 /* Refused: a settled answer, not an alarm — muted rather than red, so the

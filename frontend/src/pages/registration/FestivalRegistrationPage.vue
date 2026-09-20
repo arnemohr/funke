@@ -61,7 +61,19 @@
               required
               placeholder="deine@email.de"
               :disabled="submitting"
+              :readonly="!!invite?.bound_email"
+              :aria-describedby="invite?.bound_email ? 'email-bound-hint' : undefined"
             />
+            <!-- „Später Fisch": this link only works for the address it was
+                 sent to, and the backend refuses anything else — so the field
+                 is filled in and locked rather than inviting a rejected try.
+                 `readonly`, NOT `disabled`: a disabled input drops out of the
+                 tab order and is skipped by screen readers, so the guest could
+                 neither reach nor hear the address they are registering with.
+                 Readonly keeps it focusable, selectable and announced. -->
+            <small v-if="invite?.bound_email" id="email-bound-hint">
+              Dieser Link gilt persönlich für diese Adresse.
+            </small>
           </label>
 
           <label for="phone">
@@ -332,6 +344,11 @@ async function loadInvite() {
 
   try {
     invite.value = await publicApi.getInviteInfo(inviteToken)
+    // A personally bound link fills its own address in — the guest cannot
+    // change it, so asking them to type it would only invite a typo.
+    if (invite.value.bound_email) {
+      form.email = invite.value.bound_email
+    }
     const slotMap = {}
     for (const slot of invite.value.slots) {
       slotMap[slot.key] = false

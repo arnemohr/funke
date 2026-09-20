@@ -29,6 +29,25 @@
       @close="help.close()"
     />
 
+    <!-- Spec 022: explains why every name on this page is a pseudonym. -->
+    <p v-if="isAnonymized" role="status" class="anonymized-notice">
+      <small>
+        Personendaten anonymisiert am {{ formatDate(event.anonymized_at) }} —
+        Namen und Adressen wurden entfernt, Zahlen und Auswertungen bleiben
+        erhalten. E-Mails können nicht mehr verschickt werden.
+      </small>
+    </p>
+
+    <!-- Spec 025: the only nag before a trip. Deliberately no second chip in
+         the header slot — that slot renders a single badge, and two of them
+         make the status ambiguous. -->
+    <p v-if="charterHandoverDue" role="status" class="charter-notice">
+      <small>
+        Chartervertrag ist noch nicht unterschrieben — Übergabe am
+        {{ charterHandoverLabel }}.
+      </small>
+    </p>
+
     <!-- Skeleton while loading -->
     <div v-if="loading" class="skeleton-container" aria-busy="true" aria-label="Veranstaltung wird geladen">
       <div class="skeleton skeleton-tab-row" />
@@ -161,6 +180,29 @@
           </template>
         </div>
 
+        <!-- Chartervertrag (spec 025) — SINGLE only; the backend rejects a
+             contract on a FESTIVAL with 409 charter_nur_fuer_einzelfahrten. -->
+        <template v-if="showCharterSection">
+          <div class="section-heading">
+            <h3>Chartervertrag</h3>
+          </div>
+          <div class="list-group actions-list">
+            <ListItemButton
+              :icon="FileSignature"
+              chevron
+              @click="goToCharterContract"
+            >
+              {{ charterEntryLabel }}
+              <template #detail>
+                <span>Charterer, Zeitraum, Gebühren — als PDF zum Unterschreiben</span>
+              </template>
+              <template v-if="charterChip" #trailing>
+                <span class="fb-chip" :class="charterChip.class">{{ charterChip.label }}</span>
+              </template>
+            </ListItemButton>
+          </div>
+        </template>
+
         <!-- Actions group -->
         <div class="list-group actions-list">
           <ListItemButton
@@ -195,6 +237,26 @@
             Boardingzettel PDF
           </ListItemButton>
           <ListItemButton
+            :icon="PackageSearch"
+            chevron
+            @click="goToLostFound"
+          >
+            Fundsachen
+            <template #detail>
+              <span>Fotos der liegengebliebenen Sachen als öffentliche Seite</span>
+            </template>
+          </ListItemButton>
+          <ListItemButton
+            :icon="Images"
+            chevron
+            @click="goToEventPhotos"
+          >
+            Fotos
+            <template #detail>
+              <span>Gäste laden ihre Fotos hoch — sehen aber keine</span>
+            </template>
+          </ListItemButton>
+          <ListItemButton
             :icon="MoreHorizontal"
             chevron
             @click="dangerSheetOpen = true"
@@ -222,7 +284,8 @@
       <!-- Messages tab -->
       <div v-show="activeTab === 'messages'" class="tab-content">
         <div class="messages-tab-header">
-          <button @click="actions.showMessageComposer.value = true">
+          <!-- Anonymised events have no addresses left; the backend 409s. -->
+          <button :disabled="isAnonymized" @click="actions.showMessageComposer.value = true">
             Nachricht senden
           </button>
         </div>
@@ -276,6 +339,15 @@
         >
           Veranstaltung absagen
           <template #detail>Alle Angemeldeten werden benachrichtigt</template>
+        </ListItemButton>
+        <ListItemButton
+          v-if="canAnonymize"
+          :icon="EyeOff"
+          variant="danger"
+          @click="() => { dangerSheetOpen = false; actions.showAnonymizeModal(event) }"
+        >
+          Personendaten anonymisieren
+          <template #detail>Namen und Adressen entfernen, Zahlen behalten</template>
         </ListItemButton>
         <ListItemButton
           :icon="Trash2"
@@ -363,6 +435,56 @@
       </article>
     </dialog>
 
+    <!-- Anonymize modal (spec 022) -->
+    <dialog :open="actions.anonymizeEventData.value !== null">
+      <article>
+        <header>
+          <a href="#" aria-label="Schließen" class="close" @click.prevent="actions.anonymizeEventData.value = null" />
+          <h3>Personendaten anonymisieren</h3>
+        </header>
+        <p>
+          Namen, E-Mail-Adressen, Telefonnummern, Anmerkungen und alle
+          verschickten Mails von "{{ actions.anonymizeEventData.value?.name }}"
+          werden unwiderruflich durch Pseudonyme ersetzt.
+        </p>
+        <p>
+          <strong>Erhalten bleiben:</strong> Gruppengrößen, Status, Warteliste
+          und alle Auswertungen.
+        </p>
+        <p>
+          <small>
+            Alle bereits verschickten Verwaltungslinks hören danach auf zu
+            funktionieren. Diese Aktion kann nicht rückgängig gemacht werden.
+          </small>
+        </p>
+        <div v-if="actions.anonymizeError.value" role="alert" class="error-message">
+          {{ actions.anonymizeError.value }}
+        </div>
+        <!-- Große Events brauchen mehrere Durchläufe — Fortschritt statt Stillstand. -->
+        <p v-else-if="actions.anonymizing.value && actions.anonymizeProgress.value" role="status">
+          <small>{{ actions.anonymizeProgress.value }} Datensätze bereinigt...</small>
+        </p>
+        <footer>
+          <button
+            type="button"
+            class="secondary"
+            :disabled="actions.anonymizing.value"
+            @click="actions.anonymizeEventData.value = null"
+          >
+            Abbrechen
+          </button>
+          <button
+            class="btn-danger"
+            :disabled="actions.anonymizing.value"
+            :aria-busy="actions.anonymizing.value"
+            @click="actions.handleAnonymize"
+          >
+            {{ actions.anonymizing.value ? 'Wird anonymisiert...' : 'Anonymisieren' }}
+          </button>
+        </footer>
+      </article>
+    </dialog>
+
     <!-- Capacity warning -->
     <dialog :open="!!actions.capacityWarning.value">
       <article v-if="actions.capacityWarning.value">
@@ -410,14 +532,16 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   HelpCircle, Link2, Send, Copy, FileDown, MoreHorizontal,
-  UserMinus, XCircle, Trash2, Check, ClipboardList, Mail, RotateCcw,
+  UserMinus, XCircle, Trash2, Check, ClipboardList, Mail, RotateCcw, EyeOff,
+  PackageSearch, Images, FileSignature,
 } from 'lucide-vue-next'
 import { adminApi } from '../../services/api'
 import { useEventActions } from '../../composables/useEventActions.js'
 import { useHelp } from '../../components/help/useHelp.js'
-import { formatDate, formatEventStatus } from '../../utils/formatters.js'
+import { formatDate, formatDateOnly, formatEventStatus } from '../../utils/formatters.js'
 import { showToast } from '../../composables/useToast.js'
 import PageHeader from '../../components/PageHeader.vue'
 import IconButton from '../../components/IconButton.vue'
@@ -431,6 +555,8 @@ import HelpPanel from '../../components/help/HelpPanel.vue'
 const props = defineProps({
   eventId: { type: String, required: true },
 })
+
+const router = useRouter()
 
 const event = ref(null)
 const registrations = ref([])
@@ -483,6 +609,21 @@ async function startFahrbericht() {
   } catch (err) {
     showToast(err?.message || 'Fahrbericht anlegen fehlgeschlagen', 'error')
   }
+}
+
+// Spec 023 — same page for SINGLE and FESTIVAL, so it is addressed by name.
+function goToLostFound() {
+  router.push({ name: 'admin-lost-and-found', params: { eventId: props.eventId } })
+}
+
+// Spec 024 — likewise shared between SINGLE and FESTIVAL, likewise by name.
+function goToEventPhotos() {
+  router.push({ name: 'admin-event-photos', params: { eventId: props.eventId } })
+}
+
+// Spec 025 — SINGLE events only, so the guard sits on the entry, not here.
+function goToCharterContract() {
+  router.push({ name: 'admin-charter-contract', params: { eventId: props.eventId } })
 }
 
 function openFahrbericht() {
@@ -541,6 +682,79 @@ function spotsBy(status) {
 }
 const participatingSpots = computed(() => spotsBy('PARTICIPATING'))
 const pendingSpots = computed(() => spotsBy('CONFIRMED'))
+
+const isAnonymized = computed(() => Boolean(event.value?.anonymized_at))
+
+// Spec 025 — the summary block {status, uebergabe_at, signed_on} that
+// GET /api/admin/events/{id} hangs off the event. Read defensively: the page
+// has to keep rendering against an API that has not deployed it yet.
+const charterContract = computed(() => event.value?.charter_contract || null)
+
+// CharterStatus serialises lowercase (unlike the uppercase enums elsewhere),
+// so normalise rather than trusting the case.
+const charterStatus = computed(() => (charterContract.value?.status || '').toLowerCase())
+
+const showCharterSection = computed(
+  () => Boolean(event.value) && event.value.event_type !== 'FESTIVAL',
+)
+
+const charterEntryLabel = computed(() => {
+  if (!charterContract.value) return 'Vertrag anlegen'
+  return charterStatus.value === 'signed' ? 'Vertrag ansehen' : 'Vertrag bearbeiten'
+})
+
+const charterChip = computed(() => {
+  switch (charterStatus.value) {
+    case 'draft':
+      return { class: 'fb-chip--warn', label: 'Entwurf' }
+    case 'sent':
+      return { class: 'fb-chip--warn', label: 'Verschickt' }
+    case 'signed':
+      return {
+        class: 'fb-chip--sent',
+        label: `Signiert am ${formatDateOnly(charterContract.value.signed_on)}`,
+      }
+    default:
+      // No row yet, or a status this build does not know: no chip.
+      return null
+  }
+})
+
+const CHARTER_NAG_WINDOW_MS = 14 * 24 * 60 * 60 * 1000
+
+// „Übergabe am 14.06. um 10:00" — day and time only, Berlin, matching the
+// wording of the banner rather than the app's usual formatDate.
+const charterHandoverLabel = computed(() => {
+  const iso = charterContract.value?.uebergabe_at
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  const tz = { timeZone: 'Europe/Berlin' }
+  const day = d.toLocaleDateString('de-DE', { ...tz, day: '2-digit', month: '2-digit' })
+  const time = d.toLocaleTimeString('de-DE', { ...tz, hour: '2-digit', minute: '2-digit' })
+  return `${day} um ${time}`
+})
+
+const charterHandoverDue = computed(() => {
+  if (!showCharterSection.value || !charterContract.value) return false
+  if (charterStatus.value === 'signed') return false
+  const iso = charterContract.value.uebergabe_at
+  if (!iso) return false
+  const handover = new Date(iso).getTime()
+  if (isNaN(handover)) return false
+  const now = Date.now()
+  // Upper bound is the spec's 14 days. The lower bound runs a day past the
+  // handover instead of stopping at it: an unsigned contract is at its most
+  // urgent on the morning of the trip, and the page is opened that day.
+  return handover <= now + CHARTER_NAG_WINDOW_MS && handover > now - 24 * 60 * 60 * 1000
+})
+
+// Mirrors the backend guard (ANONYMIZABLE_STATUSES): a live event still has to
+// be able to mail its participants. Hidden once done, so the entry cannot be
+// pressed twice.
+const canAnonymize = computed(
+  () => !isAnonymized.value && ['COMPLETED', 'CANCELLED'].includes(event.value?.status),
+)
 
 const primaryCta = computed(() => {
   if (!event.value) return null
@@ -621,11 +835,35 @@ onMounted(async () => {
 
 <style scoped>
 .event-detail-page {
+  /* Containing block for HelpPanel's absolutely-positioned panel. Without it
+     the panel anchors to the document origin and lands off-screen. */
+  position: relative;
   padding-bottom: 8rem;
+  /* Height of .sticky-cta (12px + 48px + 12px + 1px border), rounded up.
+     Read by the registrations list's context menu so it opens clear of the
+     „Abschließen" bar instead of behind it. */
+  --bottom-obstruction: 4.5rem;
 }
 
 .event-description {
   white-space: pre-line;
+}
+
+.anonymized-notice {
+  margin-bottom: var(--space-4);
+  padding: var(--space-3);
+  border-left: 3px solid var(--muted-border-color);
+  background: var(--card-sectioning-background-color);
+}
+
+/* Spec 025 — same shape as the anonymisation notice, but red: this one is a
+   thing to act on, not a thing to know. */
+.charter-notice {
+  margin-bottom: var(--space-4);
+  padding: var(--space-3);
+  border-left: 3px solid var(--color-danger-text);
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
 }
 
 /* Tabs */

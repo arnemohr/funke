@@ -49,7 +49,9 @@ const content = computed(() => {
   border: 1px solid var(--pico-muted-border-color, #e2e8f0);
   border-radius: var(--pico-border-radius, 0.375rem);
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
-  z-index: 100;
+  /* Above .bottom-nav (z-index 1000) — otherwise the tab bar covers the
+     bottom of the sheet and swallows taps meant for the panel. */
+  z-index: 1002;
 }
 
 .help-panel-header {
@@ -142,7 +144,7 @@ const content = computed(() => {
   right: 0;
   bottom: 0;
   background: rgba(0, 0, 0, 0.2);
-  z-index: 99;
+  z-index: 1001;
 }
 
 /* Responsive: bottom sheet on mobile */
@@ -156,6 +158,7 @@ const content = computed(() => {
     width: 100%;
     max-height: 60vh;
     border-radius: var(--pico-border-radius) var(--pico-border-radius) 0 0;
+    padding-bottom: env(safe-area-inset-bottom, 0);
   }
   .help-slide-enter-from,
   .help-slide-leave-to {
@@ -165,7 +168,7 @@ const content = computed(() => {
   .help-backdrop {
     position: fixed;
     inset: 0;
-    z-index: 99;
+    z-index: 1001;
     background: rgba(0, 0, 0, 0.4);
   }
 }

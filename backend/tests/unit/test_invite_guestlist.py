@@ -22,6 +22,7 @@ from app.models import (
     FestivalSlot,
     InviteBatchCreate,
     InviteCreate,
+    InviteUpdate,
     Registration,
     RegistrationStatus,
 )
@@ -294,3 +295,487 @@ class TestRegistrationClosedByStatus(InviteBootBase):
         )
         assert error is None, f"cancelling blocked: {error!r}"
         assert cancelled.status == RegistrationStatus.CANCELLED
+
+
+class TestRegistrationsListCheckedIn(InviteBootBase):
+    """The admin roster must be filterable by who has actually arrived.
+
+    Arrivals live in the check-in log, not on the registration, so the list
+    endpoint joins them in as a sibling `checked_in` map rather than polluting
+    the shared public `RegistrationResponse`.
+    """
+
+    async def _list(self, event):
+        import app.services.checkin_service as checkin_service_module
+        from app.api.admin.festival import list_festival_registrations
+        from app.services.checkin_service import CheckinService
+
+        checkin = CheckinService()
+        checkin._table = self.tables["registrations_table"]
+        checkin_service_module._checkin_service = checkin
+
+        # `_get_org_id` parses the token claim, so org_id is a STRING there.
+        user = type("U", (), {"org_id": str(event.org_id), "email": "admin@example.com"})()
+        try:
+            return await list_festival_registrations(event_id=event.id, user=user)
+        finally:
+            checkin_service_module._checkin_service = None
+
+    async def _scan(self, event, registration, person_index, name):
+        import app.services.checkin_service as checkin_service_module
+        from app.services.checkin_service import CheckinService
+
+        checkin = CheckinService()
+        checkin._table = self.tables["registrations_table"]
+        checkin_service_module._checkin_service = checkin
+        await checkin.record_scan(event.id, registration.id, person_index, name)
+        checkin_service_module._checkin_service = None
+
+    async def test_nobody_scanned_yet_gives_an_empty_map(self):
+        event = self._store_event()
+        invite = await self._store_invite(event)
+        self._store_registration(event, invite.id)
+
+        result = await self._list(event)
+
+        assert result.total == 1
+        assert result.checked_in == {}
+
+    async def test_scanned_people_appear_under_their_registration(self):
+        event = self._store_event()
+        invite = await self._store_invite(event)
+        reg = self._store_registration(
+            event, invite.id, group_size=3, group_members=["Bea", "Cem"],
+        )
+        other = self._store_registration(event, invite.id, email="zwei@example.com")
+
+        # The contact and the SECOND companion arrive; Bea (index 1) does not.
+        await self._scan(event, reg, 0, "Lena Schmidt")
+        await self._scan(event, reg, 2, "Cem")
+
+        result = await self._list(event)
+
+        assert result.checked_in == {str(reg.id): [0, 2]}
+        assert str(other.id) not in result.checked_in
+
+    async def test_indices_are_sorted_regardless_of_scan_order(self):
+        """The frontend renders a per-person tick from these — order must be
+        stable so a re-render never reshuffles."""
+        event = self._store_event()
+        invite = await self._store_invite(event)
+        reg = self._store_registration(
+            event, invite.id, group_size=3, group_members=["Bea", "Cem"],
+        )
+
+        await self._scan(event, reg, 2, "Cem")
+        await self._scan(event, reg, 0, "Lena Schmidt")
+        await self._scan(event, reg, 1, "Bea")
+
+        result = await self._list(event)
+
+        assert result.checked_in[str(reg.id)] == [0, 1, 2]
+
+    async def test_double_scan_counts_the_person_once(self):
+        """Offline sync can write the same person twice — the map is deduped by
+        `get_checked_in_map`, so a group can never show 4/3 arrived."""
+        event = self._store_event()
+        invite = await self._store_invite(event)
+        reg = self._store_registration(event, invite.id, group_size=1)
+
+        await self._scan(event, reg, 0, "Lena Schmidt")
+        await self._scan(event, reg, 0, "Lena Schmidt")
+
+        result = await self._list(event)
+
+        assert result.checked_in[str(reg.id)] == [0]
+
+
+class TestSpaeteFische(InviteBootBase):
+    """„Späte Fische" — a single invite that survives registration close.
+
+    The whole point is that it is PER INVITE: this event has 786 unused seats
+    spread over 22 contingent links that are already circulating in group
+    chats, so anything event-wide would reopen all of them at once. A late
+    invite opens exactly two event-level gates for exactly one link.
+    """
+
+    async def _boot(self, invite):
+        from app.api.public.invites import get_invite_info
+
+        return await get_invite_info(invite_token=invite.token)
+
+    def _closed_event(self, **overrides):
+        """Registration closed the hard way: past deadline AND CONFIRMED."""
+        defaults = dict(
+            status=EventStatus.CONFIRMED,
+            registration_deadline=NOW - timedelta(days=1),
+        )
+        defaults.update(overrides)
+        return self._store_event(**defaults)
+
+    def _create(self, email="spaet@example.com", group_size=1):
+        from app.models import FestivalRegistrationCreate
+
+        return FestivalRegistrationCreate(
+            name="Spät Dran",
+            email=email,
+            attendance_slots=["fr"],
+            group_size=group_size,
+            phone="+49 170 1234567",
+        )
+
+    async def test_normal_invite_is_refused_when_closed(self):
+        event = self._closed_event()
+        invite = await self._store_invite(event)
+
+        with pytest.raises(HTTPException) as excinfo:
+            await self._boot(invite)
+        assert excinfo.value.status_code == 410
+
+    async def test_late_invite_still_serves_the_form(self):
+        event = self._closed_event()
+        invite = await self._store_invite(
+            event, max_uses=1, max_group_size=1, email="spaet@example.com",
+        )
+        invite = await self.invite_service.update_invite(
+            event.id, invite.id, InviteUpdate(late_entry=True),
+        )
+
+        info = await self._boot(invite)
+
+        assert info.event_name == event.name
+        assert info.bound_email == "spaet@example.com"
+
+    async def test_late_invite_can_actually_register(self):
+        event = self._closed_event()
+        invite = await self._store_invite(
+            event, max_uses=1, max_group_size=1, email="spaet@example.com",
+        )
+        await self.invite_service.update_invite(
+            event.id, invite.id, InviteUpdate(late_entry=True),
+        )
+
+        reg_service = registration_service_module.get_registration_service()
+        registration, error = await reg_service.create_festival_registration(
+            invite.token, self._create(),
+        )
+
+        assert error is None, f"late invite was refused: {error!r}"
+        assert registration.invite_id == invite.id
+
+    async def test_forwarded_link_cannot_register_someone_else(self):
+        """The anti-forwarding lock: a friend can only register under the
+        address the link was issued to — so the entry code lands in the
+        original mailbox and the link is worthless to pass on."""
+        event = self._closed_event()
+        invite = await self._store_invite(
+            event, max_uses=1, max_group_size=1, email="spaet@example.com",
+        )
+        await self.invite_service.update_invite(
+            event.id, invite.id, InviteUpdate(late_entry=True),
+        )
+
+        reg_service = registration_service_module.get_registration_service()
+        registration, error = await reg_service.create_festival_registration(
+            invite.token, self._create(email="freundin@example.com"),
+        )
+
+        assert registration is None
+        assert "does not match" in error.lower()
+
+    async def test_binding_ignores_case_and_whitespace(self):
+        event = self._closed_event()
+        invite = await self._store_invite(
+            event, max_uses=1, max_group_size=1, email="spaet@example.com",
+        )
+        await self.invite_service.update_invite(
+            event.id, invite.id, InviteUpdate(late_entry=True),
+        )
+
+        reg_service = registration_service_module.get_registration_service()
+        _, error = await reg_service.create_festival_registration(
+            invite.token, self._create(email="  SPAET@Example.COM "),
+        )
+
+        assert error is None, f"same address rejected over formatting: {error!r}"
+
+    async def test_normal_invites_are_not_address_bound(self):
+        """The 24 links already in the wild must behave exactly as before."""
+        event = self._store_event(status=EventStatus.OPEN)
+        invite = await self._store_invite(event, email="owner@example.com", max_group_size=2)
+
+        reg_service = registration_service_module.get_registration_service()
+        _, error = await reg_service.create_festival_registration(
+            invite.token, self._create(email="jemand.anders@example.com"),
+        )
+
+        assert error is None, f"a normal contingent became address-bound: {error!r}"
+
+    async def test_one_seat_only_no_matter_the_status(self):
+        """`max_uses` still binds — that is the cap that makes this safe."""
+        event = self._closed_event()
+        invite = await self._store_invite(event, max_uses=1, max_group_size=1, email=None)
+        await self.invite_service.update_invite(
+            event.id, invite.id, InviteUpdate(late_entry=True),
+        )
+
+        reg_service = registration_service_module.get_registration_service()
+        _, first_error = await reg_service.create_festival_registration(
+            invite.token, self._create(email="erste@example.com"),
+        )
+        assert first_error is None
+
+        _, second_error = await reg_service.create_festival_registration(
+            invite.token, self._create(email="zweite@example.com"),
+        )
+        assert second_error is not None
+        assert "exhaust" in second_error.lower()
+
+    async def test_revoking_kills_a_late_invite_immediately(self):
+        event = self._closed_event()
+        invite = await self._store_invite(event, max_uses=1, email="spaet@example.com")
+        await self.invite_service.update_invite(
+            event.id, invite.id, InviteUpdate(late_entry=True),
+        )
+        await self.invite_service.revoke_invite(event.id, invite.id)
+
+        with pytest.raises(HTTPException) as excinfo:
+            await self._boot(invite)
+        assert excinfo.value.status_code in (404, 410)
+
+    async def test_own_expiry_still_closes_a_late_invite(self):
+        """Its own `expires_at` is the only clock left, so it must work."""
+        event = self._closed_event()
+        invite = await self._store_invite(
+            event, max_uses=1, email="spaet@example.com", expires_at=NOW - timedelta(hours=1),
+        )
+        await self.invite_service.update_invite(
+            event.id, invite.id, InviteUpdate(late_entry=True),
+        )
+
+        with pytest.raises(HTTPException) as excinfo:
+            await self._boot(invite)
+        assert excinfo.value.status_code == 410
+
+    @pytest.mark.parametrize("dead_status", [EventStatus.COMPLETED, EventStatus.CANCELLED])
+    async def test_a_finished_festival_closes_even_late_invites(self, dead_status):
+        """Nobody should have to remember to switch these off afterwards."""
+        event = self._closed_event(status=dead_status)
+        invite = await self._store_invite(event, max_uses=1, email="spaet@example.com")
+        await self.invite_service.update_invite(
+            event.id, invite.id, InviteUpdate(late_entry=True),
+        )
+
+        with pytest.raises(HTTPException) as excinfo:
+            await self._boot(invite)
+        assert excinfo.value.status_code == 410
+
+    async def test_guestlist_no_longer_lies_about_can_register(self):
+        """The bug this refactor fixed: `can_register` never looked at the
+        event status, so contingent owners were told they could still register
+        after the event moved to CONFIRMED."""
+        from app.api.public.invites import get_invite_guestlist
+
+        event = self._store_event(
+            status=EventStatus.CONFIRMED,
+            registration_deadline=NOW + timedelta(days=2),
+        )
+        invite = await self._store_invite(event, max_uses=150)
+
+        result = await get_invite_guestlist(invite_token=invite.token)
+
+        assert result.can_register is False
+
+    async def test_guestlist_says_yes_for_a_late_invite(self):
+        from app.api.public.invites import get_invite_guestlist
+
+        event = self._closed_event()
+        invite = await self._store_invite(event, max_uses=1, email="spaet@example.com")
+        await self.invite_service.update_invite(
+            event.id, invite.id, InviteUpdate(late_entry=True),
+        )
+
+        result = await get_invite_guestlist(invite_token=invite.token)
+
+        assert result.can_register is True
+
+    async def test_unbound_late_invite_takes_any_address(self):
+        """The one-click button issues a link with NO address: the organiser
+        does not know who will use it, and a placeholder address would sit
+        there waiting to bounce off our own domain. `max_uses = 1` is then the
+        only lock — forwarding cannot add people, it can only change WHICH
+        single person gets in."""
+        event = self._closed_event()
+        invite = await self._store_invite(event, max_uses=1, max_group_size=1, email=None)
+        await self.invite_service.update_invite(
+            event.id, invite.id, InviteUpdate(late_entry=True),
+        )
+
+        info = await self._boot(invite)
+        assert info.bound_email is None, "an address-less invite must not lock the form"
+
+        reg_service = registration_service_module.get_registration_service()
+        registration, error = await reg_service.create_festival_registration(
+            invite.token, self._create(email="wer.auch.immer@example.com"),
+        )
+
+        assert error is None, f"unbound late invite refused: {error!r}"
+        assert registration.email == "wer.auch.immer@example.com"
+
+    async def test_reopening_a_contingent_grants_only_the_seats_you_name(self):
+        """The override: a closed list is reopened for a COUNTED number of
+        seats, never for its whole remainder. Aline's „open" list has 114
+        unused seats; reopening it for 3 must mean 3, not 114."""
+        event = self._closed_event()
+        invite = await self._store_invite(event, max_uses=200, max_group_size=1)
+        # 86 people already used it, mirroring production.
+        for _ in range(86):
+            await self.invite_service.consume_use(event.id, invite.id)
+
+        reopened = await self.invite_service.update_invite(
+            event.id, invite.id, InviteUpdate(late_entry=True, max_uses=86 + 3),
+        )
+
+        assert reopened.late_entry is True
+        assert reopened.max_uses == 89, "reopening must clamp, not restore"
+        assert reopened.max_uses - reopened.use_count == 3
+
+        # The link works again — for exactly those three.
+        info = await self._boot(reopened)
+        assert info.event_name == event.name
+
+    async def test_closing_a_reopened_list_shuts_it_immediately(self):
+        event = self._closed_event()
+        invite = await self._store_invite(event, max_uses=10)
+        await self.invite_service.update_invite(
+            event.id, invite.id, InviteUpdate(late_entry=True, max_uses=3),
+        )
+        assert (await self._boot(invite)).event_name == event.name
+
+        closed = await self.invite_service.update_invite(
+            event.id, invite.id, InviteUpdate(late_entry=False),
+        )
+
+        assert closed.late_entry is False
+        with pytest.raises(HTTPException) as excinfo:
+            await self._boot(closed)
+        assert excinfo.value.status_code == 410
+
+    async def test_reopening_preserves_the_original_allowance(self):
+        """The clamp must not destroy the number. „Aline · open" is a 200-seat
+        list; reopening it for 3 shrinks the live cap to 89 but has to remember
+        that it was 200, or the contingent size is silently gone forever."""
+        event = self._closed_event()
+        invite = await self._store_invite(event, max_uses=200)
+        for _ in range(86):
+            await self.invite_service.consume_use(event.id, invite.id)
+
+        reopened = await self.invite_service.update_invite(
+            event.id, invite.id, InviteUpdate(late_entry=True, max_uses=89),
+        )
+
+        assert reopened.max_uses == 89
+        assert reopened.original_max_uses == 200
+
+    async def test_closing_restores_the_original_allowance(self):
+        event = self._closed_event()
+        invite = await self._store_invite(event, max_uses=200)
+        for _ in range(86):
+            await self.invite_service.consume_use(event.id, invite.id)
+        await self.invite_service.update_invite(
+            event.id, invite.id, InviteUpdate(late_entry=True, max_uses=89),
+        )
+
+        closed = await self.invite_service.update_invite(
+            event.id, invite.id, InviteUpdate(late_entry=False),
+        )
+
+        assert closed.late_entry is False
+        assert closed.max_uses == 200, "the Kontingent must come back intact"
+        assert closed.original_max_uses is None
+        assert closed.use_count == 86, "restoring must not touch what was used"
+
+    async def test_reopening_twice_keeps_the_true_original(self):
+        """A second reopen must not snapshot the already-clamped value — that
+        would quietly rewrite 200 into 89 and lose the number after all."""
+        event = self._closed_event()
+        invite = await self._store_invite(event, max_uses=200)
+        for _ in range(86):
+            await self.invite_service.consume_use(event.id, invite.id)
+
+        await self.invite_service.update_invite(
+            event.id, invite.id, InviteUpdate(late_entry=True, max_uses=89),
+        )
+        twice = await self.invite_service.update_invite(
+            event.id, invite.id, InviteUpdate(late_entry=True, max_uses=91),
+        )
+
+        assert twice.max_uses == 91
+        assert twice.original_max_uses == 200
+
+    async def test_a_normal_invite_never_gets_a_snapshot(self):
+        """Only a clamping reopen snapshots — ordinary edits must leave the
+        field alone, or every invite would grow phantom history."""
+        event = self._store_event(status=EventStatus.OPEN)
+        invite = await self._store_invite(event, max_uses=10)
+
+        updated = await self.invite_service.update_invite(
+            event.id, invite.id, InviteUpdate(label="Neuer Name"),
+        )
+
+        assert updated.original_max_uses is None
+
+
+    async def test_reopening_a_spent_personal_link_is_undone_on_close(self):
+        """Growth needs the same snapshot as clamping: a used personal invite
+        reopened for one more person must go back to being single-use."""
+        event = self._closed_event()
+        invite = await self._store_invite(event, max_uses=1)
+        await self.invite_service.consume_use(event.id, invite.id)
+
+        grown = await self.invite_service.update_invite(
+            event.id, invite.id, InviteUpdate(late_entry=True, max_uses=2),
+        )
+        assert grown.max_uses == 2
+        assert grown.original_max_uses == 1
+
+        closed = await self.invite_service.update_invite(
+            event.id, invite.id, InviteUpdate(late_entry=False),
+        )
+        assert closed.max_uses == 1
+        assert closed.original_max_uses is None
+
+    async def test_reopened_list_does_not_lock_the_email_field(self):
+        """Regression: a reopened Kontingent is `late_entry` AND carries the
+        owner's address, so the naive „late_entry and email" rule nailed the
+        form to the list owner and made the link unusable for everybody else —
+        the second guest would even collide with the duplicate-email check."""
+        event = self._closed_event()
+        invite = await self._store_invite(event, max_uses=150, email="owner@example.com")
+        for _ in range(86):
+            await self.invite_service.consume_use(event.id, invite.id)
+        reopened = await self.invite_service.update_invite(
+            event.id, invite.id, InviteUpdate(late_entry=True, max_uses=89),
+        )
+        assert reopened.email == "owner@example.com"
+
+        info = await self._boot(reopened)
+        assert info.bound_email is None, "a multi-use list must not bind the form"
+
+        # And two DIFFERENT guests can actually use it.
+        reg_service = registration_service_module.get_registration_service()
+        for address in ("erste@example.com", "zweite@example.com"):
+            _, error = await reg_service.create_festival_registration(
+                reopened.token, self._create(email=address),
+            )
+            assert error is None, f"{address} was refused on a reopened list: {error!r}"
+
+    async def test_single_use_late_link_still_binds(self):
+        """The binding must survive for the case it was built for."""
+        event = self._closed_event()
+        invite = await self._store_invite(event, max_uses=1, email="spaet@example.com")
+        bound = await self.invite_service.update_invite(
+            event.id, invite.id, InviteUpdate(late_entry=True),
+        )
+
+        assert (await self._boot(bound)).bound_email == "spaet@example.com"

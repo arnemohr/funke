@@ -28,3 +28,8 @@ cdk.out/
 
 # Dev process PIDs
 .pids/
+
+# local-only data, never push (public repo)
+festival_addresses.txt
+specs/025-chartervertrag-original.txt
+test.txt

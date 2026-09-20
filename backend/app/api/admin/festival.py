@@ -38,11 +38,18 @@ from ...models import (
     RegistrationResponse,
     RegistrationStatus,
 )
+from ...services.anonymization_service import ANONYMIZED_BLOCK_DETAIL
 from ...services.auth import AdminRole, CurrentUser, require_role
 from ...services.checkin_service import get_checkin_service
 from ...services.config import get_settings
 from ...services.email_service import get_email_service
-from ...services.event_service import _event_to_item, _generate_link_token, get_event_service
+from ...services.event_service import (
+    LOSTFOUND_NOT_DELETED,
+    PHOTOS_NOT_DELETED,
+    _event_to_item,
+    _generate_link_token,
+    get_event_service,
+)
 from ...services.invite_service import get_invite_service
 from ...services.logging import get_logger, log_admin_action
 from ...services.registration_service import (
@@ -93,6 +100,8 @@ class FestivalEventResponse(BaseModel):
     created_at: datetime
     published_at: datetime | None
     cancelled_at: datetime | None
+    # Spec 022 — set once the festival's personal data has been pseudonymised.
+    anonymized_at: datetime | None = None
 
 
 class FestivalEventListResponse(BaseModel):
@@ -127,6 +136,7 @@ def _event_to_response(event: Event) -> FestivalEventResponse:
         created_at=event.created_at,
         published_at=event.published_at,
         cancelled_at=event.cancelled_at,
+        anonymized_at=event.anonymized_at,
     )
 
 
@@ -144,6 +154,21 @@ async def _get_festival_event_or_404(org_id: UUID, event_id: UUID) -> Event:
             detail="Festival event not found",
         )
     return event
+
+
+def _reject_if_anonymized(event: Event) -> None:
+    """409 on any action that would need an address this event no longer has.
+
+    Anonymisation rotates the invite tokens and drops the addresses, so an
+    invitation or notification mail would either fail or carry a dead link.
+    Blocking here turns that into one clear message instead of a send report
+    full of silent failures.
+    """
+    if event.is_anonymized:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=ANONYMIZED_BLOCK_DETAIL,
+        )
 
 
 @router.post(
@@ -309,6 +334,26 @@ async def delete_festival_event(
     try:
         deleted = await event_service.delete_festival_event(org_id, event_id)
     except ValueError as e:
+        if str(e) == LOSTFOUND_NOT_DELETED:
+            # The Fundsachen page (spec 023) kept its S3 objects, and this event
+            # is the only handle on them — it stays, and the operator retries.
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "Die Fundsachen-Bilder konnten nicht gelöscht werden — das Event "
+                    "bleibt bestehen. Bitte versuch es noch einmal."
+                ),
+            ) from e
+        if str(e) == PHOTOS_NOT_DELETED:
+            # Same for the guests' own photos (spec 024) — a second bucket, so a
+            # separate line: the message has to say which one is stuck.
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "Die Eventfotos konnten nicht gelöscht werden — das Event "
+                    "bleibt bestehen. Bitte versuch es noch einmal."
+                ),
+            ) from e
         # Wrong status (not CANCELLED) — German detail, mirrors the
         # invalid-transition 409 above.
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
@@ -362,6 +407,13 @@ class InviteStatusRow(BaseModel):
     expires_at: datetime | None
     expired: bool
     last_registered_at: datetime | None
+    # „Späte Fische": this link still works after registration closed. On a
+    # reopened Kontingent the freed seats are `max_uses - use_count`, because
+    # reopening clamps `max_uses` instead of restoring the original allowance.
+    late_entry: bool = False
+    # The allowance before this list was reopened, so the UI can show that a
+    # clamped „86/89" was originally a 200-seat Kontingent.
+    original_max_uses: int | None = None
     url: str
 
 
@@ -398,6 +450,8 @@ def _invite_to_row(invite: Invite, event: Event) -> InviteStatusRow:
         expires_at=invite.expires_at,
         expired=invite.is_expired(event.registration_deadline),
         last_registered_at=invite.last_registered_at,
+        late_entry=invite.late_entry,
+        original_max_uses=invite.original_max_uses,
         url=f"{settings.base_url}/invite/{invite.token}",
     )
 
@@ -417,6 +471,7 @@ async def create_invites(
     org_id = _get_org_id(user)
     admin_id = _get_admin_id(user)
     event = await _get_festival_event_or_404(org_id, event_id)
+    _reject_if_anonymized(event)
 
     invite_service = get_invite_service()
     invites = await invite_service.create_invites_batch(org_id, event_id, batch, admin_id)
@@ -540,6 +595,7 @@ async def send_invite_email(
     """
     org_id = _get_org_id(user)
     event = await _get_festival_event_or_404(org_id, event_id)
+    _reject_if_anonymized(event)
 
     invite_service = get_invite_service()
     invite = await invite_service.get_invite(event_id, invite_id)
@@ -783,6 +839,17 @@ class FestivalRegistrationListResponse(BaseModel):
 
     items: list[RegistrationResponse]
     total: int
+    # Check-in state per registration: `{registration_id: [person_index, ...]}`,
+    # 0 = the contact. A SIBLING field rather than extra columns on
+    # `RegistrationResponse`, because that model is public-facing and shared with
+    # the guest manage page — arrival data has no business being there. Absent
+    # keys simply mean "nobody from that group has arrived yet".
+    checked_in: dict[str, list[int]] = {}
+    # Registration ids that came in through a „Späte Fische" invite, so the
+    # roster can show and filter them. Same sibling-field reasoning as
+    # `checked_in`: lateness is a property of the INVITE, not of the
+    # registration, and `RegistrationResponse` is public.
+    late_entry_ids: list[str] = []
 
 
 @router.get(
@@ -802,6 +869,13 @@ async def list_festival_registrations(
     `accommodation`, `tier`, `invite_label`) — `RegistrationResponse`
     already has them (T106); this endpoint returns it verbatim, no
     festival-specific response model duplication.
+
+    Additively extended with `checked_in` so the list can be filtered by who
+    has actually arrived (same pattern as the headcount board's `arrivals`
+    block, T313): one extra query over the check-in log, deduped to first scan
+    per person by `get_checked_in_map`. Never fails the list — a check-in log
+    problem leaves the map empty rather than taking the whole page down, since
+    the roster itself is the load-bearing part of this response.
     """
     org_id = _get_org_id(user)
     await _get_festival_event_or_404(org_id, event_id)
@@ -809,8 +883,43 @@ async def list_festival_registrations(
     registration_service = get_registration_service()
     registrations = await registration_service.list_registrations(event_id, status_filter, search)
 
+    checked_in: dict[str, list[int]] = {}
+    try:
+        checkin_map = await get_checkin_service().get_checked_in_map(event_id)
+        for (registration_id, person_index) in checkin_map:
+            checked_in.setdefault(registration_id, []).append(person_index)
+        for indices in checked_in.values():
+            indices.sort()
+    except Exception as e:  # noqa: BLE001 — the roster must still render
+        logger.error(
+            "Failed to load check-in state for the registrations list",
+            extra={"error": str(e), "event_id": str(event_id)},
+        )
+
+    late_entry_ids: list[str] = []
+    try:
+        late_invite_ids = {
+            invite.id
+            for invite in await get_invite_service().list_invites(event_id)
+            if invite.late_entry
+        }
+        if late_invite_ids:
+            late_entry_ids = [
+                str(r.id) for r in registrations if r.invite_id in late_invite_ids
+            ]
+    except Exception as e:  # noqa: BLE001 — same rule as `checked_in` above
+        logger.error(
+            "Failed to load late-entry invites for the registrations list",
+            extra={"error": str(e), "event_id": str(event_id)},
+        )
+
     items = [RegistrationResponse.model_validate(r) for r in registrations]
-    return FestivalRegistrationListResponse(items=items, total=len(items))
+    return FestivalRegistrationListResponse(
+        items=items,
+        total=len(items),
+        checked_in=checked_in,
+        late_entry_ids=late_entry_ids,
+    )
 
 
 class OvernightNotificationResult(BaseModel):
@@ -841,6 +950,7 @@ async def notify_overnight_approvals(
     """
     org_id = _get_org_id(user)
     event = await _get_festival_event_or_404(org_id, event_id)
+    _reject_if_anonymized(event)
 
     registration_service = get_registration_service()
     result = await registration_service.notify_pending_overnight_approvals(event)
@@ -874,7 +984,7 @@ async def cancel_festival_registration(
     service is the only send site.
     """
     org_id = _get_org_id(user)
-    await _get_festival_event_or_404(org_id, event_id)
+    _reject_if_anonymized(await _get_festival_event_or_404(org_id, event_id))
 
     registration_service = get_registration_service()
     registration = await registration_service.get_registration(event_id, registration_id)

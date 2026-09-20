@@ -9,6 +9,7 @@ Provides:
 
 import secrets
 from datetime import datetime, timezone
+from enum import Enum
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
@@ -28,7 +29,71 @@ from .logging import get_logger
 if TYPE_CHECKING:
     from mypy_boto3_dynamodb.service_resource import Table
 
+    from .charter_service import CharterService
+    from .event_photo_service import EventPhotoService
+    from .lost_and_found_service import LostAndFoundService
+
 logger = get_logger(__name__)
+
+# Raised as a ``ValueError`` by both delete paths when the event's Fundsachen
+# page (spec 023) refused to go. The routers map it to 503 so the operator
+# retries: an event deleted while its page still owns S3 objects takes the only
+# handle on them with it.
+LOSTFOUND_NOT_DELETED = "lostfound_not_deleted"
+
+# Same contract for the event photo collection (spec 024). Kept as its own
+# string rather than folded into the one above, because the two live in
+# different buckets and „which one is stuck" is the first thing anyone reading
+# the 503 needs to know.
+PHOTOS_NOT_DELETED = "photos_not_deleted"
+
+# Fields an organiser may still change after the Anmeldeschluss. Deliberately
+# small: none of these is read by the lottery, the gate or a ticket, so
+# changing one cannot invalidate something already issued. It can still leave
+# guests holding a mail with the old time — the edit page says so loudly,
+# because Funke sends nothing by itself (Spec 025 side note).
+LATE_EDITABLE_FIELDS = frozenset({"description", "start_at", "location"})
+
+
+def _same_value(current, incoming) -> bool:
+    """Whether an incoming update leaves a field as it already is.
+
+    Deliberately lenient about representation, because the payload has been
+    through JSON: enums arrive as their value, datetimes may carry a different
+    tzinfo for the same instant, and Pydantic sub-models arrive as dicts.
+    Anything it cannot compare confidently counts as *changed* — refusing an
+    edit is recoverable, silently dropping one is not.
+    """
+    if current == incoming:
+        return True
+    if isinstance(current, Enum) and current.value == incoming:
+        return True
+    if isinstance(current, datetime) and isinstance(incoming, datetime):
+        # The edit form's `datetime-local` inputs carry minute precision, so a
+        # value that merely made the round trip through the form comes back
+        # shorn of seconds and microseconds. Comparing to the minute is what
+        # „did the organiser change this?" actually means here; anything finer
+        # would refuse every late edit on an untouched deadline.
+        return current.replace(second=0, microsecond=0) == incoming.replace(
+            second=0, microsecond=0,
+        )
+    if isinstance(current, list) and isinstance(incoming, list):
+        if len(current) != len(incoming):
+            return False
+        return all(_same_value(a, b) for a, b in zip(current, incoming, strict=True))
+    if isinstance(incoming, dict) and hasattr(current, "model_dump"):
+        return current.model_dump(mode="json") == incoming
+    return False
+
+# Third refusal, and the only one that is not about stranded S3 objects: a
+# signed charter contract (spec 025) is an accounting record with a ten-year
+# deadline, and it lives under `pk=EVENT#{event_id}` — a partition neither
+# delete path removes. Deleting the event would therefore not delete the
+# contract, it would orphan it: name, postal address and two licence numbers,
+# reachable through no admin route and bound by no deadline. The routers answer
+# 409 rather than the 503 the two above get, because retrying will not help;
+# only the deadline passing will.
+CHARTER_NOT_DELETED = "charter_not_deleted"
 
 # Registrations live under `sk="REG#{id}"`; no shared constant exists for it
 # (registration_service.py inlines the literal), so mirror that here too.
@@ -143,6 +208,9 @@ def _event_to_item(event: Event) -> dict:
     if event.ticket_secret:
         item["ticket_secret"] = event.ticket_secret
 
+    if event.anonymized_at:
+        item["anonymized_at"] = event.anonymized_at.isoformat()
+
     return item
 
 
@@ -174,6 +242,9 @@ def _item_to_event(item: dict) -> Event:
         ttl=item.get("ttl"),
         gate_token=item.get("gate_token"),
         ticket_secret=item.get("ticket_secret"),
+        anonymized_at=(
+            datetime.fromisoformat(item["anonymized_at"]) if item.get("anonymized_at") else None
+        ),
     )
 
 
@@ -182,6 +253,9 @@ class EventService:
 
     def __init__(self):
         self._table = None
+        self._lost_and_found = None
+        self._event_photos = None
+        self._charter = None
 
     @property
     def table(self) -> "Table":
@@ -189,6 +263,47 @@ class EventService:
         if self._table is None:
             self._table = get_events_table()
         return self._table
+
+    @property
+    def lost_and_found(self) -> "LostAndFoundService":
+        """The Fundsachen service (lazy), used by the delete paths (spec 023).
+
+        Imported inside the property because the lost & found service reaches
+        back into this one for the public page's event lookup.
+        """
+        if self._lost_and_found is None:
+            from .lost_and_found_service import get_lost_and_found_service
+
+            self._lost_and_found = get_lost_and_found_service()
+        return self._lost_and_found
+
+    @property
+    def event_photos(self) -> "EventPhotoService":
+        """The Eventfotos service (lazy), used by the delete paths (spec 024).
+
+        Imported inside the property for the same reason as above: the photo
+        service resolves an event through this one on every public request, and
+        a module-level import either way round would be a cycle.
+        """
+        if self._event_photos is None:
+            from .event_photo_service import get_event_photo_service
+
+            self._event_photos = get_event_photo_service()
+        return self._event_photos
+
+    @property
+    def charter(self) -> "CharterService":
+        """The Chartervertrag service (lazy), used by the delete paths (spec 025).
+
+        Imported inside the property like its two neighbours — and here it also
+        keeps the PDF renderer out of the import graph of every route that only
+        ever lists events.
+        """
+        if self._charter is None:
+            from .charter_service import get_charter_service
+
+            self._charter = get_charter_service()
+        return self._charter
 
     async def create_event(
         self,
@@ -408,17 +523,23 @@ class EventService:
             Event if found, None otherwise.
         """
         try:
-            # Scan for event by ID across all orgs.
             # No Limit — DynamoDB Limit on scans caps items *evaluated* not *returned*,
-            # which can miss results when combined with FilterExpression.
-            response = self.table.scan(
-                FilterExpression="id = :event_id",
-                ExpressionAttributeValues={":event_id": str(event_id)},
-            )
-            items = response.get("Items", [])
-            if not items:
-                return None
-            return _item_to_event(items[0])
+            # which can miss results when combined with FilterExpression. The same
+            # applies to the 1 MB page size, hence the pagination: this table also
+            # holds invites and lost & found rows, so one page stopped covering it
+            # long ago, and callers read a miss as „the event is gone".
+            scan_kwargs = {
+                "FilterExpression": "id = :event_id",
+                "ExpressionAttributeValues": {":event_id": str(event_id)},
+            }
+            while True:
+                response = self.table.scan(**scan_kwargs)
+                items = response.get("Items", [])
+                if items:
+                    return _item_to_event(items[0])
+                if "LastEvaluatedKey" not in response:
+                    return None
+                scan_kwargs["ExclusiveStartKey"] = response["LastEvaluatedKey"]
 
         except ClientError as e:
             logger.error(
@@ -530,7 +651,11 @@ class EventService:
         event_id: UUID,
         update_data: EventUpdate,
     ) -> Event | None:
-        """Update an event (only in DRAFT or OPEN status).
+        """Update an event.
+
+        Freely editable while DRAFT or OPEN. Once registration has closed the
+        lottery has allocated against capacity and the deadline, so only
+        `LATE_EDITABLE_FIELDS` may still move. Finished events are frozen.
 
         Args:
             org_id: Organization ID.
@@ -539,14 +664,18 @@ class EventService:
 
         Returns:
             Updated Event or None if not found/not editable.
+
+        Raises:
+            ValueError: A frozen field was included after registration closed.
         """
         event = await self.get_event(org_id, event_id)
         if not event:
             return None
 
-        if event.status not in [EventStatus.DRAFT, EventStatus.OPEN]:
+        # A finished or cancelled event is history — nothing about it may move.
+        if event.status in (EventStatus.COMPLETED, EventStatus.CANCELLED):
             logger.warning(
-                "Cannot update event not in DRAFT or OPEN status",
+                "Cannot update a finished event",
                 extra={"event_id": str(event_id), "status": event.status},
             )
             return None
@@ -555,6 +684,35 @@ class EventService:
         update_fields = update_data.model_dump(exclude_unset=True)
         if not update_fields:
             return event
+
+        # Between Anmeldeschluss and Abschluss the organiser must still be able
+        # to fix a wrong time, a moved meeting point or a typo in the text —
+        # that used to require cancelling the whole event. Everything else
+        # stays frozen: the lottery has already run against `capacity` and
+        # `registration_deadline`, and `name` is what the gate checks against
+        # tickets already in people's inboxes (Spec 020).
+        #
+        # Keep in sync with EDITABLE_AFTER_LOTTERY in EventEditPage.vue.
+        if event.status not in (EventStatus.DRAFT, EventStatus.OPEN):
+            # The edit form is a full-document upsert, not a patch: it posts
+            # every field it renders, so `exclude_unset` still carries the ones
+            # nobody touched. Rejecting a frozen field for merely *appearing*
+            # would refuse every late edit — what matters is whether it would
+            # actually change. Unchanged frozen fields are dropped instead.
+            changed_frozen = []
+            for field in sorted(set(update_fields) - LATE_EDITABLE_FIELDS):
+                if _same_value(getattr(event, field, None), update_fields[field]):
+                    del update_fields[field]
+                else:
+                    changed_frozen.append(field)
+            if changed_frozen:
+                raise ValueError(
+                    "Nach dem Anmeldeschluss können nur noch Beschreibung, "
+                    "Datum/Uhrzeit und Ort geändert werden. Gesperrt: "
+                    + ", ".join(changed_frozen),
+                )
+            if not update_fields:
+                return event
 
         # Ä8: enforce the per-type capacity cap against the persisted
         # event_type — EventUpdate's own validator can only check when the
@@ -605,10 +763,14 @@ class EventService:
         update_expression = "SET " + ", ".join(update_expression_parts)
 
         try:
-            # Add status condition to prevent race conditions
+            # Race guard. This used to pin the status to DRAFT-or-OPEN, which
+            # was a second, hidden copy of the editability rule — widening the
+            # rule above alone left every late edit failing the condition.
+            # Pinning it to the status we just read keeps the protection (and
+            # sharpens it: any concurrent transition now loses, not just one
+            # out of DRAFT/OPEN) without restating which statuses may edit.
             expression_attribute_names["#status"] = "status"
-            expression_attribute_values[":draft_status"] = EventStatus.DRAFT.value
-            expression_attribute_values[":open_status"] = EventStatus.OPEN.value
+            expression_attribute_values[":expected_status"] = event.status.value
 
             response = self.table.update_item(
                 Key={
@@ -618,7 +780,7 @@ class EventService:
                 UpdateExpression=update_expression,
                 ExpressionAttributeNames=expression_attribute_names,
                 ExpressionAttributeValues=expression_attribute_values,
-                ConditionExpression="#status = :draft_status OR #status = :open_status",
+                ConditionExpression="#status = :expected_status",
                 ReturnValues="ALL_NEW",
             )
 
@@ -993,9 +1155,21 @@ class EventService:
     async def delete_event(self, org_id: UUID, event_id: UUID) -> bool:
         """Delete an event (only allowed for CANCELLED events).
 
+        Takes the event's Fundsachen page (spec 023) and its event photo
+        collection (spec 024) with it, objects included; the rest of a SINGLE
+        event's co-located rows are still left to `delete_festival_event`'s
+        festival-only purge.
+
         Args:
             org_id: Organization ID.
             event_id: Event ID.
+
+        Raises:
+            ValueError: ``lostfound_not_deleted`` or ``photos_not_deleted`` —
+                that bucket's objects could not be removed, so the event stays
+                (the router answers 503 for either); or ``charter_not_deleted``
+                when a signed charter contract (spec 025) is still inside its
+                ten-year retention (409 — this one is not retryable).
 
         Returns:
             True if deleted, False if not found or not deletable.
@@ -1011,6 +1185,59 @@ class EventService:
             )
             return False
 
+        # Checked before anything is removed, so a refusal costs nothing: a
+        # signed charter contract (spec 025) lives under `pk=EVENT#{event_id}`,
+        # a partition this delete never touches, and would outlive the event as
+        # an orphan carrying the charterer's name, address and licence numbers.
+        # Ten years of accounting retention outrank the delete request.
+        charter_retention_year = await self.charter.deletion_block_year(event_id)
+
+        if charter_retention_year is not None:
+            logger.warning(
+                "Refusing to delete an event with a signed charter contract",
+                extra={
+                    "event_id": str(event_id),
+                    "charter_retention_year": charter_retention_year,
+                },
+            )
+            raise ValueError(CHARTER_NOT_DELETED)
+
+        # Photos of guests' belongings and their captions are personal data
+        # (spec 023): they go now, not on the next daily sweep. Before the
+        # EVENT# item, so a failure here leaves both discoverable.
+        lost_and_found = await self.lost_and_found.delete_page(event_id)
+
+        if not lost_and_found["completed"]:
+            # The page still owns photo rows and S3 objects, and this event is
+            # the only handle anything has on them: `expire_pages` deliberately
+            # skips a page whose event does not resolve, and the admin API 404s
+            # once the ORG#/EVENT# row is gone. Deleting the event now would
+            # leave photos of guests' belongings in the bucket until the 400-day
+            # lifecycle rule, unreachable. So the event stays and the operator
+            # calls again — the same contract the page's own DELETE endpoint has.
+            logger.error(
+                "Refusing to delete an event whose Fundsachen page survived",
+                extra={
+                    "event_id": str(event_id),
+                    "lostfound_photos": lost_and_found["deleted_photos"],
+                },
+            )
+            raise ValueError(LOSTFOUND_NOT_DELETED)
+
+        # The guests' own photos (spec 024) are in a second bucket with the same
+        # problem: `expire_collections` skips a collection whose event does not
+        # resolve, so deleting the event first would strand faces of guests in
+        # the bucket until the 400-day lifecycle rule, with nothing left that
+        # could find them.
+        photos = await self.event_photos.delete_collection(event_id)
+
+        if not photos["completed"]:
+            logger.error(
+                "Refusing to delete an event whose photo collection survived",
+                extra={"event_id": str(event_id), "event_photos": photos["photos"]},
+            )
+            raise ValueError(PHOTOS_NOT_DELETED)
+
         try:
             self.table.delete_item(
                 Key={
@@ -1024,7 +1251,13 @@ class EventService:
 
             logger.info(
                 "Event deleted",
-                extra={"event_id": str(event_id), "org_id": str(org_id)},
+                extra={
+                    "event_id": str(event_id),
+                    "org_id": str(org_id),
+                    "lostfound_photos": lost_and_found["deleted_photos"],
+                    "lostfound_completed": lost_and_found["completed"],
+                    "event_photos": photos["photos"],
+                },
             )
             return True
 
@@ -1052,6 +1285,10 @@ class EventService:
         - Check-in scan log rows (registrations table, same partition,
           `sk=SCAN#...`)
         - Message rows (messages table, `pk=EVENT#{event_id}`, `sk=MSG#...`)
+        - The Fundsachen page (events table, same partition, `sk=LNF#...`)
+          together with its photo objects in S3 (spec 023)
+        - The event photo collection (events table, same partition,
+          `sk=PHOTOS#...`) together with its objects in S3 (spec 024)
 
         Co-located rows are purged BEFORE the EVENT# item itself, so a
         failure partway through leaves the event (and any remaining rows)
@@ -1064,7 +1301,12 @@ class EventService:
 
         Raises:
             ValueError: the event exists but is not in CANCELLED status
-                (German detail — the router maps this to 409).
+                (German detail — the router maps this to 409),
+                ``lostfound_not_deleted`` / ``photos_not_deleted`` when that
+                bucket's objects could not be removed and the event therefore
+                has to stay (503), or ``charter_not_deleted`` when a signed
+                charter contract (spec 025) is still inside its ten-year
+                retention (409).
 
         Returns:
             True if deleted, False if not found (including a SINGLE event
@@ -1085,6 +1327,24 @@ class EventService:
                 f"kann (aktueller Status: {event.status.value})",
             )
 
+        # Same guard as in `delete_event`, and for the same reason (spec 025):
+        # the contract row is in this partition, and the prefix purges below
+        # cover INVITE#/REG#/SCAN#/MSG# only, so a signed contract would be left
+        # behind unreachable. A FESTIVAL cannot acquire one through the API —
+        # the charter router refuses anything but a SINGLE event — so this is
+        # defence in depth against a row that got there some other way.
+        charter_retention_year = await self.charter.deletion_block_year(event_id)
+
+        if charter_retention_year is not None:
+            logger.warning(
+                "Refusing to delete a festival event with a signed charter contract",
+                extra={
+                    "event_id": str(event_id),
+                    "charter_retention_year": charter_retention_year,
+                },
+            )
+            raise ValueError(CHARTER_NOT_DELETED)
+
         event_pk = f"EVENT#{event_id}"
 
         invite_count = _purge_rows_by_prefix(self.table, event_pk, EVENT_SK_INVITE_PREFIX)
@@ -1096,6 +1356,42 @@ class EventService:
         messages_table = get_messages_table()
         message_count = _purge_rows_by_prefix(messages_table, event_pk, MESSAGE_SK_PREFIX)
 
+        # The Fundsachen page (spec 023) lives in this same partition and owns
+        # S3 objects on top of its rows, so it is deleted through its own
+        # service rather than by prefix — the objects have to go with it.
+        lost_and_found = await self.lost_and_found.delete_page(event_id)
+
+        if not lost_and_found["completed"]:
+            # The page still owns photo rows and S3 objects, and this event is
+            # the only handle anything has on them: `expire_pages` deliberately
+            # skips a page whose event does not resolve, and the admin API 404s
+            # once the ORG#/EVENT# row is gone. Deleting the event now would
+            # leave photos of guests' belongings in the bucket until the 400-day
+            # lifecycle rule, unreachable. So the event stays and the operator
+            # calls again — the same contract the page's own DELETE endpoint has.
+            logger.error(
+                "Refusing to delete an event whose Fundsachen page survived",
+                extra={
+                    "event_id": str(event_id),
+                    "lostfound_photos": lost_and_found["deleted_photos"],
+                },
+            )
+            raise ValueError(LOSTFOUND_NOT_DELETED)
+
+        # The guests' own photos (spec 024) are in a second bucket with the same
+        # problem: `expire_collections` skips a collection whose event does not
+        # resolve, so deleting the event first would strand faces of guests in
+        # the bucket until the 400-day lifecycle rule, with nothing left that
+        # could find them.
+        photos = await self.event_photos.delete_collection(event_id)
+
+        if not photos["completed"]:
+            logger.error(
+                "Refusing to delete an event whose photo collection survived",
+                extra={"event_id": str(event_id), "event_photos": photos["photos"]},
+            )
+            raise ValueError(PHOTOS_NOT_DELETED)
+
         logger.info(
             "Purged festival co-located data",
             extra={
@@ -1104,6 +1400,9 @@ class EventService:
                 "registrations": registration_count,
                 "scans": scan_count,
                 "messages": message_count,
+                "lostfound_photos": lost_and_found["deleted_photos"],
+                "lostfound_completed": lost_and_found["completed"],
+                "event_photos": photos["photos"],
             },
         )
 

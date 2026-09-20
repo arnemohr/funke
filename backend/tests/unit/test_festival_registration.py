@@ -36,7 +36,11 @@ from app.models import (
 )
 from app.services.event_service import EventService, _event_to_item
 from app.services.invite_service import InviteService
-from app.services.registration_service import RegistrationService, _registration_to_item, build_gate_rows
+from app.services.registration_service import (
+    RegistrationService,
+    _registration_to_item,
+    build_gate_rows,
+)
 
 NOW = datetime.now(UTC)
 

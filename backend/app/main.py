@@ -106,24 +106,46 @@ async def root() -> dict:
 
 
 # Import routers
-from .api.admin import events as admin_events
-from .api.admin import lottery as admin_lottery
-from .api.admin import push as admin_push
-from .api.admin import profile as admin_profile
 from .api.admin import bar_items as admin_bar_items
-from .api.admin import ship as admin_ship
+from .api.admin import charter as admin_charter
+from .api.admin import event_photos as admin_event_photos
+from .api.admin import events as admin_events
 from .api.admin import fahrbericht as admin_fahrbericht
-from .api.admin import reports as admin_reports
 from .api.admin import festival as admin_festival
-from .api.public import registrations as public_registrations
+from .api.admin import lost_and_found as admin_lost_and_found
+from .api.admin import lottery as admin_lottery
+from .api.admin import profile as admin_profile
+from .api.admin import push as admin_push
+from .api.admin import reports as admin_reports
+from .api.admin import ship as admin_ship
 from .api.public import cancellations as public_cancellations
-from .api.public import confirmations as public_confirmations
-from .api.public import invites as public_invites
+from .api.public import charter as public_charter
 from .api.public import checkin as public_checkin
+from .api.public import confirmations as public_confirmations
+from .api.public import event_photos as public_event_photos
+from .api.public import invites as public_invites
+from .api.public import lost_and_found as public_lost_and_found
+from .api.public import registrations as public_registrations
 
 # Register admin routers
 app.include_router(admin_events.router, prefix="/api/admin/events", tags=["admin-events"])
 app.include_router(admin_festival.router, prefix="/api/admin/festival", tags=["admin-festival"])
+# Fundsachen (spec 023) — routes hang off /api/admin/events/{event_id}/lostfound, so the
+# router shares the events prefix instead of owning one.
+app.include_router(
+    admin_lost_and_found.router, prefix="/api/admin/events", tags=["admin-lostfound"],
+)
+# Eventfotos (spec 024) — same story: the routes hang off
+# /api/admin/events/{event_id}/photos, so the router shares the events prefix.
+app.include_router(
+    admin_event_photos.router, prefix="/api/admin/events", tags=["admin-eventphotos"],
+)
+# Chartervertrag (spec 025) — third one with the same shape: the routes hang off
+# /api/admin/events/{event_id}/chartervertrag, so the router shares the events
+# prefix. No public counterpart — a charter contract has no public page.
+app.include_router(
+    admin_charter.router, prefix="/api/admin/events", tags=["admin-charter"],
+)
 app.include_router(admin_lottery.router, prefix="/api/admin", tags=["admin-lottery"])
 app.include_router(admin_push.router, prefix="/api/admin", tags=["admin-push"])
 
@@ -142,6 +164,15 @@ app.include_router(public_cancellations.router, prefix="/api/public", tags=["pub
 app.include_router(public_confirmations.router, prefix="/api/public", tags=["public"])
 app.include_router(public_invites.router, prefix="/api/public", tags=["public"])
 app.include_router(public_checkin.router, prefix="/api/public", tags=["public-checkin"])
+app.include_router(
+    public_lost_and_found.router, prefix="/api/public", tags=["public-lostfound"],
+)
+# Chartervertrag-Signatur (Spec 025) — der sign_token im Pfad IST die
+# Berechtigung, wie bei /lostfound und beim Gate. Kein authGuard.
+app.include_router(public_charter.router, prefix="/api/public/vertrag", tags=["public-charter"])
+app.include_router(
+    public_event_photos.router, prefix="/api/public", tags=["public-eventphotos"],
+)
 
 # Placeholder for future routers - will be added in later phases
 # from .api.admin import registrations as admin_registrations

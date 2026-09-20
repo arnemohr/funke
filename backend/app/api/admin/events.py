@@ -10,16 +10,17 @@ Provides:
 """
 
 import io
-from datetime import datetime
-from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from ...models import (
+    CharterContractSummary,
     CustomMessageRequest,
     Event,
     EventCreate,
@@ -30,9 +31,19 @@ from ...models import (
     RegistrationAdminPatch,
     RegistrationStatus,
 )
+from ...services.anonymization_service import (
+    ANONYMIZED_BLOCK_DETAIL,
+    get_anonymization_service,
+)
 from ...services.auth import AdminRole, CurrentUser, require_role
+from ...services.charter_service import get_charter_service
 from ...services.email_service import get_email_service
-from ...services.event_service import get_event_service
+from ...services.event_service import (
+    CHARTER_NOT_DELETED,
+    LOSTFOUND_NOT_DELETED,
+    PHOTOS_NOT_DELETED,
+    get_event_service,
+)
 from ...services.logging import get_logger, log_admin_action
 from ...services.registration_service import (
     CompanionRecipient,
@@ -68,6 +79,14 @@ class EventResponse(BaseModel):
     created_at: datetime
     published_at: datetime | None
     cancelled_at: datetime | None
+    # Spec 022 — set once the event's personal data has been pseudonymised.
+    # The UI uses it to badge the event and to stop offering the mail actions.
+    anonymized_at: datetime | None = None
+    # Spec 025 — {status, uebergabe_at, signed_on} of the event's charter
+    # contract, so the detail page can render its section and its „not signed
+    # yet" banner without a second request. Only the single-event GET fills it;
+    # everywhere else (and on every event that has no contract) it stays None.
+    charter_contract: CharterContractSummary | None = None
     registration_count: int = 0
     registration_spots: int = 0
     confirmed_spots: int = 0
@@ -100,8 +119,15 @@ def _get_admin_id(user: CurrentUser) -> UUID:
     return UUID(hashlib.md5(user.sub.encode()).hexdigest())
 
 
-async def _event_to_response(event: Event) -> EventResponse:
-    """Convert Event model to response with stats."""
+async def _event_to_response(
+    event: Event,
+    charter_contract: CharterContractSummary | None = None,
+) -> EventResponse:
+    """Convert Event model to response with stats.
+
+    `charter_contract` is passed by the single-event GET only — the list route
+    would pay one read per event for a block no list renders.
+    """
     registration_service = get_registration_service()
     stats = await registration_service.get_registration_stats(event.id)
 
@@ -120,6 +146,8 @@ async def _event_to_response(event: Event) -> EventResponse:
         created_at=event.created_at,
         published_at=event.published_at,
         cancelled_at=event.cancelled_at,
+        anonymized_at=event.anonymized_at,
+        charter_contract=charter_contract,
         registration_count=stats.get("total_registrations", 0),
         registration_spots=stats.get("total_registration_spots", 0),
         confirmed_spots=stats.get("confirmed_spots", 0),
@@ -207,7 +235,13 @@ async def get_event(
             detail="Event not found",
         )
 
-    return await _event_to_response(event)
+    # A FESTIVAL can never carry a contract (the charter router refuses to
+    # create one), so the read is skipped rather than answered with None.
+    charter_contract = None
+    if event.event_type != EventType.FESTIVAL:
+        charter_contract = await get_charter_service().get_summary(event_id)
+
+    return await _event_to_response(event, charter_contract)
 
 
 @router.patch(
@@ -236,7 +270,10 @@ async def update_event(
     if not event:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Event not found or cannot be updated (must be in DRAFT or OPEN status)",
+            detail=(
+                "Event nicht gefunden oder nicht mehr änderbar — abgeschlossene "
+                "und abgesagte Veranstaltungen sind eingefroren."
+            ),
         )
 
     log_admin_action("event.update", user.email, str(event_id))
@@ -469,6 +506,99 @@ async def cancel_event(
     return await _event_to_response(event)
 
 
+# How long one anonymization request may spend rewriting rows. API Gateway cuts
+# the connection at 29s and the Lambda dies at 30s, so a big event has to come
+# back before then with `completed: false` instead of a 504 — the client calls
+# again and the run picks up where it stopped. The remainder is headroom for
+# fetching the event, the last query page and serialising the response.
+_ANONYMIZE_TIME_BUDGET = timedelta(seconds=20)
+
+
+class AnonymizeResponse(BaseModel):
+    """What one anonymization pass touched.
+
+    `completed` false means the event still holds personal data: the pass hit
+    its time budget and the caller has to POST again. The counters are per
+    pass, not cumulative.
+    """
+
+    event_id: UUID
+    event_name: str
+    anonymized_at: datetime | None
+    already_anonymized: bool
+    completed: bool
+    registrations: int
+    scans: int
+    invites: int
+    messages: int
+    rows_touched: int
+
+
+@router.post(
+    "/{event_id}/anonymize",
+    response_model=AnonymizeResponse,
+    dependencies=[Depends(require_role([AdminRole.OWNER, AdminRole.ADMIN]))],
+)
+async def anonymize_event(
+    event_id: UUID,
+    user: CurrentUser,
+) -> AnonymizeResponse:
+    """Pseudonymise every personal field this event owns (spec 022).
+
+    Serves SINGLE and FESTIVAL events alike — the work is identical, and both
+    kinds live in the same partition. Only COMPLETED and CANCELLED events
+    qualify; anything else 409s, since an event that might still mail somebody
+    needs its addresses.
+
+    Permanent and irreversible: names and addresses are overwritten in place
+    with digests that cannot be turned back. The rows themselves survive, so
+    every headcount, tier split and check-in total stays intact. Calling it
+    twice is a no-op — the second call returns `already_anonymized`.
+
+    An event too large to finish inside the request window returns
+    `completed: false` after scrubbing as much as it could, and the client
+    repeats the call until it flips true. Each pass is a complete, consistent
+    step: only whole rows are rewritten, and `anonymized_at` is stamped on the
+    last pass alone.
+    """
+    org_id = _get_org_id(user)
+
+    event_service = get_event_service()
+    event = await event_service.get_event(org_id, event_id)
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found",
+        )
+
+    try:
+        result = await get_anonymization_service().anonymize_event(
+            event,
+            deadline=datetime.now(timezone.utc) + _ANONYMIZE_TIME_BUDGET,
+        )
+    except ValueError as e:
+        # Wrong status — German detail, mirrors the delete guard's 409.
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+    # Logged once per event, on the pass that finishes it — a five-pass scrub of
+    # one festival is one admin action, not five.
+    if result.completed and not result.already_anonymized:
+        log_admin_action("event.anonymize", user.email, str(event_id))
+
+    return AnonymizeResponse(
+        event_id=event_id,
+        event_name=result.event_name,
+        anonymized_at=result.anonymized_at,
+        already_anonymized=result.already_anonymized,
+        completed=result.completed,
+        registrations=result.registrations,
+        scans=result.scans,
+        invites=result.invites,
+        messages=result.messages,
+        rows_touched=result.rows_touched,
+    )
+
+
 @router.delete(
     "/{event_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -485,7 +615,44 @@ async def delete_event(
     org_id = _get_org_id(user)
 
     event_service = get_event_service()
-    deleted = await event_service.delete_event(org_id, event_id)
+    try:
+        deleted = await event_service.delete_event(org_id, event_id)
+    except ValueError as e:
+        # One of the two photo buckets kept its objects, so the event has to
+        # stay: it is the only way back to them. Retryable, hence 503 — and
+        # named, because the two buckets are cleaned up by different sweeps.
+        if str(e) == LOSTFOUND_NOT_DELETED:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "Die Fundsachen-Bilder konnten nicht gelöscht werden — das Event "
+                    "bleibt bestehen. Bitte versuch es noch einmal."
+                ),
+            ) from e
+        if str(e) == PHOTOS_NOT_DELETED:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "Die Eventfotos konnten nicht gelöscht werden — das Event "
+                    "bleibt bestehen. Bitte versuch es noch einmal."
+                ),
+            ) from e
+        if str(e) == CHARTER_NOT_DELETED:
+            # 409, not 503: the signed contract (spec 025) is an accounting
+            # record and retrying changes nothing until the retention year has
+            # passed. The year is read back here rather than carried in the
+            # exception, so the refusal can name it — one extra read, only ever
+            # on this path.
+            blocked_until = await get_charter_service().deletion_block_year(event_id)
+            deadline = f"bis {blocked_until} " if blocked_until else ""
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Das Event hat einen unterschriebenen Chartervertrag und kann "
+                    f"{deadline}nicht gelöscht werden."
+                ),
+            ) from e
+        raise
 
     if not deleted:
         raise HTTPException(
@@ -1227,6 +1394,11 @@ async def send_custom_message(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Event not found",
+        )
+    if event.is_anonymized:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=ANONYMIZED_BLOCK_DETAIL,
         )
 
     registration_service = get_registration_service()

@@ -6,17 +6,18 @@ Covers:
 - Promoted stats counting
 """
 
-import pytest
-from uuid import uuid4
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
+
+import pytest
 
 from app.models import EventStatus, RegistrationCreate, RegistrationStatus
+from app.services.event_service import _event_to_item
 from app.services.registration_service import (
     RegistrationService,
-    _registration_to_item,
     _item_to_registration,
+    _registration_to_item,
 )
-from app.services.event_service import _event_to_item
 
 
 class TestRegistrationAlwaysRegistered:

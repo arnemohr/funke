@@ -13,7 +13,6 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
-
 from boto3.dynamodb.conditions import Key
 
 import app.services.registration_service as registration_service_module

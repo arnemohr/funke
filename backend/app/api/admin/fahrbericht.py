@@ -3,9 +3,11 @@
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
+from pydantic import BaseModel
 
 from ...models import FahrberichtPatch, FahrberichtResponse, SubmitResult
 from ...services.auth import CurrentUser
+from ...services.charter_service import get_charter_service
 from ...services.event_service import get_event_service
 from ...services.fahrbericht_service import get_fahrbericht_service
 
@@ -70,17 +72,53 @@ async def delete_draft(event_id: UUID, user: CurrentUser) -> None:
         raise HTTPException(409, str(exc))
 
 
+class SubmitRequest(BaseModel):
+    """Optional body of the submit call (spec 025).
+
+    `ohne_vertrag_abgeben` files the trip report even though the event's charter
+    contract has no signed scan yet. The whole body stays optional so the
+    existing callers — the Fahrbericht page posts nothing — keep working.
+    """
+
+    ohne_vertrag_abgeben: bool = False
+
+
 @router.post("/submit")
-async def submit(event_id: UUID, user: CurrentUser) -> SubmitResult:
+async def submit(
+    event_id: UUID,
+    user: CurrentUser,
+    body: SubmitRequest | None = None,
+) -> SubmitResult:
     await _check_access(event_id, user)
+
+    # Spec 025 hangs the reminder for a missing signed contract on the one habit
+    # that follows every trip anyway. `blocks_fahrbericht` is False whenever the
+    # event has no contract row at all, so an ordinary trip pays one get_item
+    # and nothing else.
+    charter_service = get_charter_service()
+    contract_unsigned = await charter_service.blocks_fahrbericht(event_id)
+
+    if contract_unsigned and not (body and body.ohne_vertrag_abgeben):
+        raise HTTPException(409, "chartervertrag_fehlt")
+
     try:
-        return await get_fahrbericht_service().submit(
+        result = await get_fahrbericht_service().submit(
             event_id,
             org_id=_org_id(user),
             submitted_by=user.sub,
         )
     except ValueError as exc:
         raise HTTPException(409, str(exc))
+
+    if contract_unsigned:
+        # Stamped only once the report is actually filed — the override records
+        # that this happened, and nothing happened if the submission failed. A
+        # failure here is not swallowed: the whole point is that the waiver is
+        # visible on the contract page, so it is better to answer 500 (the
+        # report is filed either way) than to wave the trip through unrecorded.
+        await charter_service.stamp_fahrbericht_override(event_id, submitted_by=user.email)
+
+    return result
 
 
 @router.post("/reopen")

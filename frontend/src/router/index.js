@@ -54,6 +54,32 @@ const routes = [
     props: true,
   },
 
+  // Public lost & found gallery (spec 023) — no authGuard, the page token in
+  // the path IS the auth. The event id next to it is deliberately not secret.
+  {
+    path: '/lostfound/:eventId/:token',
+    name: 'lost-and-found',
+    component: () => import('../pages/public/LostFoundPage.vue'),
+    props: true,
+    meta: { hideTabBar: true },
+  },
+
+  // Public photo upload (spec 024) — no authGuard, the upload token in the
+  // path IS the auth, exactly as for the Fundsachen page above. The German
+  // path is deliberate: this link goes on a printed sheet at the exit.
+  //
+  // The opposite direction of /lostfound: this route is **write-only**. There
+  // is no read path for guests here, not even to their own upload, and the
+  // public payload carries no photo id, key or image URL that could become
+  // one.
+  {
+    path: '/fotos/:eventId/:token',
+    name: 'photo-upload',
+    component: () => import('../pages/public/PhotoUploadPage.vue'),
+    props: true,
+    meta: { hideTabBar: true },
+  },
+
   // Scanner gate check-in (spec 019 §P3) — no authGuard, the gate token IS
   // the auth (spec.md:336).
   {
@@ -132,6 +158,43 @@ const routes = [
     path: '/admin/events/:eventId/lottery',
     name: 'admin-event-lottery',
     component: () => import('../pages/admin/events/[eventId]/lottery.vue'),
+    beforeEnter: authGuard,
+    props: true,
+    meta: { hideTabBar: true },
+  },
+  // Fundsachen admin (spec 023) — same page for SINGLE and FESTIVAL events.
+  {
+    path: '/admin/events/:eventId/lostfound',
+    name: 'admin-lost-and-found',
+    component: () => import('../pages/admin/LostFoundAdminPage.vue'),
+    beforeEnter: authGuard,
+    props: true,
+    meta: { hideTabBar: true },
+  },
+  // Eventfotos admin (spec 024) — same page for SINGLE and FESTIVAL events.
+  {
+    path: '/admin/events/:eventId/fotos',
+    name: 'admin-event-photos',
+    component: () => import('../pages/admin/EventPhotosAdminPage.vue'),
+    beforeEnter: authGuard,
+    props: true,
+    meta: { hideTabBar: true },
+  },
+  // Public charter signing (spec 025 addendum) — no authGuard: the sign_token
+  // in the path IS the credential, as for /lostfound and the gate. The token
+  // dies on every re-render, so a link never outlives the text it showed.
+  {
+    path: '/vertrag/:eventId/:token',
+    name: 'charter-sign',
+    component: () => import('../pages/public/CharterSignPage.vue'),
+    props: true,
+    meta: { hideTabBar: true },
+  },
+  // Chartervertrag (spec 025) — SINGLE events only; one contract per event.
+  {
+    path: '/admin/events/:eventId/chartervertrag',
+    name: 'admin-charter-contract',
+    component: () => import('../pages/admin/CharterContractPage.vue'),
     beforeEnter: authGuard,
     props: true,
     meta: { hideTabBar: true },
